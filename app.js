@@ -352,7 +352,7 @@ function updateTitle(text) {
 function renderLogin(container) {
     const users = db.users;
     const userCards = users.map(u => `
-        <div class="card user-login-card" style="width: 150px; cursor: pointer; text-align: center; padding: 1.5rem; transition: transform 0.2s; border: 2px solid transparent;" 
+        <div class="card user-login-card login-card" style="width: 150px; cursor: pointer; text-align: center; padding: 1.5rem; transition: transform 0.2s; border: 2px solid transparent;" 
              onclick="selectUserLogin(${u.id})">
             <div class="avatar" style="width: 70px; height: 70px; margin: 0 auto 1rem; font-size: 1.5rem; background: ${u.role === 'owner' ? 'var(--primary)' : u.role === 'admin' ? 'var(--warning)' : 'var(--success)'};">
                 ${u.name.charAt(0)}
@@ -376,7 +376,7 @@ function renderLogin(container) {
                 ${userCards}
             </div>
 
-            <div class="card" style="max-width: 400px; width: 100%; text-align: center; padding: 1.5rem; margin-top: 1rem;">
+            <div class="card login-card login-pin-card" style="max-width: 400px; width: 100%; text-align: center; padding: 1.5rem; margin-top: 1rem;">
                 <p style="margin-bottom: 1rem; color: var(--text-muted);">O ingresa con PIN si lo prefieres:</p>
                 <form onsubmit="handleLogin(event)">
                     <div style="display: flex; gap: 0.5rem;">
