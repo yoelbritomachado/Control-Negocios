@@ -352,37 +352,39 @@ function updateTitle(text) {
 function renderLogin(container) {
     const users = db.users;
     const userCards = users.map(u => `
-        <div class="card user-login-card" style="width: 150px; cursor: pointer; text-align: center; padding: 1.5rem; transition: transform 0.2s; border: 2px solid transparent;" 
+        <div class="login-card user-login-card" style="width: 155px; cursor: pointer; text-align: center; padding: 1.5rem;" 
              onclick="selectUserLogin(${u.id})">
-            <div class="avatar" style="width: 70px; height: 70px; margin: 0 auto 1rem; font-size: 1.5rem; background: ${u.role === 'owner' ? 'var(--primary)' : u.role === 'admin' ? 'var(--warning)' : 'var(--success)'};">
+            <div class="avatar" style="width: 70px; height: 70px; margin: 0 auto 1.25rem; font-size: 1.6rem; background: ${u.role === 'owner' ? 'linear-gradient(135deg, var(--primary), #3b82f6)' : u.role === 'admin' ? 'linear-gradient(135deg, var(--warning), #f59e0b)' : 'linear-gradient(135deg, var(--success), #10b981)'}; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
                 ${u.name.charAt(0)}
             </div>
-            <div style="font-weight: bold; margin-bottom: 0.25rem;">${u.name}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">
+            <div style="font-weight: 600; margin-bottom: 0.35rem; color: #fff;">${u.name}</div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05rem;">
                 ${u.role === 'owner' ? 'Dueño' : u.role === 'admin' ? 'Administrador' : 'Vendedor'}
             </div>
         </div>
     `).join('');
 
     container.innerHTML = `
-        <div class="fade-in" style="display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; gap: 2rem;">
+        <div class="fade-in" style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; gap: 2.5rem; background: radial-gradient(circle at center, #1a1e23 0%, #0f1115 100%);">
             <div style="text-align: center;">
-                <i class="ph ph-shield-check" style="font-size: 3rem; color: var(--primary); margin-bottom: 0.5rem;"></i>
-                <h1 style="margin: 0; font-size: 2rem;">Control de Negocios</h1>
-                <p style="color: var(--text-muted); margin-top: 0.5rem;">Selecciona tu usuario para ingresar (Pruebas)</p>
+                <div style="background: rgba(59, 130, 246, 0.1); width: 80px; height: 80px; border-radius: 20px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; border: 1px solid rgba(59, 130, 246, 0.2);">
+                    <i class="ph ph-shield-check" style="font-size: 3rem; color: var(--primary);"></i>
+                </div>
+                <h1 style="margin: 0; font-size: 2.5rem; letter-spacing: -0.05rem; background: linear-gradient(to right, #fff, #8b949e); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MCH Control</h1>
+                <p style="color: var(--text-muted); margin-top: 0.75rem; font-size: 1.1rem;">Panel de Gestión Empresarial</p>
             </div>
             
             <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
                 ${userCards}
             </div>
 
-            <div class="card" style="max-width: 400px; width: 100%; text-align: center; padding: 1.5rem; margin-top: 1rem;">
-                <p style="margin-bottom: 1rem; color: var(--text-muted);">O ingresa con PIN si lo prefieres:</p>
+            <div class="login-pin-card" style="max-width: 400px; width: 90%; text-align: center; margin-top: 1rem;">
+                <p style="margin-bottom: 1.25rem; color: var(--text-muted); font-size: 0.95rem;">Acceso rápido con PIN de seguridad:</p>
                 <form onsubmit="handleLogin(event)">
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="password" name="pin" placeholder="PIN" class="input-field" 
-                               style="text-align: center; font-size: 1.2rem;" maxlength="4">
-                        <button type="submit" class="btn-primary">Entrar</button>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <input type="password" name="pin" placeholder="••••" class="input-field" 
+                               style="text-align: center; font-size: 1.5rem; letter-spacing: 0.5rem;" maxlength="4">
+                        <button type="submit" class="btn-primary" style="padding: 0 1.5rem;"><i class="ph ph-arrow-right" style="font-size: 1.5rem;"></i></button>
                     </div>
                 </form>
             </div>
