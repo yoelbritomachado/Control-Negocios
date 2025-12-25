@@ -602,7 +602,12 @@ function renderInventory(container) {
                 <strong>${i.name}</strong><br>
                 <small style="color: var(--text-muted)">${i.category || 'Sin categoría'}</small>
             </td>
-            <td style="padding: 1rem; font-weight: bold; color: ${i.stock < 5 ? 'var(--danger)' : 'white'};">${i.stock}</td>
+            <td style="padding: 1rem;">
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <span class="stat-value" style="font-size:1.1rem; color: ${i.stock <= 0 ? 'var(--danger)' : i.stock < 5 ? 'var(--warning)' : 'var(--success)'};">${i.stock}</span>
+                    ${i.stock <= 0 ? '<span class="badge badge-danger" style="font-size:0.6rem;">AGOTADO</span>' : i.stock < 5 ? '<span class="badge badge-warning" style="font-size:0.6rem;">BAJO</span>' : ''}
+                </div>
+            </td>
             <td style="padding: 1rem;">$${i.cost.toFixed(2)}</td>
             <td style="padding: 1rem;">$${i.price.toFixed(2)}</td>
             <td style="padding: 1rem; text-align: right;">
@@ -1113,21 +1118,36 @@ function renderReportes(container) {
     container.innerHTML = `
         <div class="fade-in">
             <div class="grid-3" style="margin-bottom: 2rem;">
-                <div class="card" style="text-align: center; border-top: 4px solid var(--primary);">
-                    <small style="color: var(--text-muted);">Ventas Totales</small>
-                    <h2 style="color: var(--primary);">$${totalSales.toFixed(2)}</h2>
+                <div class="card stat-card" style="border-top: 4px solid var(--primary);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <small class="stat-label">Ventas Totales</small>
+                            <h2 class="stat-value" style="color: var(--primary);">$${totalSales.toFixed(2)}</h2>
+                        </div>
+                        <i class="ph ph-trend-up" style="font-size: 2rem; color: var(--primary); opacity: 0.5;"></i>
+                    </div>
                 </div>
-                <div class="card" style="text-align: center; border-top: 4px solid var(--success);">
-                    <small style="color: var(--text-muted);">Transacciones</small>
-                    <h2>${db.sales.length}</h2>
+                <div class="card stat-card" style="border-top: 4px solid var(--success);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <small class="stat-label">Transacciones</small>
+                            <h2 class="stat-value" style="color: var(--success);">${db.sales.length}</h2>
+                        </div>
+                        <i class="ph ph-receipt" style="font-size: 2rem; color: var(--success); opacity: 0.5;"></i>
+                    </div>
                 </div>
-                <div class="card" style="text-align: center; border-top: 4px solid var(--warning);">
-                    <small style="color: var(--text-muted);">Sedes Activas</small>
-                    <h2>${db.businesses.length}</h2>
+                <div class="card stat-card" style="border-top: 4px solid var(--warning);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <small class="stat-label">Sedes Activas</small>
+                            <h2 class="stat-value" style="color: var(--warning);">${db.businesses.length}</h2>
+                        </div>
+                        <i class="ph ph-buildings" style="font-size: 2rem; color: var(--warning); opacity: 0.5;"></i>
+                    </div>
                 </div>
             </div>
 
-            <div class="card" style="padding:0;">
+            <div class="card-glass" style="padding:0; overflow: hidden;">
                 <div style="padding:1.5rem; border-bottom:1px solid var(--border);">
                     <h3 style="margin:0;"><i class="ph ph-buildings"></i> Rendimiento por Sede</h3>
                 </div>
