@@ -95,6 +95,19 @@ async function loadData() {
                     { id: 2, name: 'Vendedor', role: 'seller', pin: '0000', email: 'vendedor1@mch.com' },
                     { id: 3, name: 'Administrador', role: 'admin', pin: '1111', email: 'admin@mch.com' }
                 ];
+            } else {
+                db.users = db.users.map(user => {
+                    if (user.role === 'owner') {
+                        return { ...user, name: 'Dueño' };
+                    }
+                    if (user.role === 'seller') {
+                        return { ...user, name: 'Vendedor' };
+                    }
+                    if (user.role === 'admin') {
+                        return { ...user, name: 'Administrador' };
+                    }
+                    return user;
+                });
             }
         } else {
             // Initial seed if no data
