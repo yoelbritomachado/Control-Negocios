@@ -358,7 +358,9 @@ function renderLogin(container) {
                 ${u.name.charAt(0)}
             </div>
             <div style="font-weight: bold; margin-bottom: 0.25rem;">${u.name}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">${u.role}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">
+                ${u.role === 'owner' ? 'Dueño' : u.role === 'admin' ? 'Administrador' : 'Vendedor'}
+            </div>
         </div>
     `).join('');
 
