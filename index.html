@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Control System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Phosphor Icons for premium SVG icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- LocalForage for easy IndexedDB usage -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <!-- Export/Import Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo-area">
+                <i class="ph ph-trend-up"></i>
+                <span>BizControl</span>
+            </div>
+
+            <ul class="nav-links">
+                <li class="active" data-view="dashboard" onclick="navigateTo('dashboard')">
+                    <i class="ph ph-squares-four"></i>
+                    <span>Resumen</span>
+                </li>
+                <li data-view="pos" onclick="navigateTo('pos')">
+                    <i class="ph ph-shopping-cart"></i>
+                    <span>Venta</span>
+                </li>
+                <li data-view="daily-records" onclick="navigateTo('daily-records')">
+                    <i class="ph ph-list-dashes"></i>
+                    <span>Registros Diarios</span>
+                </li>
+                <li data-view="cash-control" onclick="navigateTo('cash-control')">
+                    <i class="ph ph-money"></i>
+                    <span>Control Efectivo</span>
+                </li>
+
+                <li data-view="inventory" onclick="navigateTo('inventory')">
+                    <i class="ph ph-warehouse"></i>
+                    <span>Inventario</span>
+                </li>
+                <li data-view="settings" onclick="navigateTo('settings')">
+                    <i class="ph ph-gear"></i>
+                    <span>Configuración</span>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1 id="page-title">Resumen y Análisis</h1>
+                <div style="display: flex; align-items: center; gap: 1.5rem;">
+                    <div id="notification-bell" class="notification-bell" onclick="showNotificationsModal()"
+                        style="position: relative; cursor: pointer; color: var(--text-muted); font-size: 1.5rem;">
+                        <i class="ph ph-bell"></i>
+                        <span id="notif-count"
+                            style="position: absolute; top: -5px; right: -5px; background: var(--danger); color: white; font-size: 0.7rem; padding: 2px 5px; border-radius: 10px; display: none;">0</span>
+                    </div>
+                    <div class="user-profile">
+                        <div class="avatar">A</div>
+                        <span>Admin</span>
+                    </div>
+                </div>
+            </header>
+
+            <div id="content-area" class="content-zoom">
+                <!-- Content injected by JS -->
+            </div>
+        </main>
+    </div>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
