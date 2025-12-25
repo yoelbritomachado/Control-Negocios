@@ -91,7 +91,7 @@ async function loadData() {
             // Ensure Users
             if (db.users.length === 0 || !db.users.find(u => u.role === 'admin')) {
                 db.users = [
-                    { id: 1, name: 'Dueño', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
+                    { id: 1, name: 'Boss', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
                     { id: 2, name: 'Vendedor 1', role: 'seller', pin: '0000', email: 'vendedor1@mch.com' },
                     { id: 3, name: 'Administrador', role: 'admin', pin: '1111', email: 'admin@mch.com' }
                 ];
@@ -122,7 +122,7 @@ async function initializeDatabase() {
         { id: 3, name: 'MCH 2', code: 'MCH2', icon: 'ph-shopping-bag', color: '#d29922' }
     ];
     db.users = [
-        { id: 1, name: 'Dueño', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
+        { id: 1, name: 'Boss', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
         { id: 2, name: 'Vendedor 1', role: 'seller', pin: '0000', email: 'vendedor1@mch.com' },
         { id: 3, name: 'Administrador', role: 'admin', pin: '1111', email: 'admin@mch.com' }
     ];
