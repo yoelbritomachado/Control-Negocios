@@ -63,11 +63,14 @@
             <header class="top-bar">
                 <h1 id="page-title">Resumen y Análisis</h1>
                 <div style="display: flex; align-items: center; gap: 1.5rem;">
-                    <div id="notification-bell" class="notification-bell" onclick="showNotificationsModal()"
+                    <div id="notifBtn" class="notification-bell"
                         style="position: relative; cursor: pointer; color: var(--text-muted); font-size: 1.5rem;">
                         <i class="ph ph-bell"></i>
                         <span id="notif-count"
                             style="position: absolute; top: -5px; right: -5px; background: var(--danger); color: white; font-size: 0.7rem; padding: 2px 5px; border-radius: 10px; display: none;">0</span>
+                    </div>
+                    <div id="notifDropdown" class="notif-dropdown">
+                        <!-- Notifications content will be injected here -->
                     </div>
                     <div class="user-profile">
                         <div class="avatar">A</div>
@@ -82,8 +85,71 @@
         </main>
     </div>
 
+    <!-- Modals -->
+    <div id="incidentModal" class="modal-overlay static-modal hidden">
+        <div class="biz-modal large"
+            style="background: var(--bg-card); color: var(--text); border-radius: 20px; border: 1px solid var(--border); box-shadow: 0 8px 32px rgba(0,0,0,0.4); max-width: 600px; padding: 2rem;">
+            <div class="modal-header"
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0;"><i class="ph ph-warning-circle" style="color: var(--danger);"></i> Gestionar
+                    Devolución / Merma</h3>
+                <button onclick="closeModal('incidentModal')" class="close-icon"
+                    style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="type-selector" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Tipo de Operación</label>
+                    <select id="incidentType" onchange="updateIncidentUI()" class="biz-input"
+                        style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                        <option value="refund_broken">1. Devolución (Cliente - Roto)</option>
+                        <option value="refund_good">2. Devolución (Cliente - Bueno)</option>
+                        <option value="internal_loss">3. Rotura o deterioro (Interno)</option>
+                    </select>
+                </div>
+
+                <p id="incidentInfo" class="info-box"
+                    style="background: rgba(88, 166, 255, 0.1); padding: 1rem; border-radius: 8px; font-size: 0.9rem; margin-bottom: 1.5rem; border: 1px solid rgba(88, 166, 255, 0.2);">
+                </p>
+
+                <div style="margin-bottom: 1.5rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Buscar Producto (Escribe el
+                        nombre)</label>
+                    <input type="text" id="incidentProductSearch" list="productsDataList" class="biz-input"
+                        placeholder="Ej: Taza..."
+                        style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    <datalist id="productsDataList"></datalist>
+                </div>
+
+                <div class="split-inputs"
+                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div>
+                        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Cant.</label>
+                        <input type="number" id="incidentQty" value="1" min="1" class="biz-input"
+                            style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    </div>
+                    <div id="moneyGroup">
+                        <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Devolver ($)</label>
+                        <input type="number" id="incidentAmount" placeholder="0.00" class="biz-input"
+                            style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    </div>
+                </div>
+
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Motivo (Obligatorio)</label>
+                <textarea id="incidentReason" class="biz-input" rows="2"
+                    style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white; resize: vertical; min-height: 60px;"></textarea>
+            </div>
+            <div class="modal-footer" style="display: flex; gap: 1rem; margin-top: 2rem;">
+                <button class="biz-btn outline" onclick="closeModal('incidentModal')"
+                    style="flex: 1; padding: 0.75rem; background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text); cursor: pointer;">Cancelar</button>
+                <button class="biz-btn danger" onclick="processIncident()"
+                    style="flex: 2; padding: 0.75rem; background: var(--danger); border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer;">CONFIRMAR
+                    OPERACIÓN</button>
+            </div>
+        </div>
+    </div>
+
     <script src="data.js"></script>
-    <script src="app.js"></script>
+    <script src="app.js?v=20251230.3"></script>
 </body>
 
 </html>
