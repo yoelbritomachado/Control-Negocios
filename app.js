@@ -737,7 +737,7 @@ function renderDashboard(container) {
 
 
 
-async function generateMockSales() {
+window.generateMockSales = async function () {
     const products = db.products;
     const businesses = db.businesses;
     const sellers = db.users.filter(u => u.role === 'seller');
