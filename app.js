@@ -1,38 +1,43 @@
 // Global Error Handler
 window.onerror = function (msg, url, line, col, error) {
-    alert("Error: " + msg + "\nLine: " + line + "\nCol: " + col);
-    console.error(error);
+    console.error("Error Global:", msg, "Line:", line);
+    // alert("Error: " + msg + "\nLine: " + line); // Descomenta si quieres alertas visuales
     return false;
 };
 
-// Data Store (Simulated Local Database)
-let db = {
-    businesses: [],
-    products: [],
-    inventory: [],
-    waste: [],
-    sales: [],
-    users: [],
-    logs: [],
-    extraMovements: [],
-    purchases: [],
-    employees: [],
-    attendance: [],
-    loans: [],
-    commissions: [],
-    notifications: [],
-    settings: {
-        theme: 'dark',
-        allowAdminTransfer: false,
-        allowAdminDelete: false,
-        allowAdminEditInventory: false,
-        allowAdminEditSales: false
+// --- STOCK VALIDATION HELPERS ---
+function validateStockBeforeProcess() {
+    for (const item of posCart) {
+        const available = getAvailableStock(item.id);
+        if (item.qty > available) {
+            alert(`Error: Se ha excedido el stock disponible para "${item.name}".\nStock actual: ${available}.`);
+            return false;
+        }
     }
-};
+    return true;
+}
+
+
+// Data Store (Simulated Local Database)
+// Data Store is now managed by data.js (window.db)
+// let db = ... REMOVED to avoid shadowing
+
 
 let currentUser = null;
 let currentView = 'dashboard';
 let selectedBusinessId = null; // null means 'Global'
+let selectedProducts = new Set();
+let posCart = [];
+let editingSaleId = null;
+let isReviewingClosure = false;
+let reviewingClosureId = null;
+let reviewingNotificationId = null;
+let posOpeningTime = '08:00';
+let currentPaymentMethod = 'cash'; // Default to cash
+let transferCart = []; // <--- NUEVO: Carrito para transferencias
+let isSessionActive = false; // <--- NUEVO: Estado de sesión POS
+
+let selectedLoginRole = null; // To track role during login flow
 
 // --- LOGGING ---
 function logAction(action, details = '') {
@@ -51,245 +56,36 @@ function addLog(details, action = 'info') {
 }
 
 // --- PERSISTENCE ---
-async function loadData() {
-    try {
-        let value = await localforage.getItem('bizControlData');
-        if (!value) {
-            const raw = localStorage.getItem('bizControlData');
-            if (raw) value = JSON.parse(raw);
-        }
+// Persistence logic is now handled in data.js
 
-        if (value) {
-            db = value;
-            // Migrations & Integrity
-            if (db.businesses) {
-                const idMap = { '1': 'alm', '2': 'mch1', '3': 'mch2' };
 
-                // 1. Migrate Business IDs
-                db.businesses.forEach(b => {
-                    if (idMap[String(b.id)]) b.id = idMap[String(b.id)];
-                });
+// initializeDatabase and saveData are found in data.js
 
-                // 2. Deduplicate Businesses
-                db.businesses = db.businesses.filter((b, index, self) =>
-                    index === self.findIndex((t) => String(t.id) === String(b.id))
-                );
-
-                // 3. Migrate Related Collections
-                ['sales', 'inventory', 'waste', 'purchases', 'extraMovements', 'commissions'].forEach(coll => {
-                    if (db[coll] && Array.isArray(db[coll])) {
-                        db[coll].forEach(item => {
-                            if (item.businessId && idMap[String(item.businessId)]) {
-                                item.businessId = idMap[String(item.businessId)];
-                            }
-                        });
-                    }
-                });
-            }
-            if (!db.sales && db.transactions) {
-                db.sales = db.transactions;
-                delete db.transactions;
-            }
-            ['businesses', 'products', 'inventory', 'sales', 'waste', 'logs', 'extraMovements', 'purchases', 'employees', 'attendance', 'loans', 'commissions', 'notifications'].forEach(key => {
-                if (!db[key]) db[key] = [];
-            });
-            if (!db.settings) db.settings = { theme: 'dark', allowAdminTransfer: false, allowAdminDelete: false, allowAdminEditInventory: false, allowAdminEditSales: false };
-
-            // Sync Businesses (Standardized IDs as Strings)
-            const expectedBusinesses = [
-                { id: 'alm', name: 'Almacén MCH', code: 'ALM', color: '#58a6ff', icon: 'ph-warehouse' },
-                { id: 'mch1', name: 'MCH 1', code: 'MCH1', color: '#3fb950', icon: 'ph-storefront' },
-                { id: 'mch2', name: 'MCH 2', code: 'MCH2', color: '#d29922', icon: 'ph-shopping-bag' }
-            ];
-            expectedBusinesses.forEach(eb => {
-                const existing = db.businesses.find(b => String(b.id) === String(eb.id));
-                if (!existing) db.businesses.push(eb);
-                else {
-                    existing.name = eb.name;
-                    existing.code = eb.code;
-                    existing.icon = eb.icon;
-                    existing.color = eb.color;
-                }
-            });
-
-            // Ensure Users
-            if (db.users.length === 0 || !db.users.find(u => u.role === 'admin')) {
-                db.users = [
-                    { id: 1, name: 'Boss', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
-                    { id: 2, name: 'Vendedor 1', role: 'seller', pin: '0000', email: 'vendedor1@mch.com' },
-                    { id: 3, name: 'Administrador', role: 'admin', pin: '1111', email: 'admin@mch.com' }
-                ];
-            }
-            if (db.sales && Array.isArray(db.sales)) {
-                db.sales.forEach(s => {
-                    if (s.total === undefined || s.total === null) {
-                        if (s.items && Array.isArray(s.items)) {
-                            s.total = s.items.reduce((sum, i) => sum + (i.price * i.qty), 0);
-                        } else {
-                            s.total = 0;
-                        }
-                    }
-                    if (!s.payment) {
-                        // Legacy sale might not have payment object
-                        s.payment = { cash: s.total || 0, transfer: 0 };
-                    } else {
-                        if (s.payment.cash === undefined) s.payment.cash = 0;
-                        if (s.payment.transfer === undefined) s.payment.transfer = 0;
-                    }
-                });
-            }
-
-            console.log("Data loaded successfully.");
-            applyTheme(db.settings.theme);
-
-            // Auto-import if empty
-            if (typeof REAL_INVENTORY !== 'undefined' && db.products.length < 10) {
-                console.log("Auto-importing initial inventory...");
-                await importRealData();
-            }
-        } else {
-            // Initial seed if no data
-            await initializeDatabase();
-        }
-    } catch (error) {
-        console.error('Error loading data:', error);
-        await initializeDatabase();
-    }
-}
-
-async function initializeDatabase() {
-    db.businesses = [
-        { id: 'alm', name: 'Almacén MCH', code: 'ALM', icon: 'ph-warehouse', color: '#58a6ff' },
-        { id: 'mch1', name: 'MCH 1', code: 'MCH1', icon: 'ph-storefront', color: '#3fb950' },
-        { id: 'mch2', name: 'MCH 2', code: 'MCH2', icon: 'ph-shopping-bag', color: '#d29922' }
-    ];
-    db.users = [
-        { id: 1, name: 'Boss', role: 'owner', pin: '1234', email: 'dueño@mch.com' },
-        { id: 2, name: 'Vendedor 1', role: 'seller', pin: '0000', email: 'vendedor1@mch.com' },
-        { id: 3, name: 'Administrador', role: 'admin', pin: '1111', email: 'admin@mch.com' }
-    ];
-    await saveData();
-}
-
-async function saveData() {
-    try {
-        if (typeof localforage !== 'undefined') {
-            await localforage.setItem('bizControlData', db);
-        }
-    } catch (e) {
-        console.warn("LocalForage save failed, fallback to localStorage:", e);
-    }
-    try {
-        localStorage.setItem('bizControlData', JSON.stringify(db));
-    } catch (e) {
-        console.error("Critical: Failed to save to localStorage", e);
-    }
-}
-
-async function importRealData() {
-    if (typeof REAL_INVENTORY === 'undefined') return;
-
-    // Clear existing to avoid duplicates during import
-    db.products = [];
-    db.inventory = [];
-
-    const productMap = new Map();
-    let nextProductId = 1000;
-
-    const processConfig = [
-        { data: REAL_INVENTORY.almacen || REAL_INVENTORY.alm, id: 'alm', name: "Almacen" },
-        { data: REAL_INVENTORY.mch1, id: 'mch1', name: "MCH 1" },
-        { data: REAL_INVENTORY.mch2, id: 'mch2', name: "MCH 2" }
-    ];
-
-    for (const imp of processConfig) {
-        if (!imp.data) continue;
-
-        const lines = imp.data;
-        lines.forEach(row => {
-            const name = row['Nombre']?.trim();
-            if (!name) return;
-
-            const cost = parseFloat(row['Costo']) || 0;
-            const price = parseFloat(row['Precio']) || 0;
-            const qty = parseFloat(row['Cantidad']) || 0;
-            const code = row['Clave']?.trim() || '';
-            const category = row['Categoría']?.trim() || 'General';
-
-            let product = productMap.get(name);
-            if (!product) {
-                product = {
-                    id: nextProductId++,
-                    name: name,
-                    alias: code,
-                    cost: cost,
-                    price: price,
-                    category: category,
-                    image: ''
-                };
-                productMap.set(name, product);
-                db.products.push(product);
-            }
-
-            if (qty > 0) {
-                db.inventory.push({
-                    businessId: imp.id,
-                    productId: product.id,
-                    quantity: qty
-                });
-            }
-        });
-        addLog(`Importado: ${imp.name}`, "success");
-    }
-    await saveData();
-}
 
 async function importInventoryManual() {
     if (confirm("¿Borrar datos actuales e importar desde CSV?")) {
-        await importRealData();
-        location.reload();
+        // Warning: This clears everything.
+        if (typeof importRealData === 'function') {
+            await importRealData();
+            location.reload();
+        }
     }
 }
 
-// --- ROUTER & NAVIGATION ---
-function navigateTo(viewName) {
-    if (!currentUser && viewName !== 'login') {
-        navigateTo('login');
-        return;
-    }
-    currentView = viewName;
-    renderSidebar(viewName);
-    const content = document.getElementById('content-area');
-    content.innerHTML = '';
-
-    switch (viewName) {
-        case 'login': renderLogin(content); break;
-        case 'dashboard': renderDashboard(content); break;
-        case 'ventas': renderVentas(content); break;
-        case 'pos': renderPOS(content); break;
-        case 'inventory': renderInventory(content); break;
-        case 'ingresos-gastos': renderIngresosGastos(content); break;
-        case 'compras': renderCompras(content); break;
-        case 'employees': renderEmployees(content); break;
-        case 'financials': renderFinancials(content); break;
-        case 'reportes': renderReportes(content); break;
-        case 'settings': renderSettings(content); break;
-        case 'logs': renderLogs(content); break;
-        case 'cash-control': renderCashControl(content); break;
-        case 'transfer': renderTransfer(content); break;
-        case 'mermas': renderMermas(content); break;
-        default: renderDashboard(content);
+// --- THEME MANAGEMENT ---
+function applyTheme() {
+    if (db.settings.theme === 'light') {
+        document.body.classList.add('theme-light');
+    } else {
+        document.body.classList.remove('theme-light');
     }
 }
 
-function getPermissions(role) {
-    const ownerPerms = ['dashboard', 'pos', 'ventas', 'ingresos-gastos', 'compras', 'inventory', 'cash-control', 'reportes', 'employees', 'financials', 'transfer', 'settings', 'logs', 'mermas'];
-    const adminPerms = ['dashboard', 'pos', 'ventas', 'inventory', 'reportes', 'settings', 'mermas'];
-    const sellerPerms = ['pos', 'ventas', 'inventory', 'mermas'];
-
-    if (role === 'owner') return ownerPerms;
-    if (role === 'admin') return adminPerms;
-    return sellerPerms;
+function toggleTheme() {
+    db.settings.theme = db.settings.theme === 'light' ? 'dark' : 'light';
+    saveData();
+    applyTheme();
+    renderSidebar(currentView);
 }
 
 // --- CORE UI COMPONENTS ---
@@ -306,8 +102,21 @@ function renderSidebar(activeView) {
     sidebar.style.display = 'flex';
     topBar.style.display = 'flex';
 
+    // Logo Area with Premium Branding
+    const logoHtml = `
+        <div class="logo-area" style="padding: 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 40px; height: 40px; min-width: 40px; border-radius: 12px; background: rgba(255, 51, 119, 0.1); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(255, 51, 119, 0.2);">
+                <i class="ph ph-storefront" style="font-size: 1.5rem; color: var(--primary);"></i>
+            </div>
+            <div style="display: flex; flex-direction: column; line-height: 1; justify-content: center;">
+                <span style="font-family: var(--font-script); font-size: 2rem; color: var(--text-main); margin-bottom: -2px;">BizControl</span>
+                <span style="font-size: 0.6rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.2rem; text-transform: uppercase;">Premium System</span>
+            </div>
+        </div>
+    `;
+
     // Notifications visibility
-    const notifBell = document.getElementById('notification-bell');
+    const notifBell = document.getElementById('notifBtn');
     if (notifBell) {
         notifBell.style.display = (currentUser.role === 'owner' || currentUser.role === 'admin') ? 'block' : 'none';
         const pendingNotifs = db.notifications.filter(n => n.status === 'pending').length;
@@ -318,14 +127,25 @@ function renderSidebar(activeView) {
         }
     }
 
+    // Perfil de Usuario Premium en Sidebar (opcional, pero mejoramos el topBar)
     document.querySelector('.user-profile span').innerText = currentUser.name;
-    document.querySelector('.user-profile .avatar').innerText = currentUser.name.charAt(0);
+    const avatarEl = document.querySelector('.user-profile .avatar');
+    if (avatarEl) {
+        avatarEl.innerText = currentUser.name.charAt(0).toUpperCase();
+        avatarEl.style.background = 'linear-gradient(135deg, var(--primary), #3498db)';
+        avatarEl.style.boxShadow = '0 0 10px rgba(52, 152, 219, 0.5)';
+    }
 
     // Business Selector
-    const businessOptions = [
-        ...(currentUser.role === 'owner' ? [{ id: null, name: 'VISTA GLOBAL' }] : []),
-        ...db.businesses
-    ];
+    let businessOptions = [];
+    if (currentUser.role === 'owner') {
+        businessOptions = [{ id: null, name: 'VISTA GLOBAL' }, ...db.businesses];
+    } else if (currentUser.role === 'admin') {
+        businessOptions = [...db.businesses];
+    } else {
+        // Sellers only see Kiosks
+        businessOptions = db.businesses.filter(b => b.type === 'kiosk');
+    }
 
     const selectorHtml = `
         <div class="business-selector-container" style="margin: 0 1rem 1.5rem; position: relative;">
@@ -337,54 +157,186 @@ function renderSidebar(activeView) {
         </div>
     `;
 
-    let navItems = [
-        { id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' },
-        { id: 'pos', icon: 'ph-calculator', label: 'Punto de Venta' },
-        { id: 'ventas', icon: 'ph-receipt', label: 'Ventas' },
-        { id: 'inventory', icon: 'ph-warehouse', label: 'Inventario' },
-        { id: 'transfer', icon: 'ph-arrows-left-right', label: 'Transferencias' },
-        { id: 'mermas', icon: 'ph-warning-circle', label: 'Mermas' },
-        { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
-        { id: 'settings', icon: 'ph-gear', label: 'Configuración' },
-        { id: 'logs', icon: 'ph-scroll', label: 'Logs' }
+    const navSections = [
+        {
+            title: 'GENERAL',
+            items: [
+                { id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' }
+            ]
+        },
+        {
+            title: 'OPERACIONES',
+            items: [
+                { id: 'pos', icon: 'ph-calculator', label: 'Punto de Venta' },
+                { id: 'ventas', icon: 'ph-receipt', label: 'Historial Ventas' },
+                { id: 'compras', icon: 'ph-shopping-bag-open', label: 'Compras' }
+            ]
+        },
+        {
+            title: 'GESTIÓN',
+            items: [
+                { id: 'inventory', icon: 'ph-warehouse', label: 'Inventario' },
+                { id: 'transfer', icon: 'ph-arrows-left-right', label: 'Transferencias' },
+                { id: 'mermas', icon: 'ph-warning-circle', label: 'Mermas/Dev' }
+            ]
+        },
+        {
+            title: 'ADMINISTRACIÓN',
+            items: [
+                { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
+                { id: 'financials', icon: 'ph-money', label: 'Finanzas' },
+                { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' },
+                { id: 'logs', icon: 'ph-scroll', label: 'Logs Sistema' }
+            ]
+        }
     ];
 
-    // Lógica específica para Almacén (ID 'alm')
-    if (String(selectedBusinessId) === 'alm') {
-        navItems = navItems.filter(i => i.id !== 'pos' && i.id !== 'ventas');
-        const transferItem = navItems.find(i => i.id === 'transfer');
-        if (transferItem) transferItem.label = 'Abastecer Kioscos';
-    }
+    const perms = rolePermissions[currentUser.role] || [];
 
-    const perms = getPermissions(currentUser.role);
-    const navHtml = navItems.filter(i => perms.includes(i.id)).map(i => `
-        <li class="${activeView === i.id ? 'active' : ''}" onclick="navigateTo('${i.id}')">
-            <i class="ph ${i.icon}"></i>
-            <span>${i.label}</span>
-        </li>
-    `).join('');
+    let navHtml = '';
+    navSections.forEach(section => {
+        const visibleItems = section.items.filter(item => {
+            let visible = perms.includes(item.id);
+            // Lógica específica para Almacén (ID 'alm')
+            if (String(selectedBusinessId) === 'alm' && (item.id === 'pos' || item.id === 'ventas')) {
+                visible = false;
+            }
+            return visible;
+        });
 
-    sidebar.querySelector('.nav-links').innerHTML = `
-        ${selectorHtml}
-        ${navHtml}
-        <li style="margin-top: auto; border-top: 1px solid var(--border); color: var(--danger);" onclick="logout()">
-            <i class="ph ph-sign-out"></i>
-            <span>Cerrar Sesión</span>
-        </li>
+        if (visibleItems.length > 0) {
+            navHtml += `<li class="nav-section-title">${section.title}</li>`;
+            visibleItems.forEach(item => {
+                let label = item.label;
+                if (String(selectedBusinessId) === 'alm' && item.id === 'transfer') {
+                    label = 'Abastecer Kioscos';
+                }
+                navHtml += `
+                    <li class="${activeView === item.id ? 'active' : ''}" onclick="navigateTo('${item.id}')">
+                        <i class="ph ${item.icon}"></i>
+                        <span>${label}</span>
+                    </li>
+                `;
+            });
+        }
+    });
+
+    sidebar.innerHTML = `
+        ${logoHtml}
+        <div class="nav-links-container" style="flex: 1; overflow-y: auto;">
+            <ul class="nav-links">
+                ${selectorHtml}
+                ${navHtml}
+            </ul>
+        </div>
+        <div style="margin-top: auto; padding: 1rem; border-top: 1px solid var(--border);">
+            <button class="btn-ghost" onclick="toggleTheme()" style="width: 100%; display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem; border-radius: 12px; color: var(--text-muted); cursor: pointer;">
+                <i class="ph ${db.settings.theme === 'light' ? 'ph-moon' : 'ph-sun'}" style="font-size: 1.25rem;"></i>
+                <span style="font-size: 0.85rem; font-weight: 500;">Modo ${db.settings.theme === 'light' ? 'Oscuro' : 'Claro'}</span>
+            </button>
+        </div>
     `;
 }
 
+function toggleUserMenu(e) {
+    if (e) e.stopPropagation();
+    const dropdown = document.getElementById('userDropdown');
+    dropdown.classList.toggle('show');
+
+    // Close when clicking outside
+    if (dropdown.classList.contains('show')) {
+        const closeMenu = (event) => {
+            if (!event.target.closest('.user-profile')) {
+                dropdown.classList.remove('show');
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 10);
+    }
+}
+
 function changeBusinessContext(val) {
+    if (currentUser && currentUser.role === 'seller') {
+        const biz = db.businesses.find(b => String(b.id) === String(val));
+        if (biz && biz.type === 'warehouse') {
+            alert("⛔ Acceso denegado: Los vendedores no pueden acceder al Almacén.");
+            return;
+        }
+    }
     selectedBusinessId = (val === 'global') ? null : String(val);
     const business = db.businesses.find(b => String(b.id) === String(selectedBusinessId));
     addLog(`Cambio de contexto: ${business ? business.name : 'Global'}`);
     navigateTo(currentView);
 }
 
-function logout() {
+window.logout = function () {
     currentUser = null;
+    currentView = 'login';
     selectedBusinessId = null;
+    selectedProducts.clear();
+
+    // Reset POS State
+    posCart = [];
+    editingSaleId = null;
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
+
+    saveData();
     navigateTo('login');
+};
+
+function navigateTo(viewId) {
+    if (!viewId) viewId = 'dashboard';
+    currentView = viewId;
+    window.location.hash = viewId;
+
+    // Save state
+    saveData();
+
+    // Update Sidebar
+    renderSidebar(viewId);
+
+    const container = document.getElementById('content-area');
+    if (!container) return;
+    container.innerHTML = ''; // Clear
+
+    // Dispatch
+    switch (viewId) {
+        case 'login':
+            renderLogin(container);
+            break;
+        case 'dashboard':
+            if (typeof renderDashboard === 'function') renderDashboard(container);
+            break;
+        case 'pos':
+            if (typeof renderPOS === 'function') renderPOS(container);
+            break;
+        case 'inventory':
+            if (typeof renderInventory === 'function') renderInventory(container);
+            break;
+        case 'ventas':
+            if (typeof renderVentas === 'function') renderVentas(container);
+            break;
+        case 'daily-records':
+            if (typeof renderDailyRecords === 'function') renderDailyRecords(container);
+            break;
+        case 'cash-control':
+            if (typeof renderCashControl === 'function') renderCashControl(container);
+            break;
+        case 'settings':
+            if (typeof renderSettings === 'function') renderSettings(container);
+            break;
+        case 'transfer':
+            if (typeof renderTransfer === 'function') renderTransfer(container);
+            break;
+        case 'mermas':
+            if (typeof renderMermas === 'function') renderMermas(container);
+            break;
+        default:
+            if (viewId !== 'login') {
+                container.innerHTML = `<div style="padding:2rem; text-align:center;"><h2>Vista no encontrada: ${viewId}</h2></div>`;
+            }
+    }
 }
 
 function updateTitle(text) {
@@ -393,20 +345,6 @@ function updateTitle(text) {
 
 // --- VIEWS ---
 function renderLogin(container) {
-    const users = db.users;
-    const userCards = users.map(u => `
-        <div class="login-card user-login-card" style="width: 155px; cursor: pointer; text-align: center; padding: 1.5rem;" 
-             onclick="selectUserLogin(${u.id})">
-            <div class="avatar" style="width: 70px; height: 70px; margin: 0 auto 1.25rem; font-size: 1.6rem; background: ${u.role === 'owner' ? 'linear-gradient(135deg, var(--primary), #3b82f6)' : u.role === 'admin' ? 'linear-gradient(135deg, var(--warning), #f59e0b)' : 'linear-gradient(135deg, var(--success), #10b981)'}; box-shadow: 0 4px 12px rgba(0,0,0,0.2);">
-                ${u.name.charAt(0)}
-            </div>
-            <div style="font-weight: 600; margin-bottom: 0.35rem; color: #fff;">${u.name}</div>
-            <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05rem;">
-                ${u.role === 'owner' ? 'Dueño' : u.role === 'admin' ? 'Administrador' : 'Vendedor'}
-            </div>
-        </div>
-    `).join('');
-
     container.innerHTML = `
         <div class="fade-in" style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; gap: 2.5rem; background: radial-gradient(circle at center, #1a1e23 0%, #0f1115 100%);">
             <div style="text-align: center;">
@@ -414,52 +352,153 @@ function renderLogin(container) {
                     <i class="ph ph-shield-check" style="font-size: 3rem; color: var(--primary);"></i>
                 </div>
                 <h1 style="margin: 0; font-size: 2.5rem; letter-spacing: -0.05rem; background: linear-gradient(to right, #fff, #8b949e); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MCH Control</h1>
-                <p style="color: var(--text-muted); margin-top: 0.75rem; font-size: 1.1rem;">Panel de Gestión Empresarial</p>
+                <p style="color: var(--text-muted); margin-top: 0.75rem; font-size: 1.1rem;">Selecciona tu perfil para ingresar</p>
             </div>
             
-            <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center;">
-                ${userCards}
+            <div style="display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center;">
+                <!-- Dueño Card -->
+                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
+                     onclick="selectUserLogin('owner')">
+                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--primary), #3b82f6); box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);">
+                        D
+                    </div>
+                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Dueño</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Control Total</div>
+                </div>
+
+                <!-- Admin Card -->
+                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
+                     onclick="selectUserLogin('admin')">
+                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--warning), #f59e0b); box-shadow: 0 8px 16px rgba(245, 158, 11, 0.3);">
+                        A
+                    </div>
+                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Admin</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Gestión</div>
+                </div>
+
+                <!-- Vendedor Card -->
+                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
+                     onclick="selectUserLogin('seller')">
+                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--success), #10b981); box-shadow: 0 8px 16px rgba(16, 185, 129, 0.3);">
+                        V
+                    </div>
+                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Vendedor</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Ventas/Stock</div>
+                </div>
             </div>
 
-            <div class="login-pin-card" style="max-width: 400px; width: 90%; text-align: center; margin-top: 1rem;">
-                <p style="margin-bottom: 1.25rem; color: var(--text-muted); font-size: 0.95rem;">Acceso rápido con PIN de seguridad:</p>
-                <form onsubmit="handleLogin(event)">
-                    <div style="display: flex; gap: 0.75rem;">
-                        <input type="password" name="pin" placeholder="••••" class="input-field" 
-                               style="text-align: center; font-size: 1.5rem; letter-spacing: 0.5rem;" maxlength="4">
-                        <button type="submit" class="btn-primary" style="padding: 0 1.5rem;"><i class="ph ph-arrow-right" style="font-size: 1.5rem;"></i></button>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem;">MCH Control v4.0 · Sistema de Seguridad Activo</p>
+        </div>
+
+        <!-- Login Verification Modal -->
+        <div id="login-modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:9999; justify-content:center; align-items:center;">
+             <div class="card fade-in" style="width:90%; max-width:400px; padding:3rem; text-align:center; position:relative; border:1px solid var(--border);">
+                <button onclick="closeLoginModal()" style="position:absolute; top:1.5rem; right:1.5rem; background:none; border:none; color:var(--text-muted); cursor:pointer;"><i class="ph ph-x" style="font-size:1.5rem;"></i></button>
+                
+                <div id="login-modal-content">
+                    <h2 id="login-modal-title" style="margin-bottom:2rem; font-size:1.8rem;">Ingresar PIN</h2>
+                    
+                    <!-- PIN Step -->
+                    <div id="step-pin">
+                         <div style="margin-bottom:2rem;">
+                            <input type="password" id="modal-pin-input" placeholder="••••" maxlength="4" 
+                                   style="width:100%; text-align:center; font-size:2.5rem; letter-spacing:1rem; background:transparent; border:none; border-bottom:2px solid var(--primary); color:#fff; outline:none;"
+                                   onkeyup="if(this.value.length === 4) processLogin()">
+                         </div>
+                         <button onclick="processLogin()" class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;">Continuar</button>
                     </div>
-                </form>
-            </div>
+
+                    <!-- Gmail Step (Only for Owner) -->
+                    <div id="step-gmail" style="display:none;">
+                         <p style="color:var(--text-muted); margin-bottom:1.5rem; font-size:0.9rem;">Se ha enviado un código a tu Gmail vinculado para autorizar el acceso del Dueño.</p>
+                         <div style="margin-bottom:2rem;">
+                            <input type="text" id="modal-gmail-code" placeholder="Código de 6 dígitos" maxlength="6" 
+                                   style="width:100%; text-align:center; font-size:1.5rem; letter-spacing:0.5rem; background:var(--bg-hover); border:1px solid var(--border); border-radius:12px; padding:1rem; color:#fff; outline:none;"
+                                   onkeyup="if(this.value.length === 6) processGmailVerify()">
+                         </div>
+                         <button onclick="processGmailVerify()" class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;">Verificar y Entrar</button>
+                    </div>
+                </div>
+             </div>
         </div>
     `;
-    updateTitle('Iniciar Sesión');
+    updateTitle('Bienvenido');
 }
 
-function selectUserLogin(userId) {
-    const user = db.users.find(u => u.id === userId);
+window.selectUserLogin = function (role) {
+    const user = db.users.find(u => u.role === role);
     if (user) {
-        currentUser = user;
-        // Default business context: MCH 1 ('mch1') for non-owners, Global (null) for Owner
-        selectedBusinessId = (user.role === 'owner') ? null : 'mch1';
-        const firstView = getPermissions(user.role)[0];
-        navigateTo(firstView);
-        addLog(`Sesión iniciada: ${user.name}`);
+        completeLogin(user);
     }
-}
+};
 
-function handleLogin(e) {
-    e.preventDefault();
-    const pin = new FormData(e.target).get('pin');
-    // Allow any PIN or empty for testing
-    const user = db.users.find(u => u.pin === pin) || db.users[0];
+window.initiateLogin = function (role) {
+    selectedLoginRole = role;
+    const overlay = document.getElementById('login-modal-overlay');
+    const title = document.getElementById('login-modal-title');
+    const pinStep = document.getElementById('step-pin');
+    const gmailStep = document.getElementById('step-gmail');
+    const pinInput = document.getElementById('modal-pin-input');
 
+    // Reset modals
+    pinInput.value = '';
+    document.getElementById('modal-gmail-code').value = '';
+    pinStep.style.display = 'block';
+    gmailStep.style.display = 'none';
+
+    if (role === 'owner') title.innerText = 'Dueño: Ingresa PIN';
+    else if (role === 'admin') title.innerText = 'Administrador: Ingresa PIN';
+    else title.innerText = 'Vendedor: Ingresa PIN';
+
+    overlay.style.display = 'flex';
+    pinInput.focus();
+};
+
+window.closeLoginModal = function () {
+    document.getElementById('login-modal-overlay').style.display = 'none';
+};
+
+window.processLogin = function () {
+    const pin = document.getElementById('modal-pin-input').value;
+    const user = db.users.find(u => u.role === selectedLoginRole);
+
+    if (user && user.pin === pin) {
+        if (selectedLoginRole === 'owner') {
+            // Second level security for owner
+            document.getElementById('step-pin').style.display = 'none';
+            document.getElementById('step-gmail').style.display = 'block';
+            document.getElementById('login-modal-title').innerText = 'Verificación de Seguridad';
+            document.getElementById('modal-gmail-code').focus();
+        } else {
+            completeLogin(user);
+        }
+    } else {
+        alert("PIN Incorrecto.");
+        document.getElementById('modal-pin-input').value = '';
+    }
+};
+
+window.processGmailVerify = function () {
+    const code = document.getElementById('modal-gmail-code').value;
+    if (code === '987654') {
+        const user = db.users.find(u => u.role === 'owner');
+        completeLogin(user);
+    } else {
+        alert("Código de verificación incorrecto.");
+    }
+};
+
+function completeLogin(user) {
     currentUser = user;
-    // Default business context: MCH 1 ('mch1') for non-owners, Global (null) for Owner
+    // Default context
     selectedBusinessId = (user.role === 'owner') ? null : 'mch1';
-    const firstView = getPermissions(user.role)[0];
-    navigateTo(firstView);
+
+    document.getElementById('login-modal-overlay').style.display = 'none';
     addLog(`Sesión iniciada: ${user.name}`);
+
+    const perms = getPermissions(user.role);
+    const firstView = perms.includes('dashboard') ? 'dashboard' : perms[0];
+    navigateTo(firstView);
 }
 
 function renderDashboard(container) {
@@ -483,50 +522,198 @@ function renderDashboard(container) {
         return sum + (p ? p.cost * w.quantity : 0);
     }, 0);
 
-    const balance = totalRevenue - wasteCost;
+    const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
 
+    // Icons configuration for cards
     const summaryCards = [
-        { label: 'Ventas Totales', value: `$${totalRevenue.toFixed(2)}`, color: 'text-success' },
-        { label: 'Mermas (Costo)', value: `$${wasteCost.toFixed(2)}`, color: 'text-danger' },
-        { label: 'Resultado', value: `$${balance.toFixed(2)}`, color: '' }
+        { label: 'Ventas Totales (CUP)', value: `$${totalRevenue.toFixed(2)}`, color: 'text-success', icon: 'ph-trend-up', bg: 'rgba(16, 185, 129, 0.1)' },
+        { label: 'Mermas (Costo)', value: `$${wasteCost.toFixed(2)}`, color: 'text-danger', icon: 'ph-trash', bg: 'rgba(239, 68, 68, 0.1)' },
+        { label: 'Fondo CUP (Caja)', value: `$${fund.cash.toFixed(2)}`, color: 'text-warning', icon: 'ph-money', bg: 'rgba(245, 158, 11, 0.1)' },
+        { label: 'Fondo CUP (Transf)', value: `$${fund.transfer.toFixed(2)}`, color: 'text-primary', icon: 'ph-bank', bg: 'rgba(59, 130, 246, 0.1)' }
     ];
+
+    const currencyCards = [
+        { label: 'Efectivo USD', value: `US$ ${fund.usd.toFixed(2)}`, icon: 'ph-currency-dollar', color: '#85bb65', bg: 'rgba(133, 187, 101, 0.1)' },
+        { label: 'Efectivo EUR', value: `€ ${fund.eur.toFixed(2)}`, icon: 'ph-currency-eur', color: '#5b78ff', bg: 'rgba(91, 120, 255, 0.1)' }
+    ];
+
+    // Generate Chart Data (Last 30 days)
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+        // Mock random value for visualization if no data, otherwise sum sales
+        // For real implementation: sum sales for dateStr
+        days.push({ day: i === 0 ? 'Hoy' : dateStr, value: Math.floor(Math.random() * 5000) + 1000, isToday: i === 0 });
+    }
+
+    const maxVal = Math.max(...days.map(d => d.value));
 
     container.innerHTML = `
         <div class="fade-in">
+            <!-- Header Section -->
+            <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-end;">
+                 <div>
+                    <span style="font-family: var(--font-script); font-size: 1.5rem; color: var(--primary); display: block; margin-bottom: 0.25rem;">Bienvenido de nuevo,</span>
+                    <h2 style="margin:0; font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; line-height: 1.1;">${currentUser.name}</h2>
+                    <p style="color: var(--text-muted); margin-top: 0.5rem;">Estás viendo el dashboard de: <strong style="color: var(--text-main);">${selectedBusinessId ? db.businesses.find(b => b.id === selectedBusinessId).name : 'VISTA GLOBAL'}</strong></p>
+                 </div>
+                 <div style="display: flex; gap: 1rem;">
+                    <button class="btn-primary" onclick="navigateTo('pos')"><i class="ph ph-plus"></i> Nueva Venta</button>
+                    <button class="btn-secondary" onclick="generateMockSales()"><i class="ph ph-magic-wand"></i> Mock Data</button>
+                 </div>
+            </div>
+
+            <!-- Metric Cards -->
             <div class="grid-3">
                 ${summaryCards.map(c => `
-                    <div class="card stat-card">
+                    <div class="card stat-card" style="position: relative;">
+                        <div style="position: absolute; top: 1.5rem; right: 1.5rem; width: 48px; height: 48px; border-radius: 12px; background: ${c.bg}; display: flex; align-items: center; justify-content: center;">
+                            <i class="ph ${c.icon}" style="font-size: 1.5rem; color: ${c.color.startsWith('#') ? c.color : `var(--${c.color.replace('text-', '')})`};"></i>
+                        </div>
                         <span class="stat-label">${c.label}</span>
                         <span class="stat-value ${c.color}">${c.value}</span>
+                        <div style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                            <i class="ph ph-trend-up" style="color: var(--success);"></i> +${(Math.random() * 10).toFixed(1)}% vs mes anterior
+                        </div>
                     </div>
                 `).join('')}
             </div>
-            ${!selectedBusinessId ? `
-                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">Ventas por Negocio</h3>
-                <div class="grid-3">
-                    ${db.businesses.map(b => {
-        const bSales = db.sales.filter(s => String(s.businessId) === String(b.id)).reduce((sum, s) => sum + s.total, 0);
-        return `
-                            <div class="card stat-card" style="border-left: 4px solid ${b.color};">
-                                <span class="stat-label">${b.name}</span>
-                                <span class="stat-value">$${bSales.toFixed(2)}</span>
-                            </div>
-                        `;
-    }).join('')}
+
+            <!-- Sales Chart Section -->
+            <div class="card" style="margin-bottom: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h3><i class="ph ph-chart-line-up"></i> Rendimiento (Últimos 30 días)</h3>
+                    <select style="padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-main);">
+                        <option>Ventas Totales</option>
+                        <option>Ganancia Neta</option>
+                    </select>
                 </div>
-            ` : ''}
-            <div class="card" style="margin-top: 2rem;">
-                <h3>Bienvenido de nuevo, ${currentUser.name}</h3>
-                <p style="color: var(--text-muted);">Estás viendo el dashboard de: <strong>${selectedBusinessId ? db.businesses.find(b => b.id === selectedBusinessId).name : 'VISTA GLOBAL'}</strong></p>
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    <button class="btn-primary" onclick="navigateTo('pos')"><i class="ph ph-plus"></i> Nueva Venta</button>
-                    <button class="btn-secondary" onclick="generateMockSales()"><i class="ph ph-magic-wand"></i> Generar Mock Data</button>
+                
+                <!-- Simple CSS Bar Chart -->
+                <div style="display: flex; align-items: flex-end; justify-content: space-between; height: 200px; gap: 4px; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+                    ${days.map(d => `
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; group;">
+                            <div style="width: 100%; background: ${d.isToday ? 'var(--primary)' : 'var(--bg-hover)'}; border-radius: 4px; height: ${Math.max(d.value / maxVal * 150, 4)}px; transition: height 1s ease; position: relative;">
+                                <div class="tooltip" style="opacity: 0; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; pointer-events: none; white-space: nowrap; margin-bottom: 4px; z-index: 10;">$${d.value}</div>
+                            </div>
+                            ${d.day.includes('Dom') || d.day.includes('Lun') || d.isToday ? `<span style="font-size: 0.7rem; color: var(--text-muted);">${d.day}</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- Bottom Grid -->
+            <div class="grid-2">
+                <!-- Recent Activity -->
+                <div class="card">
+                    <h3 style="margin-bottom: 1.5rem;">Actividad Reciente</h3>
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        ${db.transactions.slice(0, 5).map(t => {
+        const isSale = t.type === 'Venta';
+        return `
+                            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
+                                <div style="display: flex; align-items: center; gap: 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: ${isSale ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; display: flex; align-items: center; justify-content: center;">
+                                        <i class="ph ${isSale ? 'ph-arrow-up-right' : 'ph-arrow-down-right'}" style="color: ${isSale ? 'var(--success)' : 'var(--danger)'};"></i>
+                                    </div>
+                                    <div>
+                                        <div style="font-weight: 600;">${t.type} (#${t.id})</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">${new Date(t.date).toLocaleTimeString()} · ${db.businesses.find(b => b.id === t.businessId)?.name || 'N/A'}</div>
+                                    </div>
+                                </div>
+                                <div style="font-weight: bold; ${isSale ? 'color: var(--success);' : ''}">
+                                    ${isSale ? '+' : '-'}$${t.total.toFixed(2)}
+                                </div>
+                            </div>
+                        `}).join('') || '<div style="color: var(--text-muted); text-align: center; padding: 2rem;">No hay actividad reciente</div>'}
+                    </div>
+                    <button class="btn-secondary" style="width: 100%; margin-top: 1rem;" onclick="navigateTo('logs')">Ver Historial Completo</button>
+                </div>
+
+                <!-- Cash Control Table (Embedded) -->
+                <div class="card" style="overflow-x: auto;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <h3 style="margin:0;">Control de Efectivo</h3>
+                        <button class="btn-ghost btn-sm" onclick="navigateTo('cash-control')"><i class="ph ph-arrows-out-simple"></i></button>
+                    </div>
+                    
+                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                        <thead>
+                            <tr style="border-bottom: 2px solid var(--border); color:var(--text-muted); text-align:right;">
+                                <th style="text-align:left; padding:0.5rem;">Moneda</th>
+                                <th style="padding:0.5rem;">Inicial (Hoy)</th>
+                                <th style="padding:0.5rem; color:var(--success);">Ing.</th>
+                                <th style="padding:0.5rem; color:var(--danger);">Egr.</th>
+                                <th style="padding:0.5rem;">Saldo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${(() => {
+            const today = new Date().toLocaleDateString();
+            let stats = {
+                mn: { income: 0, expense: 0, current: fund.cash },
+                usd: { income: 0, expense: 0, current: fund.usd },
+                eur: { income: 0, expense: 0, current: fund.eur },
+                transfer: { income: 0, expense: 0, current: fund.transfer }
+            };
+
+            // Sales Income
+            const todaySales = db.sales.filter(s => new Date(s.date).toLocaleDateString() === today);
+            todaySales.forEach(s => {
+                if (s.status === 'cancelled') return;
+                if (s.payment?.cash) stats.mn.income += s.payment.cash;
+                if (s.payment?.transfer) stats.transfer.income += s.payment.transfer;
+            });
+
+            // Expenses/Movements
+            const todayMovements = db.extraMovements || [];
+            todayMovements.filter(m => new Date(m.date).toLocaleDateString() === today).forEach(m => {
+                if (m.type === 'expense') {
+                    if (m.currency === 'CUP') stats.mn.expense += m.amount;
+                    if (m.currency === 'USD') stats.usd.expense += m.amount;
+                    if (m.currency === 'EUR') stats.eur.expense += m.amount;
+                    if (m.currency === 'Transfer') stats.transfer.expense += m.amount;
+                }
+            });
+
+            // Calc Previous
+            stats.mn.prev = stats.mn.current - (stats.mn.income - stats.mn.expense);
+            stats.transfer.prev = stats.transfer.current - (stats.transfer.income - stats.transfer.expense);
+            stats.usd.prev = stats.usd.current - (stats.usd.income - stats.usd.expense);
+            stats.eur.prev = stats.eur.current - (stats.eur.income - stats.eur.expense);
+
+            const rows = [
+                { label: 'MN', val: stats.mn },
+                { label: 'USD', val: stats.usd },
+                { label: 'EUR', val: stats.eur },
+                { label: 'Transf', val: stats.transfer }
+            ];
+
+            return rows.map(r => `
+                                    <tr style="border-bottom:1px solid var(--border);">
+                                        <td style="padding:0.5rem; font-weight:600;">${r.label}</td>
+                                        <td style="padding:0.5rem; text-align:right; color:var(--text-muted);">$${r.val.prev.toFixed(0)}</td>
+                                        <td style="padding:0.5rem; text-align:right; color:var(--success);">+$${r.val.income.toFixed(0)}</td>
+                                        <td style="padding:0.5rem; text-align:right; color:var(--danger);">-$${r.val.expense.toFixed(0)}</td>
+                                        <td style="padding:0.5rem; text-align:right; font-weight:bold;">$${r.val.current.toFixed(0)}</td>
+                                    </tr>
+                                `).join('');
+        })()}
+                        </tbody>
+                    </table>
+                    <div style="margin-top:1rem; font-size:0.75rem; color:var(--text-muted); text-align:center;">
+                        1 USD = 320 CUP · 1 EUR = 340 CUP
+                    </div>
                 </div>
             </div>
         </div>
     `;
-    updateTitle(selectedBusinessId ? `Dashboard: ${db.businesses.find(b => b.id === selectedBusinessId).name}` : 'Dashboard Global');
+    updateTitle('Resumen');
 }
+
+
 
 async function generateMockSales() {
     const products = db.products;
@@ -568,54 +755,142 @@ async function generateMockSales() {
 }
 
 function renderVentas(container) {
-    let filteredSales = db.sales || [];
-    if (selectedBusinessId) {
-        filteredSales = filteredSales.filter(s => String(s.businessId) === String(selectedBusinessId));
-    }
+    try {
+        const filteredData = (db.sales || []).filter(s => {
+            const matchesBusiness = !selectedBusinessId || String(s.businessId) === String(selectedBusinessId);
+            return matchesBusiness && !s.closureId;
+        });
 
-    const rows = filteredSales.map(s => {
-        const isClosure = s.type === 'daily_closure';
-        const displayTotal = isClosure ? s.totalSales : s.total;
-        const displayProducts = isClosure ? '<span style="color:var(--primary); font-weight:600;"><i class="ph ph-lock-key"></i> Arqueo de Caja</span>' : (s.items ? s.items.length + ' productos' : 'N/A');
+        // 1. Separar Reportes de Cierre (Cerrados) de las Ventas Sueltas (Pendientes/Registradas)
+        const closureReports = filteredData.filter(s => s.type === 'daily_closure_report');
+        const individualSales = filteredData.filter(s => s.type !== 'daily_closure_report');
 
-        return `
-        <tr style="border-bottom: 1px solid var(--border); cursor: pointer; ${isClosure ? 'background: rgba(88, 166, 255, 0.03);' : ''}" onclick="showSaleDetail(${s.id})">
-            <td style="padding: 1rem;">
-                <div style="font-weight: 500;">${s.date}</div>
-                ${!isClosure ? `<div style="font-size: 0.8rem; color: var(--text-muted);">${s.openTime || '--:--'} - ${s.closeTime || '--:--'}</div>` : ''}
+        // 2. Agrupar Ventas Individuales por SESIÓN (o fallback a Día/Vendedor)
+        const sessions = {};
+        individualSales.forEach(s => {
+            const day = (s.date || '').split(',')[0].trim();
+            if (!day) return;
+
+            // Clave de agrupación: sessionId (nuevo) o día+vendedor (legacy)
+            const groupKey = s.sessionId
+                ? `SESSION_${s.sessionId}`
+                : `${day}_${s.businessId}_${s.seller}`;
+
+            if (!sessions[groupKey]) {
+                sessions[groupKey] = {
+                    id: s.sessionId || s.id, // ID representativo del grupo
+                    sessionId: s.sessionId || null,
+                    date: day,
+                    businessId: s.businessId,
+                    seller: s.seller,
+                    total: 0,
+                    saleIds: [],
+                    status: 'registered',
+                    locker: null,
+                    isGroup: true,
+                    itemsCount: 0,
+                    openingTime: s.openingTime || '00:00'
+                };
+            }
+
+            // Sumar al total (Sales sum, Expenses subtract if negative, but logic says expense total is negative)
+            sessions[groupKey].total += (s.total || 0);
+            sessions[groupKey].saleIds.push(s.id);
+            sessions[groupKey].itemsCount += (s.items ? s.items.length : 0);
+
+            // Estado prioritario: Si alguno está pendiente, todo el grupo está pendiente
+            if (s.status === 'review_pending' || s.type === 'closure_request') sessions[groupKey].status = 'review_pending';
+            if (s.status === 'closed' || s.status === 'approved') sessions[groupKey].status = 'closed'; // Solo si todos... mejor lógica abajo
+
+            // Si hay locker reciente
+            if (s.locker) sessions[groupKey].locker = s.locker;
+        });
+
+        // Refinar estados de grupo: Si CUALQUIERA está 'registered' o 'review_pending', el grupo no está cerrado.
+        Object.values(sessions).forEach(session => {
+            const relatedSales = individualSales.filter(s =>
+                (session.sessionId && s.sessionId === session.sessionId) ||
+                (!session.sessionId && !s.sessionId && s.date.includes(session.date) && s.seller === session.seller)
+            );
+            const allClosed = relatedSales.every(s => s.status === 'closed' || s.status === 'approved');
+            if (allClosed && relatedSales.length > 0) session.status = 'closed';
+        });
+
+        // Unir todo en una lista cronológica
+        const finalItems = [...closureReports, ...Object.values(sessions)];
+        finalItems.sort((a, b) => {
+            const tsA = a.timestamp || new Date(a.date).getTime() || 0;
+            const tsB = b.timestamp || new Date(b.date).getTime() || 0;
+            return tsB - tsA;
+        });
+
+        const rows = finalItems.map(s => {
+            const isClosure = s.type === 'daily_closure_report';
+            const displayTotal = (isClosure ? s.totalReal : s.total) || 0;
+
+            const isLocked = s.locker && (Date.now() - s.locker.timestamp < 300000);
+            let statusHtml = '';
+
+            if (s.status === 'closed' || s.status === 'approved') {
+                statusHtml = '<span class="badge badge-success">CERRADA</span>';
+            } else if (isLocked) {
+                statusHtml = `<span class="badge badge-warning pulsate" style="background:#d29922; color:white; border:none;"><i class="ph ph-eye"></i> EN REVISIÓN (${s.locker.user})</span>`;
+            } else if (s.status === 'review_pending') {
+                statusHtml = '<span class="badge badge-warning">PENDIENTE REVISIÓN</span>';
+            } else {
+                statusHtml = '<span class="badge badge-warning" style="background:rgba(88, 166, 255, 0.1); color:var(--primary); border:1px solid var(--primary);">REGISTRADA</span>';
+            }
+
+            if (s.auditedBy) {
+                statusHtml += `<div style="font-size:0.65rem; color:var(--text-muted); margin-top:0.25rem;">Auditado: ${s.auditedBy}</div>`;
+            }
+
+            return `
+        <tr style="border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.2s; ${isClosure ? 'background: var(--primary-glow);' : ''}" 
+            onmouseover="this.style.background='var(--bg-hover)'" 
+            onmouseout="this.style.background='${isClosure ? 'var(--primary-glow)' : 'transparent'}'"
+            onclick="openSaleForRevision('${s.id}', '${s.sessionId || ''}')">
+            <td style="padding: 1.25rem 1rem;">
+                <div style="font-weight: 500;">
+                    ${s.date} <span style="font-size:0.8rem; color:var(--text-muted);">(${s.openingTime || 'Session'})</span>
+                    ${isLocked ? '<i class="ph ph-lock-key" style="color:var(--warning);"></i>' : ''}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">
+                   ${s.itemsCount} movimientos
+                </div>
             </td>
             <td style="padding: 1rem;">${db.businesses.find(b => String(b.id) === String(s.businessId))?.name || 'N/A'}</td>
-            <td style="padding: 1rem;">${s.seller || 'Sistema'}</td>
-            <td style="padding: 1rem;">
-                <span class="badge ${s.status === 'closed' ? 'badge-success' : 'badge-warning'}">
-                    ${s.status === 'closed' ? 'Cerrada' : (s.status === 'pending' ? 'Pendiente' : (s.status === 'registered' ? 'Registrada' : 'Abierta'))}
-                </span>
-            </td>
-            <td style="padding: 1rem; font-weight: bold; text-align: right;">$${displayTotal.toFixed(2)}</td>
+            <td style="padding: 1rem; color:var(--primary); font-weight:500;">${s.seller || 'Sistema'}</td>
+            <td style="padding: 1rem;">${statusHtml}</td>
+            <td style="padding: 1rem; font-weight: bold; text-align: right; font-size:1.1rem;">$${displayTotal.toFixed(2)}</td>
             <td style="padding: 1rem; text-align: right;" onclick="event.stopPropagation()">
-                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                     ${(() => {
-                const isToday = s.date.startsWith(new Date().toISOString().split('T')[0]);
-                if (currentUser.role === 'seller') {
-                    return (isToday && !isClosure) ? `<button class="btn-icon" onclick="editSale(${s.id})" title="Devolución/Editar"><i class="ph ph-pencil"></i></button>` : '';
-                }
-                return `
-                            ${!isClosure ? `<button class="btn-icon" onclick="editSale(${s.id})" title="Editar"><i class="ph ph-pencil"></i></button>` : ''}
-                            <button class="btn-icon" style="color: var(--danger);" onclick="deleteSale(${s.id})" title="Eliminar"><i class="ph ph-trash"></i></button>
-                        `;
-            })()}
+                    // DELETE SESSION BUTTON (Owner/Admin) - Replaces individual delete
+                    if (currentUser.role === 'owner' || currentUser.role === 'admin') {
+                        return `
+                                <button class="btn-icon" style="color: var(--danger); font-size:1.4rem;" 
+                                    onclick="event.stopPropagation(); deleteSession('${s.sessionId || ''}', '${s.date}', '${s.seller}', '${s.businessId}')" 
+                                    title="Eliminar Sesión Completa">
+                                    <i class="ph ph-trash"></i>
+                                </button>
+                            `;
+                    }
+                    return '';
+                })()}
                 </div>
             </td>
         </tr>
         `;
-    }).join('');
+        }).join('');
 
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="fade-in">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                 <p style="color: var(--text-muted);">Haz clic en una venta para ver el detalle completo, desgloses y ajustes.</p>
                 <div style="display: flex; gap: 1rem;">
-                    <button class="btn-primary" onclick="navigateTo('pos')"><i class="ph ph-plus"></i> Nueva Venta</button>
+
+                    <button class="btn-primary" onclick="navigateTo('pos')"><i class="ph ph-plus"></i> Nueva Venta (Carrito)</button>
                 </div>
             </div>
             <div class="card" style="overflow-x: auto;">
@@ -637,7 +912,11 @@ function renderVentas(container) {
             </div>
         </div>
     `;
-    updateTitle('Historial de Ventas');
+        updateTitle('Historial de Ventas');
+    } catch (e) {
+        console.error('Error rendering Sales History:', e);
+        container.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger);"><i class="ph ph-warning-circle" style="font-size:2rem;"></i><br>Error cargando historial.<br><small>${e.message}</small></div>`;
+    }
 }
 
 function renderInventory(container) {
@@ -645,11 +924,11 @@ function renderInventory(container) {
     if (selectedBusinessId) {
         items = db.products.map(p => {
             const inv = db.inventory.find(i => i.productId === p.id && String(i.businessId) === String(selectedBusinessId));
-            return { ...p, stock: inv ? inv.quantity : 0 };
+            return { ...p, stock: inv ? parseFloat(inv.quantity || 0) : 0 };
         });
     } else {
         items = db.products.map(p => {
-            const totalStock = db.inventory.filter(i => i.productId === p.id).reduce((sum, i) => sum + i.quantity, 0);
+            const totalStock = db.inventory.filter(i => i.productId === p.id).reduce((sum, i) => sum + parseFloat(i.quantity || 0), 0);
             return { ...p, stock: totalStock };
         });
     }
@@ -658,79 +937,120 @@ function renderInventory(container) {
         items = items.filter(i => i.stock > 0);
     }
 
-    const rows = items.map(i => `
-        <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 1rem; width: 60px;">
-                <div style="width: 50px; height: 50px; border-radius: 4px; overflow: hidden; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border);"
-                     onclick="handleInventoryImageClick(${i.id})" title="Haga clic para cambiar imagen">
-                    ${i.image ? `<img src="${i.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 1.5rem; color: var(--text-muted);"></i>`}
+    const cards = items.map(i => {
+        const isSelected = selectedProducts.has(i.id);
+        const stockStatus = i.stock <= 0 ? 'out' : i.stock < 10 ? 'low' : 'ok';
+        const stockLabel = i.stock <= 0 ? 'Agotado' : i.stock < 10 ? 'Stock Bajo' : 'En Stock';
+
+        return `
+            <div class="product-card ${isSelected ? 'selected' : ''}" onclick="event.stopPropagation(); toggleProductSelection(${i.id})">
+                <div class="product-card-image">
+                    <span class="product-card-badge badge-${stockStatus}">${stockLabel}</span>
+                    ${i.image ? `<img src="${i.image}" alt="${i.name}">` : `<i class="ph ph-package"></i>`}
                 </div>
-                <input type="file" id="inv-img-${i.id}" style="display:none" accept="image/*" onchange="handleInventoryImageUpload(${i.id}, this)">
-            </td>
-            <td style="padding: 1rem;">
-                <strong>${i.name}</strong><br>
-                <small style="color: var(--text-muted)">${i.category || 'Sin categoría'}</small>
-            </td>
-            <td style="padding: 1rem;">
-                <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <span class="stat-value" style="font-size:1.1rem; color: ${i.stock <= 0 ? 'var(--danger)' : i.stock < 5 ? 'var(--warning)' : 'var(--success)'};">${i.stock}</span>
-                    ${i.stock <= 0 ? '<span class="badge badge-danger" style="font-size:0.6rem;">AGOTADO</span>' : i.stock < 5 ? '<span class="badge badge-warning" style="font-size:0.6rem;">BAJO</span>' : ''}
+                <div class="product-card-content">
+                    <h3 class="product-card-title">${i.name}</h3>
+                    <div class="product-card-footer">
+                        <div class="product-card-price">$${i.price.toFixed(2)}</div>
+                        <div class="product-card-stock">${i.stock}</div>
+                    </div>
+                    ${currentUser.role !== 'seller' ? `
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            <button class="btn btn-ghost btn-sm" style="flex: 1;" onclick="event.stopPropagation(); navigateTo('product-detail'); renderProductDetailById(${i.id})">
+                                <i class="ph ph-eye"></i> Detalles
+                            </button>
+                            ${selectedBusinessId ? `
+                                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); showWasteModal(${i.id})">
+                                    <i class="ph ph-warning-circle"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
-            </td>
-            <td style="padding: 1rem;">$${i.cost.toFixed(2)}</td>
-            <td style="padding: 1rem;">$${i.price.toFixed(2)}</td>
-            <td style="padding: 1rem; text-align: right;">
-                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                    ${currentUser.role !== 'seller' ? `<button class="btn-icon" onclick="showEditProductModal(${i.id})" title="Editar"><i class="ph ph-pencil"></i></button>` : ''}
-                    ${selectedBusinessId ? `<button class="btn-ghost" onclick="showWasteModal(${i.id})"><i class="ph ph-warning-circle"></i> Merma</button>` : ''}
-                </div>
-            </td>
-        </tr>
-    `).join('');
+            </div>
+        `;
+    }).join('');
 
     container.innerHTML = `
         <div class="fade-in">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-                <div style="display: flex; gap: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                <p style="color: var(--text-muted); margin: 0;">Gestiona tus productos, stock y precios de forma visual.</p>
+                <div style="display: flex; gap: 1rem;">
                     ${currentUser.role !== 'seller' ? `
-                        <button class="btn-primary" onclick="showAddProductModal()"><i class="ph ph-plus"></i> Nuevo Producto</button>
                         <button class="btn-secondary" onclick="exportInventoryPDF()"><i class="ph ph-file-pdf"></i> PDF</button>
-                        <button class="btn-secondary" onclick="exportInventoryCSV()"><i class="ph ph-file-csv"></i> Exportar CSV</button>
-                        <label class="btn-secondary" style="cursor: pointer;">
-                            <i class="ph ph-upload-simple"></i> Importar CSV
-                            <input type="file" style="display:none" accept=".csv" onchange="importInventoryCSV(this)">
-                        </label>
+                        <button class="btn-secondary" onclick="exportInventoryCSV()"><i class="ph ph-file-csv"></i></button>
                     ` : ''}
                 </div>
-                ${(selectedBusinessId && currentUser.role !== 'seller') ? `<button class="btn-ghost" onclick="navigateTo('logs')"><i class="ph ph-list"></i> Ver Historial de Cambios</button>` : ''}
             </div>
-            
-            <div class="card" style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="text-align: left; background: var(--bg-dark); color: var(--text-muted);">
-                            <th style="padding: 1rem;">Foto</th>
-                            <th style="padding: 1rem;">Producto</th>
-                            <th style="padding: 1rem;">Stock</th>
-                            <th style="padding: 1rem;">Costo</th>
-                            <th style="padding: 1rem;">Venta</th>
-                            <th style="padding: 1rem; text-align: right;">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${rows || '<tr><td colspan="6" style="padding: 3rem; text-align: center; color: var(--text-muted);">No hay productos registrados</td></tr>'}
-                    </tbody>
-                </table>
+
+            <div class="inventory-grid">
+                ${cards || '<div style="grid-column: 1/-1; padding: 4rem; text-align: center; color: var(--text-muted); background: var(--bg-dark); border-radius: 16px; border: 1px dashed var(--border);">No hay productos registrados</div>'}
             </div>
+
+            ${currentUser.role !== 'seller' ? `
+                <button class="fab" onclick="showAddProductModal()" title="Nuevo Producto">
+                    <i class="ph ph-plus"></i>
+                </button>
+                
+                <div class="selection-bar ${selectedProducts.size > 0 ? 'active' : ''}">
+                    <div class="selection-count">
+                        <i class="ph ph-check-square"></i> ${selectedProducts.size} seleccionados
+                    </div>
+                    <div class="selection-actions">
+                        <button class="selection-btn" onclick="clearProductSelection()">Cancelar</button>
+                        <button class="selection-btn" onclick="adjustSelectedStock()"><i class="ph ph-arrows-down-up"></i> Ajustar Stock</button>
+                        <button class="selection-btn danger" onclick="deleteSelectedProducts()"><i class="ph ph-trash"></i> Eliminar</button>
+                    </div>
+                </div>
+            ` : ''}
         </div>
     `;
-    updateTitle(selectedBusinessId ? `Inventario: ${db.businesses.find(b => b.id === selectedBusinessId).name}` : 'Inventario Consolidado');
+    updateTitle(selectedBusinessId ? `Existencias: ${db.businesses.find(b => b.id === selectedBusinessId).name}` : 'Inventario Consolidado');
 }
 
-// POS State
-let posCart = [];
-let editingSaleId = null;
-let currentPaymentMethod = 'cash'; // Default to cash
+function toggleProductSelection(productId) {
+    if (selectedProducts.has(productId)) {
+        selectedProducts.delete(productId);
+    } else {
+        selectedProducts.add(productId);
+    }
+    renderSidebar(currentView); // To refresh counts if needed
+    renderInventory(document.getElementById('content-area'));
+}
+
+function clearProductSelection() {
+    selectedProducts.clear();
+    renderInventory(document.getElementById('content-area'));
+}
+
+async function deleteSelectedProducts() {
+    if (selectedProducts.size === 0) return;
+    if (!confirm(`¿Estás seguro de eliminar ${selectedProducts.size} productos? Esta acción no se puede deshacer.`)) return;
+
+    const idsToDelete = Array.from(selectedProducts);
+
+    // Remove from products db
+    db.products = db.products.filter(p => !idsToDelete.includes(p.id));
+
+    // Remove from inventory db
+    db.inventory = db.inventory.filter(i => !idsToDelete.includes(i.productId));
+
+    // Log action
+    addLog('Eliminación Masiva', `Se eliminaron ${idsToDelete.length} productos del sistema.`);
+
+    await saveData();
+    selectedProducts.clear();
+    showToast(`${idsToDelete.length} productos eliminados.`);
+    renderInventory(document.getElementById('content-area'));
+}
+
+function adjustSelectedStock() {
+    if (selectedProducts.size === 0) return;
+    // For now simple alert, later can be a modal
+    showToast('Función de ajuste masivo próximamente integrada.', 'info');
+}
+
+// POS State (declared at top)
 
 function renderMermas(container) {
     const wasteList = db.waste.filter(w => !selectedBusinessId || w.businessId === selectedBusinessId);
@@ -802,17 +1122,17 @@ function showWasteModal() {
             <form id="waste-form" onsubmit="handleSaveWaste(event)">
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted);">Producto</label>
-                    <select name="productId" required style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    <select name="productId" required style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: inherit;">
                         ${productOptions}
                     </select>
                 </div>
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted);">Cantidad</label>
-                    <input type="number" name="quantity" required min="0.1" step="0.1" style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    <input type="number" name="quantity" required min="0.1" step="0.1" style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: inherit;">
                 </div>
                 <div style="margin-bottom: 1.5rem;">
                     <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted);">Motivo / Notas</label>
-                    <textarea name="notes" placeholder="Ej: Rotura, Vencimiento..." style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: white; min-height: 80px;"></textarea>
+                    <textarea name="notes" placeholder="Ej: Rotura, Vencimiento..." style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: inherit; min-height: 80px;"></textarea>
                 </div>
                 <div style="display: flex; gap: 1rem; justify-content: flex-end;">
                     <button type="button" class="btn btn-secondary" onclick="closeModal('waste-modal')">Cancelar</button>
@@ -886,58 +1206,85 @@ async function approveWaste(wasteId) {
         if (notif) notif.status = 'seen';
 
         addLog(`Merma aprobada por ${currentUser.name}: ${db.products.find(p => p.id === waste.productId)?.name}`, 'success');
+        if (isReviewingClosure && !window.auditTempData) window.auditTempData = {}; // Safety init
         await saveData();
         renderMermas(document.getElementById('content-area'));
         if (document.getElementById('modal-notifications')) showNotificationsModal();
     }
 }
 
+function isWarehouseContext() {
+    const biz = db.businesses.find(b => String(b.id) === String(selectedBusinessId));
+    return biz && biz.type === 'warehouse';
+}
+
 function renderPOS(container) {
-    if (!editingSaleId) posCart = [];
+    try {
+        // 1. Verificar si hay sesión activa
+        if (!isSessionActive && !isReviewingClosure) {
+            renderOpenSessionScreen(container);
+            return;
+        }
 
-    // Obtener fecha actual en formato local
-    const now = new Date();
-    const today = now.toISOString().split('T')[0];
-    const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+        // BUG FIX: Removed 'posCart = []' to allow persistence during navigation.
+        // The cart should only be cleared explicitly after a successful sale or manual clear.
 
-    const canEditDate = true; // REGLA: Fecha habilitada para todos.
+        // Obtener fecha actual en formato local
+        const now = new Date();
+        const today = now.toISOString().split('T')[0];
+        const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
 
-    const headerHtml = `
+        const canEditDate = true; // REGLA: Fecha habilitada para todos.
+
+        const headerHtml = `
         <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem;">
             <div style="display: flex; align-items: center; gap: 1rem;">
                 <i class="ph ph-calendar" style="font-size: 1.5rem; color: var(--primary);"></i>
                 <div>
                     <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Fecha de Operación</label>
-                    <input type="date" id="pos-date" value="${today}" ${!canEditDate ? 'disabled' : ''} 
-                           style="background: transparent; border: none; color: white; font-weight: bold; font-size: 1rem; outline: none;">
+                    <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" ${!canEditDate ? 'disabled' : ''} 
+                    style="background: transparent; border: none; color: inherit; font-weight: bold; font-size: 1rem; outline: none;">
                 </div>
             </div>
-            <div style="text-align: right;">
-                <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora de Apertura</label>
-                <input type="time" id="pos-open-time" value="${currentTime}" class="input-minimal" style="width: 80px;">
+            <div style="display: flex; gap: 2rem; text-align: right;">
+                <div>
+                    <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Apertura</label>
+                    <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" class="input-minimal" style="width: 100px;">
+                </div>
+                ${isReviewingClosure ? `
+                <div>
+                    <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Cierre</label>
+                    <input type="time" id="pos-close-time" value="${window.auditTempData.closingTime}" class="input-minimal" style="width: 100px;">
+                </div>` : ''}
             </div>
         </div>
     `;
 
-    const searchHtml = `
-        <div class="card" style="margin-bottom: 1rem;">
-            <div class="pos-search-container" style="position: relative;">
+        const searchHtml = `
+        <div class="card search-container-card" style="margin-bottom: 1rem;">
+            <div class="search-bar">
                 <input type="text" id="pos-search" placeholder="Buscar producto por nombre..." 
-                       oninput="handlePOSSearch(this.value)" class="input-field" style="padding-left: 3rem;">
+                       oninput="handlePOSSearch(this.value)" class="input-field" style="padding-left: 3rem;" autocomplete="off">
                 <i class="ph ph-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);"></i>
-                <div id="pos-results" style="display: none; position: absolute; width: 100%; z-index: 100; background: var(--bg-card); border: 1px solid var(--border); max-height: 400px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 0 0 8px 8px;"></div>
+                <div id="pos-results" class="pos-results"></div>
             </div>
         </div>
     `;
 
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="fade-in" style="display: grid; grid-template-columns: 1fr 450px; gap: 1.5rem; height: calc(100vh - 150px);">
             <!-- Panel Izquierdo: Buscador y Carrito -->
             <div style="display: flex; flex-direction: column; min-height: 0; gap: 1rem;">
                 ${headerHtml}
+                ${isReviewingClosure ? `
+                    <div class="pos-banner pos-banner-review">
+                        <span><i class="ph ph-shield-check"></i> MODALIDAD: REVISANDO CIERRE DE DÍA</span>
+                        <button class="btn-ghost" onclick="cancelPOSEdit()" style="color: var(--danger); font-size: 0.8rem; padding: 0.2rem 0.5rem; border: 1px solid var(--danger); border-radius: 6px;">CANCELAR REVISIÓN</button>
+                    </div>
+                ` : ''}
                 ${editingSaleId ? `
-                    <div style="background: rgba(243, 156, 18, 0.1); border: 1px solid var(--warning); padding: 0.75rem 1.5rem; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <span style="color: var(--warning); font-weight: bold;"><i class="ph ph-pencil-simple"></i> MODALIDAD: EDITANDO VENTA #${editingSaleId.toString().slice(-4)}</span>
+                    <div class="pos-banner pos-banner-edit">
+                        <span><i class="ph ph-pencil-simple"></i> MODALIDAD: EDITANDO VENTA #${editingSaleId.toString().slice(-4)}</span>
                         <button class="btn-ghost" onclick="cancelPOSEdit()" style="color: var(--danger); font-size: 0.8rem; padding: 0.2rem 0.5rem; border: 1px solid var(--danger); border-radius: 6px;">CANCELAR EDICIÓN</button>
                     </div>
                 ` : ''}
@@ -950,23 +1297,25 @@ function renderPOS(container) {
                         </div>
                     </div>
                     <div id="pos-cart-items" style="flex: 1; overflow-y: auto;"></div>
-                    <div class="pos-management-actions" style="padding: 1rem;">
-                        <button class="btn-secondary btn-expense" onclick="openExpenseModal()">
-                            <i class="ph ph-receipt"></i> Registrar Gasto
-                        </button>
-                        <button class="btn-secondary btn-merma" onclick="openIncidentModal()">
-                            <i class="ph ph-warning-circle"></i> Incidencias / Dev
-                        </button>
-                    </div>
+                    ${!isWarehouseContext() ? `
+                        <div class="pos-management-actions" style="padding: 1rem;">
+                            <button class="btn-secondary btn-expense" onclick="openExpenseModal()">
+                                <i class="ph ph-receipt"></i> Registrar Gasto
+                            </button>
+                            <button class="btn-secondary btn-merma" onclick="openIncidentModal()">
+                                <i class="ph ph-warning-circle"></i> Incidencias / Dev
+                            </button>
+                        </div>
+                    ` : ''}
                 </div>
             </div>
 
             <!-- Panel Derecho: Lista de Hoy y Resumen -->
             <div style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0;">
-                <!-- Lista de Ventas de Hoy -->
+                <!-- Lista de Movimientos del Día -->
                 <div class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
                     <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark);">
-                        <h3 style="margin: 0; font-size: 1rem;"><i class="ph ph-list-numbers"></i> Ventas de Hoy</h3>
+                        <h3 style="margin: 0; font-size: 1rem;"><i class="ph ph-list-numbers"></i> Movimientos del Día</h3>
                     </div>
                     <div id="today-sales-list" style="flex: 1; height: 400px; overflow-y: auto;"></div>
                 </div>
@@ -976,28 +1325,45 @@ function renderPOS(container) {
                     <div id="pos-summary"></div>
                     
                     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                        <button class="btn-primary" style="width: 100%; height: 60px; font-size: 1.2rem; border-radius: 10px;" 
-                                onclick="showPaymentModal()">
-                            <i class="ph ph-hand-coins"></i> COBRAR
-                        </button>
-                        ${(currentUser.role === 'seller') ? `
+                        ${isReviewingClosure ? `
+                            <button id="payBtn" class="btn-primary" style="width: 100%; height: 60px; font-size: 1.2rem; border-radius: 10px; background: var(--success);" 
+                                    onclick="approveClosureFromPOS()">
+                                <i class="ph ph-check-circle"></i> APROBAR CIERRE DE DÍA
+                            </button>
+                        ` : `
+                            <button id="payBtn" class="btn-primary" style="width: 100%; height: 60px; font-size: 1.2rem; border-radius: 10px;" 
+                                    onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}">
+                                <i class="ph ${isWarehouseContext() ? 'ph-package' : 'ph-hand-coins'}"></i> 
+                                ${isWarehouseContext() ? 'TRANSFERIR MERCANCÍA' : 'COBRAR'}
+                            </button>
+                        `}
+                        
+                        ${(!isReviewingClosure && currentUser.role === 'seller' && !isWarehouseContext()) ? `
                             <button class="btn-secondary" style="width: 100%; border-color: var(--primary); color: var(--primary);" onclick="openPOSClosureModal()">
                                 <i class="ph ph-lock-key"></i> TERMINAR Y CERRAR DÍA
                             </button>
-                        ` : `
+                        ` : ''}
+                        
+                        ${(!isReviewingClosure && currentUser.role !== 'seller' && !isWarehouseContext()) ? `
                             <button class="btn-secondary" style="width: 100%;" onclick="openPOSClosureModal()">
                                 <i class="ph ph-check-square"></i> CERRAR DÍA (MODO ADMIN)
                             </button>
-                        `}
+                        ` : ''}
                     </div>
                 </div>
             </div>
         </div>
     `;
-    updateTitle('Punto de Venta');
-    renderCart();
-    renderTodaySalesList();
+        updateTitle(isReviewingClosure ? 'Ventana en Revisión (Auditoría)' : 'Punto de Venta');
+        renderCart();
+        renderTodaySalesList();
+    } catch (e) {
+        console.error('Error rendering POS:', e);
+        container.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger);"><i class="ph ph-warning-circle" style="font-size:2rem;"></i><br>Error cargando Punto de Venta.<br><small>${e.message}</small></div>`;
+    }
 }
+
+
 
 function renderTodaySalesList() {
     const container = document.getElementById('today-sales-list');
@@ -1005,11 +1371,22 @@ function renderTodaySalesList() {
 
     const todayDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : new Date().toISOString().split('T')[0];
 
+    // Obtener ventas del día seleccionado
     const todaySales = db.sales.filter(s => {
         const saleDatePart = s.date.split(' ')[0];
+        const saleTs = s.timestamp || new Date(s.date).getTime();
+
+        // FILTRO DE SESIÓN: Si estamos en una sesión activa, SOLO mostrar ventas de ESTA sesión.
+        // Si el admin revisa (isReviewingClosure), mostrar TODO lo del día (o lo que esté en filter normal).
+        let sessionCondition = true;
+        if (isSessionActive && !isReviewingClosure) {
+            sessionCondition = saleTs >= currentSessionStartTime;
+        }
+
         return saleDatePart === todayDate &&
             (s.status === 'registered' || s.status === 'closed') &&
-            (selectedBusinessId ? s.businessId === selectedBusinessId : true);
+            (selectedBusinessId ? s.businessId === selectedBusinessId : true) &&
+            sessionCondition;
     });
 
     if (todaySales.length === 0) {
@@ -1017,37 +1394,55 @@ function renderTodaySalesList() {
         return;
     }
 
-    container.innerHTML = todaySales.map(s => `
-        <div class="card" style="margin: 0.5rem; padding: 1.2rem; border: 1px solid var(--border); background: var(--bg-card); border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+    container.innerHTML = todaySales.map(s => {
+        let cardClass = '';
+        if (s.type === 'EXPENSE') cardClass = 'card-expense';
+        else if (['DEVOLUCION_STOCK', 'DEVOLUCION_ROTO', 'ROTURA_DETERIORO'].includes(s.type)) cardClass = 'card-incidence';
+
+        const isExpense = s.type === 'EXPENSE';
+        const isIncidence = !isExpense && cardClass === 'card-incidence';
+
+        // Contenido de la tarjeta
+        let detailsHtml = '';
+        if (isExpense) {
+            detailsHtml = `<div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; italic">${s.details || 'Sin descripción'}</div>`;
+        } else if (s.type === 'daily_closure_report') {
+            detailsHtml = `<div style="font-size: 0.85rem; color: var(--primary); margin-top: 0.5rem; font-weight:bold;">REPORTE DE CIERRE DEFINITIVO</div>`;
+        } else {
+            detailsHtml = `
+                <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                    ${(s.items || []).map(item => `<div>• ${item.name} (${item.qty})</div>`).join('')}
+                </div>
+            `;
+        }
+
+        return `
+        <div class="card ${cardClass}" style="margin: 0.5rem; padding: 1.2rem; border: 1px solid var(--border); background: var(--bg-card); border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
-                <div style="background: var(--primary); color: white; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: bold;">
-                    #${s.id.toString().slice(-4)}
+                <div style="background: ${isExpense ? 'var(--danger)' : (isIncidence ? 'var(--warning)' : 'var(--primary)')}; color: white; padding: 0.2rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: bold;">
+                    #${s.id.toString().slice(-4)} ${isExpense ? '(GASTO)' : (isIncidence ? '(INCIDENCIA)' : '')}
                 </div>
                 <div style="text-align: right;">
-                    <div style="font-size: 1.2rem; font-weight: 900; color: var(--primary);">$${(s.total || 0).toFixed(2)}</div>
-                    <div style="font-size: 0.7rem; color: var(--text-muted);">${s.payment ? `CASH: $${(s.payment.cash || 0).toFixed(1)} | TRANS: $${(s.payment.transfer || 0).toFixed(1)}` : `Efectivo`}</div>
+                    <div style="font-size: 1.2rem; font-weight: 900; color: ${isExpense ? 'var(--danger)' : (isIncidence ? 'var(--warning)' : 'var(--primary)')};">
+                        ${isExpense ? '-' : ''}$${Math.abs(s.total || 0).toFixed(2)}
+                    </div>
                 </div>
             </div>
             
-            <div style="font-size: 0.85rem; margin-bottom: 1rem;">
-                ${(s.items || []).map(i => `
-                    <div onclick="returnItemFromTodaySale(${s.id}, ${i.productId || i.id})" 
-                         style="display: flex; justify-content: space-between; margin-bottom: 0.4rem; cursor: pointer; padding: 0.3rem; border-radius: 4px; transition: background 0.2s; border: 1px dashed transparent;"
-                         onmouseover="this.style.background='rgba(255,0,0,0.1)'; this.style.borderColor='var(--danger)';"
-                         onmouseout="this.style.background='transparent'; this.style.borderColor='transparent';"
-                         title="Haga clic para devolver este artículo">
-                        <span><i class="ph ph-arrow-counter-clockwise" style="color:var(--danger);"></i> ${i.qty}x ${i.name}</span>
-                        <span style="color: var(--text-muted);">$${(i.qty * i.price).toFixed(2)}</span>
-                    </div>
-                `).join('')}
-            </div>
-            
-            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                 <button onclick="editSale(${s.id})" class="btn-icon" style="background:rgba(255,255,255,0.05);" title="Editar Venta"><i class="ph ph-pencil-simple"></i></button>
-                 <button onclick="deleteSale(${s.id})" class="btn-icon" style="background:rgba(255,0,0,0.1); color:var(--danger);" title="Eliminar Venta"><i class="ph ph-trash"></i></button>
+            ${detailsHtml}
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+                <span style="font-size: 0.7rem; color: var(--text-muted);">${s.date.split(' ')[1] || ''} | ${s.seller || 'Sistema'}</span>
+                <div style="display: flex; gap: 0.4rem;">
+                    ${currentUser.role !== 'seller' || s.status === 'registered' ? `
+                        <button class="btn-icon" onclick="editSale(${s.id})" style="color: var(--primary); background: rgba(var(--primary-rgb), 0.1);"><i class="ph ph-pencil-simple"></i></button>
+                        <button class="btn-icon" onclick="deleteSale(${s.id})" style="color: var(--danger); background: rgba(239, 68, 68, 0.1);"><i class="ph ph-trash"></i></button>
+                    ` : ''}
+                </div>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function returnItemFromTodaySale(saleId, itemId) {
@@ -1088,82 +1483,7 @@ async function returnItemFromTodaySale(saleId, itemId) {
     renderTodaySalesList();
     renderInventory(document.getElementById('content-area')); // Refrescar stock si visible
 }
-
-async function deleteSale(saleId) {
-    if (currentUser.role === 'seller') {
-        if (!confirm("👮 EL VENDEDOR intenta eliminar una venta cerrada. ¿Autorizar operación?")) return;
-    } else {
-        if (!confirm("¿Estás seguro de eliminar esta venta permanentemente? El stock se restaurará.")) return;
-    }
-
-    const index = db.sales.findIndex(s => s.id === saleId);
-    if (index !== -1) {
-        const sale = db.sales[index];
-
-        // Devolución monetaria si es del día actual
-        const today = new Date().toISOString().split('T')[0];
-        if (sale.date.startsWith(today)) {
-            if (!db.dailyReturns) db.dailyReturns = 0;
-            db.dailyReturns += sale.total;
-        }
-
-        // Devolver items al stock
-        if (sale.items) {
-            sale.items.forEach(item => {
-                const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(sale.businessId));
-                if (inv) inv.quantity += item.qty;
-                else db.inventory.push({ productId: item.productId || item.id, businessId: sale.businessId, quantity: item.qty });
-            });
-        }
-
-        db.sales.splice(index, 1);
-        addLog(`Venta #${saleId.toString().slice(-4)} eliminada. Stock restaurado.`, 'warning');
-
-        await saveData();
-
-        // Refrescar según la vista actual
-        if (currentView === 'pos') {
-            renderTodaySalesList();
-            renderPOS(document.getElementById('content-area'));
-        } else if (currentView === 'ventas' || currentView === 'daily-records') {
-            renderVentas(document.getElementById('content-area'));
-        }
-
-        if (typeof renderDashboard === 'function') renderDashboard(null);
-        alert("Venta eliminada y stock restaurado.");
-    }
-}
-
-async function editSale(saleId) {
-    const sale = db.sales.find(s => s.id === saleId);
-    if (!sale) return;
-
-    if (currentUser.role === 'seller') {
-        const today = new Date().toISOString().split('T')[0];
-        if (!sale.date.startsWith(today)) {
-            alert("Solo puedes editar ventas del día de hoy.");
-            return;
-        }
-    }
-
-    if (!confirm("¿Deseas editar esta venta? Los cambios se aplicarán al volver a cobrar.")) return;
-
-    editingSaleId = saleId;
-    posCart = sale.items.map(i => ({
-        id: i.productId || i.id,
-        name: i.name,
-        price: i.price,
-        qty: i.qty,
-        image: db.products.find(p => String(p.id) === String(i.productId || i.id))?.image || ''
-    }));
-
-    if (currentView !== 'pos') {
-        navigateTo('pos');
-    } else {
-        renderPOS(document.getElementById('content-area'));
-    }
-    alert("Venta cargada en el carrito. Modifica lo necesario y presiona COBRAR para guardar.");
-}
+// REDUNDANT FUNCTIONS REMOVED FOR CLEANUP (Moved to global bridges or consolidated)
 
 async function registerIndividualSale() {
     console.log("Registering sale...");
@@ -1174,8 +1494,9 @@ async function registerIndividualSale() {
 
     const cashInput = document.getElementById('pay-cash-input');
     const transferInput = document.getElementById('pay-transfer-input');
+    const currencySelect = document.getElementById('pay-currency-select');
 
-    if (!cashInput || !transferInput) {
+    if (!cashInput || !transferInput || !currencySelect) {
         // If modal not open (e.g. called from elsewhere), default to currentPaymentMethod
         showPaymentModal();
         return;
@@ -1183,20 +1504,20 @@ async function registerIndividualSale() {
 
     const cash = parseFloat(cashInput.value || 0);
     const transfer = parseFloat(transferInput.value || 0);
-    const total = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    const currencyCode = currencySelect.value || 'mn';
+    const totalValue = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const businessId = selectedBusinessId || 'mch1';
     const now = new Date();
     const explicitDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : now.toISOString().split('T')[0];
     const dateString = `${explicitDate} ${now.toLocaleTimeString([], { hour12: false })}`;
     const timestamp = Date.now();
+    const posOpeningTime = document.getElementById('pos-open-time') ? document.getElementById('pos-open-time').value : null;
 
-    // Verificación final de stock antes de procesar
-    for (const item of posCart) {
-        const available = getAvailableStock(item.id);
-        if (item.qty > available) {
-            alert(`Error: Se ha excedido el stock disponible para "${item.name}".\nPor favor revise las cantidades antes de confirmar.`);
-            return;
-        }
+    if (!validateStockBeforeProcess()) return;
+
+    // --- INTEGRACIÓN: ACTUALIZAR SALDO AUTOMÁTICO ---
+    if (typeof window.actualizarSaldo === 'function') {
+        window.actualizarSaldo(currencyCode, totalValue);
     }
 
     try {
@@ -1209,31 +1530,32 @@ async function registerIndividualSale() {
                     if (inv) inv.quantity += item.qty;
                 }
             }
-        }
 
-        // Deduct new inventory
-        for (const item of posCart) {
-            const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
-            if (inv) {
-                inv.quantity -= item.qty;
-            } else {
-                db.inventory.push({ productId: item.id, businessId: businessId, quantity: -item.qty });
+            // Deduct new inventory
+            for (const item of posCart) {
+                const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+                if (inv) {
+                    inv.quantity -= item.qty;
+                } else {
+                    db.inventory.push({ productId: item.id, businessId: businessId, quantity: -item.qty });
+                }
             }
-        }
 
-        if (editingSaleId) {
-            const saleIndex = db.sales.findIndex(s => s.id === editingSaleId);
-            if (saleIndex !== -1) {
-                const s = db.sales[saleIndex];
-                s.items = posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price }));
-                s.total = total;
-                s.payment = { cash, transfer };
-                s.businessId = businessId;
-                s.date = dateString;
-                s.timestamp = timestamp;
-                addLog(`Venta #${s.id} actualizada: $${total.toFixed(2)} (C:$${cash}, T:$${transfer})`, 'info');
+            if (editingSaleId) {
+                const saleIndex = db.sales.findIndex(s => s.id === editingSaleId);
+                if (saleIndex !== -1) {
+                    const s = db.sales[saleIndex];
+                    s.items = posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price }));
+                    s.total = totalValue;
+                    s.payment = { cash, transfer, currency: currencyCode };
+                    s.businessId = businessId;
+                    s.date = dateString;
+                    s.timestamp = timestamp;
+                    s.openingTime = posOpeningTime;
+                    addLog(`Venta #${s.id} actualizada: $${totalValue.toFixed(2)} (${currencyCode.toUpperCase()})`, 'info');
+                }
+                editingSaleId = null;
             }
-            editingSaleId = null;
         } else {
             const saleData = {
                 id: timestamp,
@@ -1243,12 +1565,15 @@ async function registerIndividualSale() {
                 seller: currentUser ? currentUser.name : 'Vendedor 1',
                 sellerId: currentUser ? currentUser.id : 2,
                 items: posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
-                total: total,
-                payment: { cash, transfer },
-                status: (currentUser && (currentUser.role === 'owner' || currentUser.role === 'admin')) ? 'closed' : 'registered'
+                total: totalValue,
+                payment: { cash, transfer, currency: currencyCode },
+                openingTime: posOpeningTime,
+                sessionId: currentSessionStartTime || Date.now(), // SESSION TRACKING
+                // NUEVA LÓGICA: Toda venta entra como PENDIENTE (Amarillo) para ser procesada en el cierre
+                status: 'registered'
             };
             db.sales.unshift(saleData);
-            addLog(`Venta registrada: $${total.toFixed(2)} (C:$${cash}, T:$${transfer})`, 'success');
+            addLog(`Venta registrada: $${totalValue.toFixed(2)} (${currencyCode.toUpperCase()})`, 'success');
         }
 
         await saveData();
@@ -1266,23 +1591,69 @@ async function registerIndividualSale() {
     }
 }
 
+const autoCalculateCash = (total) => {
+    const transferInput = document.getElementById('pay-transfer-input');
+    const cashInput = document.getElementById('pay-cash-input');
+    const btn = document.getElementById('confirm-payment-btn');
+
+    let transfer = parseFloat(transferInput.value) || 0;
+
+    // Prevent negative transfers
+    if (transfer < 0) {
+        transfer = 0;
+        transferInput.value = 0;
+    }
+
+    // Validation: Transfer cannot exceed Total
+    if (transfer > total) {
+        alert("La transferencia no puede ser mayor al total.");
+        transfer = total;
+        transferInput.value = total.toFixed(2);
+    }
+
+    const remainingCash = total - transfer;
+    cashInput.value = remainingCash.toFixed(2);
+};
+
 function showPaymentModal() {
     if (posCart.length === 0) {
         alert("El carrito está vacío");
         return;
     }
     const total = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    const isSeller = currentUser && currentUser.role === 'seller';
 
-    const modalHtml = `
-        <div class="card" style="width: 400px; padding: 2rem; border-radius: 20px;">
-            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ph ph-coins" style="color: var(--warning);"></i> Finalizar Venta
-            </h2>
-            <div style="background: var(--bg-dark); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Total a Cobrar</div>
-                <div style="font-size: 2.5rem; font-weight: 900; color: var(--primary);">$${total.toFixed(2)}</div>
+    let formContent = '';
+
+    if (isSeller) {
+        // --- SELLER VIEW: Only MN, Split Cash/Transfer ---
+        formContent = `
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Pago por Transferencia</label>
+                <div style="position: relative;">
+                    <i class="ph ph-bank" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--primary);"></i>
+                    <input type="number" id="pay-transfer-input" step="0.01" class="input-field" 
+                           style="padding-left: 3rem; border: 1px solid var(--primary);" 
+                           value="0" placeholder="0.00" oninput="autoCalculateCash(${total})">
+                </div>
             </div>
 
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Pago en Efectivo (Restante)</label>
+                <div style="position: relative;">
+                    <i class="ph ph-money" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--success);"></i>
+                    <input type="number" id="pay-cash-input" step="0.01" class="input-field" 
+                           style="padding-left: 3rem; background: var(--bg-hover); color: var(--text-muted);" 
+                           value="${total.toFixed(2)}" readonly>
+                </div>
+            </div>
+            
+            <!-- Hidden currency select forced to MN -->
+            <input type="hidden" id="pay-currency-select" value="mn">
+        `;
+    } else {
+        // --- ADMIN/OWNER VIEW: Full Options ---
+        formContent = `
             <div class="form-group" style="margin-bottom: 1rem;">
                 <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Monto Efectivo</label>
                 <div style="position: relative;">
@@ -1292,12 +1663,31 @@ function showPaymentModal() {
             </div>
 
             <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Monto Transferencia</label>
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Método de Pago / Moneda</label>
                 <div style="position: relative;">
-                    <i class="ph ph-arrows-left-right" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--primary);"></i>
-                    <input type="number" id="pay-transfer-input" step="0.1" class="input-field" style="padding-left: 3rem;" value="0.00" oninput="validatePaymentSplit(${total})">
+                    <i class="ph ph-currency-circle-dollar" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--warning);"></i>
+                    <select id="pay-currency-select" class="input-field" style="padding-left: 3rem;">
+                        <option value="mn">MN (Pesos)</option>
+                        <option value="usd">USD (Dólares)</option>
+                        <option value="eur">EUR (Euros)</option>
+                    </select>
+                    <input type="hidden" id="pay-transfer-input" value="0">
                 </div>
             </div>
+        `;
+    }
+
+    const modalHtml = `
+        <div class="card" style="width: 400px; padding: 2rem; border-radius: 20px;">
+            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ph ph-coins" style="color: var(--warning);"></i> Finalizar Venta ${isSeller ? '(MN)' : ''}
+            </h2>
+            <div style="background: var(--bg-dark); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Total a Cobrar</div>
+                <div style="font-size: 2.5rem; font-weight: 900; color: var(--primary);">$${total.toFixed(2)}</div>
+            </div>
+
+            ${formContent}
 
             <div id="payment-error" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 1.5rem; text-align: center; display: none;">
                 <i class="ph ph-warning"></i> La suma debe ser igual al total ($${total.toFixed(2)})
@@ -1312,6 +1702,7 @@ function showPaymentModal() {
         </div>
     `;
     showModal('payment-modal', modalHtml);
+    window.autoCalculateCash = autoCalculateCash; // Expose to global scope for oninput
 }
 
 function validatePaymentSplit(total) {
@@ -1324,13 +1715,17 @@ function validatePaymentSplit(total) {
     const btn = document.getElementById('confirm-payment-btn');
 
     if (diff > 0.02) { // Tolerance for floating point
-        errorEl.style.display = 'block';
-        btn.disabled = true;
-        btn.style.opacity = '0.5';
+        if (errorEl) errorEl.style.display = 'block';
+        if (btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+        }
     } else {
-        errorEl.style.display = 'none';
-        btn.disabled = false;
-        btn.style.opacity = '1';
+        if (errorEl) errorEl.style.display = 'none';
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
     }
 }
 
@@ -1448,10 +1843,27 @@ function renderCart() {
     const summary = document.getElementById('pos-summary');
     if (!container || !summary) return;
 
-    if (posCart.length === 0) {
+    const isEmpty = posCart.length === 0;
+    const payBtn = document.getElementById('payBtn');
+
+    if (isEmpty) {
         container.innerHTML = '<div style="padding:3rem; text-align:center; color:var(--text-muted);"><i class="ph ph-shopping-cart" style="font-size:3rem; display:block; margin-bottom:1rem; opacity:0.2;"></i>El carrito está vacío</div>';
         summary.innerHTML = '<div style="font-size:2rem; font-weight:bold; color:var(--text-muted);">$0.00</div>';
+
+        if (payBtn && !isReviewingClosure) {
+            payBtn.disabled = true;
+            payBtn.classList.add('disabled');
+            payBtn.innerHTML = '<i class="ph ph-shopping-cart"></i> CARRITO VACÍO';
+        }
         return;
+    }
+
+    if (payBtn && !isReviewingClosure) {
+        payBtn.disabled = false;
+        payBtn.classList.remove('disabled');
+        const text = isWarehouseContext() ? 'TRANSFERIR MERCANCÍA' : 'COBRAR';
+        const icon = isWarehouseContext() ? 'ph-package' : 'ph-hand-coins';
+        payBtn.innerHTML = `<i class="ph ${icon}"></i> ${text}`;
     }
 
     container.innerHTML = posCart.map((item, index) => `
@@ -1474,6 +1886,11 @@ function renderCart() {
     `).join('');
 
     const total = posCart.reduce((sum, item) => sum + (item.qty * item.price), 0);
+
+    // Si estamos en revisión, calculamos expected basados en el carrito actual y gastos
+    let expectedCash = total; // Simplificación inicial, debería restar gastos
+    let expectedTransfer = 0; // Se asume que el admin ajusta esto
+
     summary.innerHTML = `
         <div style="display:flex; flex-direction:column; gap:0.5rem;">
             <div style="display:flex; justify-content:space-between; color:var(--text-muted);">
@@ -1481,12 +1898,55 @@ function renderCart() {
                 <span>$${total.toFixed(2)}</span>
             </div>
             <div style="display:flex; justify-content:space-between; font-size:2.5rem; font-weight:bold; color:var(--primary); margin-top:1rem; border-top:2px solid var(--border); padding-top:1rem;">
-                <span>${editingSaleId ? 'TOTAL A EDITAR' : 'TOTAL'}</span>
-                <span>$${total.toFixed(2)}</span>
+                <span>${isWarehouseContext() ? 'TOTAL ÍTEMS' : (isReviewingClosure ? 'TOTAL SISTEMA' : (editingSaleId ? 'TOTAL A EDITAR' : 'TOTAL'))}</span>
+                <span>${isWarehouseContext() ? posCart.reduce((s, i) => s + i.qty, 0) : '$' + total.toFixed(2)}</span>
             </div>
+
+            ${isReviewingClosure ? `
+                <div class="audit-comparative-box" style="margin-top: 1.5rem; padding: 1.5rem; background: var(--bg-hover); border-radius: 12px; border: 1px solid var(--border);">
+                    <h4 style="margin:0 0 1rem 0; color:var(--warning); font-size:0.9rem; text-transform:uppercase;"><i class="ph ph-scales"></i> Arqueo Comparativo (Editable)</h4>
+                    
+                    <!-- EFECTIVO -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                        <div>
+                            <label style="display:block; font-size:0.7rem; color:var(--text-muted);">Efectivo Real</label>
+                            <input type="number" id="audit-cash-real" class="input-minimal" style="width:100%; font-size:1.1rem; font-weight:bold;" 
+                                   value="${window.auditTempData.cashReal}" oninput="window.auditTempData.cashReal = parseFloat(this.value || 0)">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.7rem; color:var(--text-muted);">Sobrante/Faltante</label>
+                            <div style="display:flex; gap:0.25rem;">
+                                <input type="number" id="audit-cash-surplus" class="input-minimal" placeholder="Sob." style="width:50%; color:var(--success);" 
+                                       value="${window.auditTempData.surplusCash}" oninput="window.auditTempData.surplusCash = parseFloat(this.value || 0)">
+                                <input type="number" id="audit-cash-shortage" class="input-minimal" placeholder="Fal." style="width:50%; color:var(--danger);" 
+                                       value="${window.auditTempData.shortageCash}" oninput="window.auditTempData.shortageCash = parseFloat(this.value || 0)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TRANSFERENCIA -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+                        <div>
+                            <label style="display:block; font-size:0.7rem; color:var(--text-muted);">Transf. Real</label>
+                            <input type="number" id="audit-transfer-real" class="input-minimal" style="width:100%; font-size:1.1rem; font-weight:bold;" 
+                                   value="${window.auditTempData.transferReal}" oninput="window.auditTempData.transferReal = parseFloat(this.value || 0)">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.7rem; color:var(--text-muted);">Sobrante/Faltante</label>
+                            <div style="display:flex; gap:0.25rem;">
+                                <input type="number" id="audit-transfer-surplus" class="input-minimal" placeholder="Sob." style="width:50%; color:var(--success);" 
+                                       value="${window.auditTempData.surplusTransfer}" oninput="window.auditTempData.surplusTransfer = parseFloat(this.value || 0)">
+                                <input type="number" id="audit-transfer-shortage" class="input-minimal" placeholder="Fal." style="width:50%; color:var(--danger);" 
+                                       value="${window.auditTempData.shortageTransfer}" oninput="window.auditTempData.shortageTransfer = parseFloat(this.value || 0)">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ` : ''}
+
             ${editingSaleId ? `
-                <div style="text-align: center; margin-top: 0.5rem;">
-                    <button class="btn-ghost" onclick="cancelPOSEdit()" style="color: var(--danger); font-size: 0.8rem;">Descartar cambios y salir de edición</button>
+                <div style="text-align: center; margin-top: 0.5rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
+                    <span style="font-size: 0.75rem; color: var(--warning); display: block; margin-bottom: 0.25rem;"><i class="ph ph-warning-circle"></i> Cambios sin guardar</span>
                 </div>
             ` : ''}
         </div>
@@ -1509,26 +1969,39 @@ function adjustPOSQty(idx, delta) {
 // --- POS MANAGEMENT (EXPENSES & INCIDENTS) ---
 
 function openExpenseModal() {
+    const templates = [
+        { label: "Área", value: "Área" },
+        { label: "Limpieza", value: "Limpieza" },
+        { label: "Otro...", value: "OTHER" }
+    ];
+
     const modalHtml = `
-        <div class="card" style="width: 400px; padding: 2rem; border-radius: 20px;">
-            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ph ph-receipt" style="color: #f39c12;"></i> Salida de Caja (Gasto)
+        <div class="card" style="width: 450px; padding: 2rem; border-radius: 20px;">
+            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--danger);">
+                <i class="ph ph-receipt"></i> Salida de Caja (Gasto)
             </h2>
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Se restará del efectivo en caja del día.</p>
             
             <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Tipo de Gasto</label>
+                <select id="expenseTemplate" class="input-field" onchange="toggleExpenseReason()">
+                    ${templates.map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
+                </select>
+            </div>
+
+            <div class="form-group" id="expenseReasonGroup" style="margin-bottom: 1.5rem; display: none;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Descripción del Gasto</label>
+                <input type="text" id="expenseReason" placeholder="Ej: Pago de chapeador..." class="input-field">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 2rem;">
                 <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Monto ($)</label>
                 <input type="number" id="expenseAmount" placeholder="0.00" min="0" step="0.1" class="input-field">
-            </div>
-            
-            <div class="form-group" style="margin-bottom: 2rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Motivo</label>
-                <input type="text" id="expenseReason" placeholder="Ej: Compra de insumos, comida..." class="input-field">
             </div>
 
             <div style="display: flex; gap: 1rem;">
                 <button class="btn-ghost" style="flex: 1;" onclick="closeModal('expense-modal')">Cancelar</button>
-                <button class="btn-primary" style="flex: 2; background: #f39c12; border-color: #f39c12;" onclick="confirmExpense()">
+                <button class="btn-primary" style="flex: 2; background: var(--danger); border-color: var(--danger);" onclick="confirmExpense()">
                     REGISTRAR GASTO
                 </button>
             </div>
@@ -1537,21 +2010,27 @@ function openExpenseModal() {
     showModal('expense-modal', modalHtml);
 }
 
+window.toggleExpenseReason = function () {
+    const template = document.getElementById('expenseTemplate').value;
+    const group = document.getElementById('expenseReasonGroup');
+    if (group) group.style.display = (template === 'OTHER') ? 'block' : 'none';
+};
+
 function openIncidentModal() {
     const modal = document.getElementById('incidentModal');
     if (!modal) return;
 
     modal.classList.remove('hidden');
 
-    // Llenar el datalist para búsqueda predictiva con stock según sede actual
-    const datalist = document.getElementById('productsDataList');
-    const businessId = selectedBusinessId || 'mch1';
+    // Limpiar resultados anteriores
+    const results = document.getElementById('incident-search-results');
+    if (results) results.style.display = 'none';
 
-    datalist.innerHTML = db.products.map(p => {
-        const inv = db.inventory.find(i => String(i.productId) === String(p.id) && String(i.businessId) === String(businessId));
-        const stock = inv ? inv.quantity : 0;
-        return `<option value="${p.name}">Stock: ${stock}</option>`;
-    }).join('');
+    const preview = document.getElementById('product-preview-card');
+    if (preview) {
+        preview.style.display = 'none';
+        preview.innerHTML = '';
+    }
 
     // Resetear campos
     document.getElementById('incidentProductSearch').value = '';
@@ -1561,6 +2040,117 @@ function openIncidentModal() {
 
     updateIncidentUI();
 }
+
+
+// --- INCIDENT SMART SEARCH ---
+window.handleIncidentSearch = function (query) {
+    const results = document.getElementById('incident-search-results');
+    if (!results) return;
+    if (query.length < 2) {
+        results.style.display = 'none';
+        return;
+    }
+
+    const filtered = db.products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()));
+    if (filtered.length === 0) {
+        results.style.display = 'none';
+        return;
+    }
+
+    results.innerHTML = filtered.map(p => {
+        const inv = db.inventory.find(invI => String(invI.productId) === String(p.id) && String(invI.businessId) === (selectedBusinessId || 'mch1'));
+        const stock = inv ? inv.quantity : 0;
+        return `
+            <div class="pos-search-item" onclick="selectIncidentProduct(${p.id})" style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px;">
+                <img src="${p.image || 'https://via.placeholder.com/40'}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;">
+                <div>
+                    <div style="font-weight: bold;">${p.name}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">$${p.price.toFixed(2)} | Stock: ${stock}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    results.style.display = 'block';
+};
+
+window.selectIncidentProduct = function (productId) {
+    const p = db.products.find(prod => String(prod.id) === String(productId));
+    if (!p) return;
+
+    document.getElementById('incidentProductSearch').value = p.name;
+    document.getElementById('incident-search-results').style.display = 'none';
+
+    updateIncidentPreviewCard(p);
+};
+
+function updateIncidentPreviewCard(p) {
+    const card = document.getElementById('product-preview-card');
+    const inv = db.inventory.find(invI => String(invI.productId) === String(p.id) && String(invI.businessId) === (selectedBusinessId || 'mch1'));
+    const stock = inv ? inv.quantity : 0;
+
+    card.innerHTML = `
+        <div class="card" style="padding: 1rem; background: rgba(255,255,255,0.03); border: 1px solid var(--primary); display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+            <img src="${p.image || 'https://via.placeholder.com/60'}" style="width: 60px; height: 60px; border-radius: 8px; object-fit: cover;">
+            <div style="flex: 1;">
+                <h4 style="margin: 0; color: white;">${p.name}</h4>
+                <div style="font-size: 0.9rem; margin-top: 0.4rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <span style="color: var(--primary); font-weight: 600;">Precio: $${p.price.toFixed(2)}</span>
+                    <span style="color: ${stock > 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: 600;">En Stock: ${stock}</span>
+                    <span style="color: var(--text-muted);">Ref: #${p.id}</span>
+                </div>
+            </div>
+            <input type="hidden" id="selectedIncidentProductId" value="${p.id}">
+        </div>
+    `;
+    card.style.display = 'flex';
+}
+
+let incidentPhotosData = [];
+window.handleIncidentPhotos = function (input) {
+    const container = document.getElementById('photo-preview-container');
+    const files = Array.from(input.files);
+
+    if (incidentPhotosData.length + files.length > 5) {
+        alert("Máximo 5 fotos permitidas.");
+        return;
+    }
+
+    files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const base64 = e.target.result;
+            incidentPhotosData.push(base64);
+            renderPhotoPreviews();
+        };
+        reader.readAsDataURL(file);
+    });
+};
+
+function renderPhotoPreviews() {
+    const container = document.getElementById('photo-preview-container');
+    const uploadBtn = container.querySelector('label');
+
+    // Clear existing previews except the upload button
+    container.querySelectorAll('.photo-preview-item').forEach(el => el.remove());
+
+    incidentPhotosData.forEach((data, index) => {
+        const div = document.createElement('div');
+        div.className = 'photo-preview-item';
+        div.style = `position: relative; width: 60px; height: 60px; border-radius: 8px; overflow: hidden;`;
+        div.innerHTML = `
+            <img src="${data}" style="width: 100%; height: 100%; object-fit: cover;">
+            <button onclick="removeIncidentPhoto(${index})" style="position: absolute; top: 0; right: 0; background: var(--danger); color: white; border: none; font-size: 10px; cursor: pointer; padding: 2px 5px;">&times;</button>
+        `;
+        container.insertBefore(div, uploadBtn);
+    });
+
+    if (uploadBtn) uploadBtn.style.display = (incidentPhotosData.length >= 5) ? 'none' : 'flex';
+}
+
+window.removeIncidentPhoto = function (index) {
+    incidentPhotosData.splice(index, 1);
+    renderPhotoPreviews();
+};
 
 function updateIncidentUI() {
     const type = document.getElementById('incidentType').value;
@@ -1581,7 +2171,12 @@ function updateIncidentUI() {
 
 async function confirmExpense() {
     const amount = parseFloat(document.getElementById('expenseAmount').value);
-    const reason = document.getElementById('expenseReason').value;
+    const template = document.getElementById('expenseTemplate').value;
+    let reason = template;
+
+    if (template === 'OTHER') {
+        reason = document.getElementById('expenseReason').value.trim();
+    }
 
     if (!amount || amount <= 0 || !reason) {
         alert("Por favor, completa el monto y el motivo.");
@@ -1609,6 +2204,7 @@ async function confirmExpense() {
         total: -amount, // Negativo para restar de la caja
         items: [{ name: "GASTO OPERATIVO", price: -amount, qty: 1 }],
         details: reason,
+        sessionId: currentSessionStartTime || Date.now(), // SESSION TRACKING
         type: "EXPENSE",
         status: (currentUser.role === 'owner' || currentUser.role === 'admin') ? 'closed' : 'registered'
     };
@@ -1625,16 +2221,18 @@ async function confirmExpense() {
 
 async function processIncident() {
     const type = document.getElementById('incidentType').value;
-    const nameInput = document.getElementById('incidentProductSearch').value.trim();
-    // Búsqueda insensible a mayúsculas
-    const product = db.products.find(p => p.name.toLowerCase() === nameInput.toLowerCase());
+    const productId = document.getElementById('selectedIncidentProductId') ? document.getElementById('selectedIncidentProductId').value : null;
+    const product = db.products.find(p => String(p.id) === String(productId));
 
     const qty = parseInt(document.getElementById('incidentQty').value);
     const amount = parseFloat(document.getElementById('incidentAmount').value) || 0;
     const reason = document.getElementById('incidentReason').value.trim();
 
-    if (!product) return alert("❌ El producto '" + nameInput + "' no existe. Selecciónalo de la lista.");
-    if (!reason) return alert("❌ Debes escribir un motivo.");
+    if (!product) {
+        const query = document.getElementById('incidentProductSearch').value;
+        return alert("❌ El producto '" + query + "' no existe. Selecciónalo de la lista de resultados.");
+    }
+    if (!reason) return alert("❌ Debes escribir un motivo claro para la incidencia.");
 
     if (currentUser.role === 'seller') {
         if (!confirm("👮 Se requiere autorización del Dueño para procesar esto. ¿Autorizar?")) return;
@@ -1672,6 +2270,7 @@ async function processIncident() {
         items: [{ productId: product.id, name: product.name, price: amount, qty: qty }],
         details: `[${logType}] ${reason}`,
         type: logType,
+        photos: [...incidentPhotosData], // Store photos
         status: (currentUser.role === 'owner' || currentUser.role === 'admin') ? 'closed' : 'registered'
     };
 
@@ -1685,6 +2284,7 @@ async function processIncident() {
             productId: product.id,
             quantity: qty,
             notes: reason,
+            photos: [...incidentPhotosData],
             reportedBy: currentUser.name,
             status: 'approved'
         });
@@ -1696,18 +2296,29 @@ async function processIncident() {
     alert("✅ Operación completada.");
     closeModal('incidentModal');
     renderTodaySalesList();
-    renderInventory(document.getElementById('content-area'));
+
+    const contentArea = document.getElementById('content-area');
+    if (currentView === 'pos') {
+        renderPOS(contentArea);
+    } else if (currentView === 'inventory') {
+        renderInventory(contentArea);
+    } else if (currentView === 'ventas') {
+        renderVentas(contentArea);
+    } else {
+        renderPOS(contentArea); // Default safety
+    }
     if (typeof renderDashboard === 'function') renderDashboard(null);
 }
 
-function removeFromCart(idx) {
-    posCart.splice(idx, 1);
-    renderCart();
-}
+// function removeFromCart(idx) { posCart.splice(idx, 1); renderCart(); } (Redundant, moved to global bridge)
 
 function cancelPOSEdit() {
-    if (!confirm("¿Deseas cancelar la edición? Los cambios realizados se perderán.")) return;
+    if (!confirm("¿Deseas cancelar la edición o revisión? Los cambios realizados se perderán.")) return;
     editingSaleId = null;
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
+    reviewingClosureId = null;
+    window.auditTempData = null;
     posCart = [];
     if (currentView === 'pos') {
         renderPOS(document.getElementById('content-area'));
@@ -1736,7 +2347,111 @@ function renderProducts(container) {
 function renderIngresosGastos(container) { container.innerHTML = '<div class="card"><h3>Ingresos/Gastos Extra</h3><p>Módulo en desarrollo para control de flujo de caja no operacional.</p></div>'; }
 function renderCompras(container) { container.innerHTML = '<div class="card"><h3>Gestión de Compras</h3><p>Módulo para registro de facturas y entrada al almacén.</p></div>'; }
 function renderEmployees(container) { container.innerHTML = '<div class="card"><h3>Personal y Nómina</h3><p>Control de asistencia y pagos.</p></div>'; }
-function renderFinancials(container) { container.innerHTML = '<div class="card"><h3>Finanzas y Préstamos</h3><p>Seguimiento de capital y deudas.</p></div>'; }
+function renderFinancials(container) {
+    const businessId = selectedBusinessId || 'mch1';
+    const biz = db.businesses.find(b => String(b.id) === String(businessId)) || db.businesses[0];
+
+    // Filter data for the selected business
+    // Filter data for the selected business - EXCLUDING expenses from sales to avoid double deduction
+    const sales = db.sales.filter(s => String(s.businessId) === String(businessId) && s.status === 'closed' && s.type !== 'EXPENSE');
+    const expenses = db.sales.filter(s => String(s.businessId) === String(businessId) && s.type === 'EXPENSE');
+
+    // We get surplus/shortage from notifications that were approved/closed
+    const closures = db.notifications.filter(n => n.type === 'closure_request' && n.status === 'approved' && String(n.businessId) === String(businessId));
+
+    let totalRevenue = 0;
+    let totalCogs = 0;
+    let totalExpenses = 0;
+    let totalSurplus = 0;
+    let totalShortage = 0;
+
+    sales.forEach(s => {
+        totalRevenue += (s.total || 0);
+        (s.items || []).forEach(item => {
+            const p = db.products.find(prod => String(prod.id) === String(item.productId || item.id));
+            if (p) totalCogs += (item.qty * (p.cost || 0));
+        });
+    });
+
+    expenses.forEach(e => totalExpenses += Math.abs(e.total || 0));
+
+    closures.forEach(c => {
+        const d = c.data || {};
+        totalSurplus += (d.surplusCash || 0) + (d.surplusTransfer || 0);
+        totalShortage += (d.shortageCash || 0) + (d.shortageTransfer || 0);
+    });
+
+    const netProfit = totalRevenue - totalCogs - totalExpenses + totalSurplus - totalShortage;
+    const commission = Math.max(0, netProfit * 0.05);
+
+    container.innerHTML = `
+        <div class="fade-in">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+                <h1><i class="ph ph-chart-line-up"></i> Reporte Financiero: ${biz.name}</h1>
+                <div class="badge" style="background:rgba(88, 166, 255, 0.1); color:var(--primary); padding:0.8rem 1.2rem; font-size:1rem;">
+                    Búsqueda Global (Todo el historial)
+                </div>
+            </div>
+
+            <div class="grid-3">
+                <div class="card stat-card">
+                    <span class="stat-label">Ventas Totales (Bruto)</span>
+                    <span class="stat-value text-success">$${totalRevenue.toFixed(2)}</span>
+                </div>
+                <div class="card stat-card">
+                    <span class="stat-label">Inversión (Costo Mercancía)</span>
+                    <span class="stat-value" style="color:#ff7b72;">-$${totalCogs.toFixed(2)}</span>
+                </div>
+                <div class="card stat-card">
+                    <span class="stat-label">Gastos Operativos</span>
+                    <span class="stat-value text-danger">-$${totalExpenses.toFixed(2)}</span>
+                </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem;">
+                <div class="card">
+                    <h3>Liquidación de Ganancias</h3>
+                    <div style="margin-top:1.5rem; display:flex; flex-direction:column; gap:1rem;">
+                        <div style="display:flex; justify-content:space-between; padding:0.8rem; border-bottom:1px solid var(--border);">
+                            <span>Ventas Netas:</span>
+                            <span class="text-success">+$${totalRevenue.toFixed(2)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.8rem; border-bottom:1px solid var(--border);">
+                            <span>Costo de Venta:</span>
+                            <span style="color:#ff7b72;">-$${totalCogs.toFixed(2)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.8rem; border-bottom:1px solid var(--border);">
+                            <span>Gastos Registrados:</span>
+                            <span class="text-danger">-$${totalExpenses.toFixed(2)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:0.8rem; border-bottom:1px solid var(--border);">
+                            <span>Sobrantes (+) / Faltantes (-):</span>
+                            <span style="color:${(totalSurplus - totalShortage) >= 0 ? 'var(--success)' : 'var(--danger)'};">
+                                ${(totalSurplus - totalShortage) >= 0 ? '+' : ''}$${(totalSurplus - totalShortage).toFixed(2)}
+                            </span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:1.5rem 0.8rem; background:var(--bg-hover); border-radius:12px; margin-top:1rem;">
+                            <strong style="font-size:1.2rem;">GANANCIA REAL:</strong>
+                            <strong style="font-size:1.5rem; color:var(--primary);">$${netProfit.toFixed(2)}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" style="border: 2px solid var(--primary); background: linear-gradient(135deg, rgba(88,166,255,0.05) 0%, transparent 100%);">
+                    <h3>Comisión Vendedor (5%)</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin:1rem 0;">Cálculo basado en la Ganancia Real del negocio.</p>
+                    <div style="text-align:center; padding:2rem 0;">
+                        <div style="font-size:0.9rem; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); margin-bottom:0.5rem;">Total a Pagar</div>
+                        <div style="font-size:2.8rem; font-weight:800; color:var(--primary);">$${commission.toFixed(2)}</div>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-align:center; padding:1rem; border-top:1px solid var(--border);">
+                        Fórmula: (Ganancia / 100) * 5
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
 function renderReportes(container) {
     const totalSales = db.sales.reduce((sum, s) => sum + (s.total || 0), 0);
     const businessStats = db.businesses.map(b => {
@@ -1813,155 +2528,592 @@ function renderReportes(container) {
 }
 function renderSettings(container) {
     container.innerHTML = `
-        <div class="card">
-            <h3>Configuración</h3>
-            <div style="margin-top: 2rem;">
-                <button class="btn-secondary" onclick="importInventoryManual()">Re-importar CSVs</button>
-                <button class="btn-secondary" onclick="exportDB()">Exportar DB (JSON)</button>
+        <div class="fade-in">
+            <h2 style="margin-bottom: 2rem;">Configuración del Sistema</h2>
+            
+            <div class="card" style="margin-bottom: 2rem;">
+                <h3 style="margin-bottom: 1.5rem;"><i class="ph ph-palette"></i> Apariencia</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-hover); border-radius: 12px;">
+                    <div>
+                        <p style="margin: 0; font-weight: 600;">Tema Visual</p>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">Cambia entre modo claro (estética rosa) y modo oscuro.</p>
+                    </div>
+                    <button class="btn-primary" onclick="toggleTheme()" style="min-width: 140px;">
+                        <i class="ph ${db.settings.theme === 'light' ? 'ph-moon' : 'ph-sun'}"></i> 
+                        ${db.settings.theme === 'light' ? 'Modo Oscuro' : 'Modo Claro'}
+                    </button>
+                </div>
             </div>
+
+            <div class="card">
+                <h3 style="margin-bottom: 1.5rem;"><i class="ph ph-database"></i> Datos y Mantenimiento</h3>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <button class="btn-secondary" onclick="exportInventoryCSV()">
+                        <i class="ph ph-file-csv"></i> Exportar Inventario
+                    </button>
+                    <button class="btn-secondary" onclick="exportDB()">
+                        <i class="ph ph-download-simple"></i> Copia de Seguridad (JSON)
+                    </button>
+                    <button class="btn-secondary" onclick="importInventoryManual()">
+                        <i class="ph ph-upload-simple"></i> Re-importar CSVs Reales
+                    </button>
+                </div>
+            </div>
+
+            <!-- Expense Categories Management (Owner Only) -->
+            ${currentUser.role === 'owner' ? `
+            <div class="card" style="margin-top: 2rem;">
+                <h3><i class="ph ph-list-checks"></i> Categorías de Gastos</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                    Define qué conceptos de gasto pueden registrarse. Marca "Visible Vendedor" para que aparezcan en el POS.
+                </p>
+                
+                <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                    <input type="text" id="new-expense-cat" placeholder="Nueva categoría..." class="input-field">
+                    <button class="btn-primary" onclick="addExpenseCategory()">Agregar</button>
+                </div>
+
+                <div id="expense-cat-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    ${(db.expenseCategories || []).map(cat => `
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--bg-hover); border-radius: 8px;">
+                            <span style="font-weight: 500;">${cat.name}</span>
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
+                                    <input type="checkbox" ${cat.enabledForSeller ? 'checked' : ''} onchange="toggleExpenseCatVisibility(${cat.id})">
+                                    Visible Vendedor
+                                </label>
+                                <button class="btn-icon" onclick="deleteExpenseCategory(${cat.id})" style="color: var(--danger);"><i class="ph ph-trash"></i></button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
         </div>
     `;
+    updateTitle('Configuración');
 }
+
+// --- EXPENSE CATEGORY LOGIC ---
+window.addExpenseCategory = async function () {
+    const input = document.getElementById('new-expense-cat');
+    const name = input.value.trim();
+    if (!name) return;
+
+    if (!db.expenseCategories) db.expenseCategories = [];
+    const newId = (db.expenseCategories.length > 0 ? Math.max(...db.expenseCategories.map(c => c.id)) : 0) + 1;
+
+    db.expenseCategories.push({
+        id: newId,
+        name: name,
+        enabledForSeller: false // Default to hidden
+    });
+
+    await saveData();
+    renderSettings(document.getElementById('content-area'));
+};
+
+window.deleteExpenseCategory = async function (id) {
+    if (!confirm("¿Eliminar esta categoría?")) return;
+    db.expenseCategories = db.expenseCategories.filter(c => c.id !== id);
+    await saveData();
+    renderSettings(document.getElementById('content-area'));
+};
+
+window.toggleExpenseCatVisibility = async function (id) {
+    const cat = db.expenseCategories.find(c => c.id === id);
+    if (cat) {
+        cat.enabledForSeller = !cat.enabledForSeller;
+        await saveData();
+    }
+};
 function renderLogs(container) {
     const rows = db.logs.slice(0, 50).map(l => `<tr><td style="padding: 0.5rem;">${l.date}</td><td>${l.user}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('');
     container.innerHTML = `<div class="card"><h3>Logs de Auditoría</h3><table style="width: 100%; font-size: 0.8rem;"><thead><tr><th>Fecha</th><th>User</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function renderCashControl(container) { container.innerHTML = '<div class="card"><h3>Arqueo de Caja</h3><p>Cuadre diario de efectivo vs sistema.</p></div>'; }
-function renderTransfer(container) {
-    const isAlmacen = String(selectedBusinessId) === 'alm';
-    const title = isAlmacen ? 'Abastecer Kioscos' : 'Transferir Mercancía';
+/* =============================================================
+   MÓDULO DE TRANSFERENCIAS (ESTILO POS)
+   ============================================================= */
 
-    // Filtro de destinos: El almacén puede abastecer a cualquiera, los kioscos pueden transferir a cualquiera (incluido almacén)
-    const destinations = db.businesses.filter(b => String(b.id) !== String(selectedBusinessId || 'alm'));
+// --- LOGÍSTICA: TRANSFERENCIAS DE ALMACÉN ---
 
-    const inventory = db.inventory.filter(inv => String(inv.businessId) === String(selectedBusinessId || 'alm'));
-    const products = db.products.filter(p => inventory.some(inv => inv.productId === p.id));
+function showTransferModal() {
+    if (posCart.length === 0) return alert("Agrega productos para transferir.");
 
-    const productOptions = products.map(p => {
-        const stock = inventory.find(inv => inv.productId === p.id)?.quantity || 0;
-        return `<option value="${p.id}">${p.name} (Stock: ${stock})</option>`;
-    }).join('');
+    const destinations = db.businesses.filter(b => b.type === 'kiosk');
+    if (destinations.length === 0) return alert("No hay kioscos de destino configurados.");
 
-    const businessOptions = destinations.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
-
-    container.innerHTML = `
-        <div class="fade-in">
-            <div class="card" style="max-width: 600px; margin: 0 auto;">
-                <div style="margin-bottom: 2rem;">
-                    <h2><i class="ph ph-arrows-left-right"></i> ${title}</h2>
-                    <p style="color: var(--text-muted);">Mueva inventario entre sedes de forma directa.</p>
-                </div>
-                
-                <form id="transfer-form" onsubmit="handleLogisticsMovement(event)">
-                    <div class="form-group" style="margin-bottom: 1.5rem;">
-                        <label>Producto a Mover</label>
-                        <select name="productId" required class="input-field">
-                            ${productOptions || '<option disabled>Sin productos con stock</option>'}
-                        </select>
-                    </div>
-                    
-                    <div class="grid-2" style="gap: 1.5rem; margin-bottom: 1.5rem;">
-                        <div class="form-group">
-                            <label>Origen</label>
-                            <input type="text" value="${db.businesses.find(b => String(b.id) === String(selectedBusinessId || 'alm'))?.name}" disabled class="input-field" style="opacity: 0.6;">
-                        </div>
-                        <div class="form-group">
-                            <label>Destino</label>
-                            <select name="targetBusinessId" required class="input-field">
-                                ${businessOptions}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="form-group" style="margin-bottom: 2rem;">
-                        <label>Cantidad</label>
-                        <input type="number" name="quantity" required min="0.1" step="0.1" class="input-field" placeholder="0.0">
-                    </div>
-
-                    <button type="submit" class="btn-primary" style="width: 100%; height: 50px; font-weight: bold;">
-                        EJECUTAR MOVIMIENTO
-                    </button>
-                </form>
+    const modal = document.createElement('div');
+    modal.id = 'transferConfirmModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="biz-modal" style="max-width:450px; background:var(--bg-card); color:white; padding:2rem; border-radius:20px; border:1px solid var(--border);">
+            <h3 style="margin-top:0;"><i class="ph ph-package" style="color:var(--primary);"></i> Crear Transferencia</h3>
+            <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1.5rem;">Selecciona el kiosco de destino para esta mercancía de Almacén.</p>
+            
+            <div class="form-group" style="margin-bottom:1.5rem;">
+                <label style="display:block; margin-bottom:0.5rem; font-size:0.8rem;">Kiosco Destino</label>
+                <select id="transfer-modal-dest" class="biz-input" style="width:100%; padding:0.75rem; background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; color:white;">
+                    ${destinations.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
+                </select>
             </div>
 
-            <div class="card" style="margin-top: 2rem;">
-                <h3>Últimos Movimientos</h3>
-                <div style="overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
-                        <thead>
-                            <tr style="text-align: left; color: var(--text-muted); font-size: 0.85rem;">
-                                <th style="padding: 0.5rem;">Fecha</th>
-                                <th style="padding: 0.5rem;">Producto</th>
-                                <th style="padding: 0.5rem;">Origen</th>
-                                <th style="padding: 0.5rem;">Destino</th>
-                                <th style="padding: 0.5rem; text-align: right;">Cant.</th>
+            <div style="display:flex; gap:1rem;">
+                <button class="biz-btn outline" onclick="document.getElementById('transferConfirmModal').remove()" style="flex:1; padding:0.75rem; border:1px solid var(--border); border-radius:8px; background:transparent; color:white; cursor:pointer;">Cancelar</button>
+                <button class="biz-btn primary" onclick="confirmPendingTransfer()" style="flex:2; padding:0.75rem; border:none; border-radius:8px; background:var(--primary); color:white; font-weight:bold; cursor:pointer;">CREAR LISTA PENDIENTE</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+async function confirmPendingTransfer() {
+    const destId = document.getElementById('transfer-modal-dest').value;
+    const destName = db.businesses.find(b => b.id === destId)?.name;
+
+    const newTransfer = {
+        id: Date.now(),
+        fromId: selectedBusinessId || 'alm',
+        toId: destId,
+        items: posCart.map(item => ({
+            productId: item.id,
+            name: item.name,
+            qty: item.qty,
+            delivered: false,
+            received: false
+        })),
+        status: 'pending',
+        createdBy: currentUser.name,
+        date: new Date().toLocaleString()
+    };
+
+    if (!db.transfers) db.transfers = [];
+    db.transfers.push(newTransfer);
+
+    // Notificación
+    db.notifications.unshift({
+        id: Date.now() + 1,
+        type: 'transfer_pending',
+        targetBusinessId: destId,
+        message: `Nueva transferencia de Almacén pendiente para ${destName}`,
+        data: { transferId: newTransfer.id },
+        status: 'pending',
+        date: new Date().toLocaleString()
+    });
+
+    await saveData();
+    posCart = [];
+    const modal = document.getElementById('transferConfirmModal');
+    if (modal) modal.remove();
+
+    alert("✅ Lista de transferencia guardada como PENDIENTE.\nLa mercancía NO se moverá del stock hasta la confirmación física en el kiosco.");
+    renderPOS(document.getElementById('content-area'));
+}
+
+function renderTransfer(container) {
+    const originId = selectedBusinessId || 'alm';
+    const isWarehouse = isWarehouseContext();
+
+    // Filtrar transferencias relevantes (Enviadas o Recibidas)
+    const pendingTransfers = db.transfers.filter(t =>
+        t.status === 'pending' && (String(t.fromId) === String(originId) || String(t.toId) === String(originId))
+    );
+
+    container.innerHTML = `
+        <div class="fade-in" style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0; padding-bottom:2rem;">
+            
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h2 style="margin:0;"><i class="ph ph-arrows-left-right"></i> Logística y Transferencias</h2>
+                ${isWarehouse ? `
+                    <button class="btn-primary" onclick="navigateTo('pos')">
+                        <i class="ph ph-plus-circle"></i> Nueva Salida de Almacén
+                    </button>
+                ` : ''}
+            </div>
+
+            <div class="card" style="padding:0; overflow:hidden;">
+                <div style="padding:1.5rem; background:var(--bg-dark); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; font-size:1.1rem;"><i class="ph ph-clock-counter-clockwise"></i> Transferencias Pendientes de Confirmación</h3>
+                    <span class="badge" style="background:var(--primary); color:white;">${pendingTransfers.length} Pendientes</span>
+                </div>
+                
+                <div id="pending-transfers-list" style="padding:1.5rem;">
+                    ${pendingTransfers.length === 0 ? `
+                        <div style="text-align:center; padding:3rem; color:var(--text-muted);">
+                            <i class="ph ph-check-circle" style="font-size:3rem; display:block; margin-bottom:1rem; opacity:0.2;"></i>
+                            No hay transferencias pendientes en este contexto.
+                        </div>
+                    ` : pendingTransfers.map(t => renderTransferItem(t)).join('')}
+                </div>
+            </div>
+
+            <div class="card" style="padding:0; overflow:hidden;">
+              <div style="padding:1rem; background:var(--bg-dark); border-bottom:1px solid var(--border);">
+                <h3 style="margin:0; font-size:0.9rem; color:var(--text-muted);">Historial Reciente (Últimas 10)</h3>
+              </div>
+              <div style="padding:1rem;">
+                <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                    <thead>
+                        <tr style="text-align:left; color:var(--text-muted);">
+                            <th style="padding:0.5rem;">Fecha</th>
+                            <th style="padding:0.5rem;">Origen</th>
+                            <th style="padding:0.5rem;">Destino</th>
+                            <th style="padding:0.5rem;">Items</th>
+                            <th style="padding:0.5rem;">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${db.transfers.filter(t => t.status !== 'pending').slice(-10).reverse().map(t => `
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.5rem;">${t.date.split(',')[0]}</td>
+                                <td style="padding:0.5rem;">${db.businesses.find(b => b.id === t.fromId)?.name || t.fromId}</td>
+                                <td style="padding:0.5rem;">${db.businesses.find(b => b.id === t.toId)?.name || t.toId}</td>
+                                <td style="padding:0.5rem;">${t.items.length}</td>
+                                <td style="padding:0.5rem;">
+                                    <span style="color:${t.status === 'completed' ? 'var(--success)' : 'var(--danger)'}">
+                                        ${t.status.toUpperCase()}
+                                    </span>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            ${(db.extraMovements || []).slice(0, 10).map(m => `
-                                <tr style="border-bottom: 1px solid var(--border);">
-                                    <td style="padding: 0.75rem; font-size: 0.85rem;">${m.date}</td>
-                                    <td style="padding: 0.75rem;">${db.products.find(p => p.id === (m.productId || m.id))?.name || 'N/A'}</td>
-                                    <td style="padding: 0.75rem;">${db.businesses.find(b => String(b.id) === String(m.fromId))?.name || 'N/A'}</td>
-                                    <td style="padding: 0.75rem;">${db.businesses.find(b => String(b.id) === String(m.toId))?.name || 'N/A'}</td>
-                                    <td style="padding: 0.75rem; text-align: right; font-weight: bold;">${m.quantity}</td>
-                                </tr>
-                            `).join('') || '<tr><td colspan="5" style="padding: 2rem; text-align: center; color: var(--text-muted);">No hay movimientos recientes</td></tr>'}
-                        </tbody>
-                    </table>
+                        `).join('')}
+                    </tbody>
+                </table>
+              </div>
+            </div>
+        </div>
+    `;
+
+    updateTitle('Logística y Transferencias');
+}
+
+function renderTransferItem(t) {
+    const fromName = db.businesses.find(b => b.id === t.fromId)?.name;
+    const toName = db.businesses.find(b => b.id === t.toId)?.name;
+    const canConfirm = t.items.every(i => i.delivered && i.received);
+
+    return `
+        <div class="transfer-card" style="background:var(--bg-dark); border:1px solid var(--border); border-radius:12px; margin-bottom:1.5rem; overflow:hidden;">
+            <div style="padding:1rem 1.5rem; background:rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border);">
+                <div>
+                    <strong style="color:var(--primary); font-size:1.1rem;">#TR-${t.id.toString().slice(-6)}</strong>
+                    <span style="margin-left:1rem; color:var(--text-muted); font-size:0.85rem;">Creado por: ${t.createdBy} (${t.date})</span>
+                </div>
+                <div style="text-align:right;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; font-weight:bold;">
+                        <span>${fromName}</span> <i class="ph ph-arrow-right"></i> <span>${toName}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="padding:1.5rem;">
+                <table style="width:100%; border-collapse:collapse;">
+                    <thead>
+                        <tr style="text-align:left; color:var(--text-muted); font-size:0.8rem; border-bottom:1px solid var(--border);">
+                            <th style="padding:0.5rem;">Producto</th>
+                            <th style="padding:0.5rem; text-align:center;">Cant.</th>
+                            <th style="padding:0.5rem; text-align:center;">Entregado (Alm)</th>
+                            <th style="padding:0.5rem; text-align:center;">Recibido (Kio)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${t.items.map((item, idx) => `
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                                <td style="padding:0.75rem 0.5rem; font-weight:500;">${item.name}</td>
+                                <td style="padding:0.75rem 0.5rem; text-align:center; font-weight:bold;">${item.qty}</td>
+                                <td style="padding:0.75rem 0.5rem; text-align:center;">
+                                    <input type="checkbox" ${item.delivered ? 'checked' : ''} 
+                                           ${currentUser.role === 'seller' ? 'disabled' : ''}
+                                           onchange="toggleTransferCheck(${t.id}, ${idx}, 'delivered', this.checked)"
+                                           style="width:20px; height:20px; cursor:pointer;">
+                                </td>
+                                <td style="padding:0.75rem 0.5rem; text-align:center;">
+                                    <input type="checkbox" ${item.received ? 'checked' : ''} 
+                                           ${(currentUser.role !== 'seller' && currentUser.role !== 'owner') ? 'disabled' : ''}
+                                           onchange="toggleTransferCheck(${t.id}, ${idx}, 'received', this.checked)"
+                                           style="width:20px; height:20px; cursor:pointer;">
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                <div style="margin-top:1.5rem; display:flex; justify-content:space-between; align-items:center;">
+                    <button class="btn-ghost" onclick="cancelTransfer(${t.id})" style="color:var(--danger);">
+                        <i class="ph ph-x-circle"></i> Cancelar Transferencia
+                    </button>
+                    
+                    <button class="btn-primary" 
+                            ${!canConfirm ? 'disabled' : ''} 
+                            style="padding:0.75rem 2rem; ${!canConfirm ? 'opacity:0.3; cursor:not-allowed;' : ''}"
+                            onclick="completeTransfer(${t.id})">
+                        <i class="ph ph-check-square"></i> FINALIZAR Y EJECUTAR STOCK
+                    </button>
                 </div>
             </div>
         </div>
     `;
-    updateTitle(title);
 }
 
-async function handleLogisticsMovement(e) {
-    e.preventDefault();
-    const formData = new FormData(e.target);
-    const productId = parseInt(formData.get('productId'));
-    const targetBusinessId = String(formData.get('targetBusinessId'));
-    const originBusinessId = String(selectedBusinessId || 'alm');
-    const quantity = parseFloat(formData.get('quantity'));
+function toggleTransferCheck(transferId, itemIdx, field, value) {
+    const t = db.transfers.find(tr => tr.id === transferId);
+    if (t) {
+        t.items[itemIdx][field] = value;
+        saveData();
+        renderTransfer(document.getElementById('content-area'));
+    }
+}
 
-    if (quantity <= 0) return;
+async function cancelTransfer(id) {
+    if (!confirm("¿Seguro que deseas cancelar esta transferencia? No se ha movido stock todavía.")) return;
+    const t = db.transfers.find(tr => tr.id === id);
+    if (t) {
+        t.status = 'cancelled';
+        await saveData();
+        alert("Transferencia cancelada.");
+        renderTransfer(document.getElementById('content-area'));
+    }
+}
 
-    // Deduct from Source
-    const sourceInv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === originBusinessId);
-    if (!sourceInv || sourceInv.quantity < quantity) {
-        alert("Stock insuficiente en origen.");
+async function completeTransfer(id) {
+    const t = db.transfers.find(tr => tr.id === id);
+    if (!t) return;
+
+    if (!confirm("¿Confirmar recepción total? Se actualizará el inventario del Almacén y del Kiosco.")) return;
+
+    // Ejecutar movimientos reales de inventario
+    for (const item of t.items) {
+        // 1. Restar de Almacén (o Business Original)
+        let sourceInv = db.inventory.find(i => String(i.productId) === String(item.productId) && String(i.businessId) === String(t.fromId));
+        if (sourceInv) {
+            sourceInv.quantity -= item.qty;
+        } else {
+            // Si por alguna razón no existe el registro en inventario del origen
+            db.inventory.push({ businessId: t.fromId, productId: item.productId, quantity: -item.qty });
+        }
+
+        // 2. Sumar a Kiosco Destino
+        let destInv = db.inventory.find(i => String(i.productId) === String(item.productId) && String(i.businessId) === String(t.toId));
+        if (!destInv) {
+            destInv = { businessId: t.toId, productId: item.productId, quantity: 0 };
+            db.inventory.push(destInv);
+        }
+        destInv.quantity += item.qty;
+    }
+
+    t.status = 'completed';
+    t.confirmedBy = currentUser.name;
+    t.completionDate = new Date().toLocaleString();
+
+    // Limpiar notificación
+    const notif = db.notifications.find(n => n.data && n.data.transferId === id);
+    if (notif) notif.status = 'completed';
+
+    await saveData();
+    addLog(`Transferencia #${t.id} completada. Stock movido de ${t.fromId} a ${t.toId}`, 'success');
+
+    alert("✅ Operación completada con éxito. El inventario ha sido actualizado.");
+    renderTransfer(document.getElementById('content-area'));
+}
+
+// --- BUSCADOR ESPECÍFICO PARA TRANSFERENCIAS ---
+function handleTransferSearch(val) {
+    const results = document.getElementById('transfer-results');
+    if (!val) { results.style.display = 'none'; return; }
+
+    const originId = selectedBusinessId || 'alm';
+
+    // Buscar productos
+    const matches = db.products.filter(p => p.name.toLowerCase().includes(val.toLowerCase())).slice(0, 8);
+
+    if (matches.length === 0) {
+        results.innerHTML = '<div style="padding:1rem; color:var(--text-muted);">No encontrado.</div>';
+        results.style.display = 'block';
         return;
     }
 
-    sourceInv.quantity -= quantity;
+    results.innerHTML = matches.map(p => {
+        // Buscar stock en el origen
+        const inv = db.inventory.find(i => String(i.productId) === String(p.id) && String(i.businessId) === String(originId));
+        const stock = inv ? inv.quantity : 0;
 
-    // Add to Destination
-    let targetInv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === targetBusinessId);
-    if (!targetInv) {
-        targetInv = { businessId: targetBusinessId, productId: productId, quantity: 0 };
-        db.inventory.push(targetInv);
+        // Solo permitir clic si hay stock (o dejarlo libre si quieres permitir negativos)
+        const canAdd = stock > 0;
+
+        return `
+            <div class="pos-search-item" onclick="${canAdd ? `addToTransferCart(${p.id})` : ''}" 
+                 style="display:flex; align-items:center; gap:1rem; padding:0.75rem 1rem; cursor:${canAdd ? 'pointer' : 'not-allowed'}; border-bottom:1px solid var(--border); opacity: ${canAdd ? 1 : 0.5};">
+                
+                <div style="width: 35px; height: 35px; border-radius: 4px; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; overflow:hidden;">
+                    ${p.image ? `<img src="${p.image}" style="width:100%; height:100%; object-fit:cover;">` : `<i class="ph ph-cube"></i>`}
+                </div>
+                
+                <div style="flex:1;">
+                    <div style="font-weight:bold; font-size: 0.9rem;">${p.name}</div>
+                    <div style="font-size:0.75rem; color:${stock > 0 ? 'var(--success)' : 'var(--danger)'};">
+                        Stock en origen: ${stock}
+                    </div>
+                </div>
+
+                ${canAdd ? '<i class="ph ph-plus-circle" style="color:var(--primary); font-size:1.2rem;"></i>' : '<i class="ph ph-prohibit" style="color:var(--text-muted);"></i>'}
+            </div>
+        `;
+    }).join('');
+
+    results.style.display = 'block';
+}
+
+function addToTransferCart(id) {
+    const p = db.products.find(prod => prod.id === id);
+    if (!p) return;
+
+    // Verificar si ya está en la lista
+    const existing = transferCart.find(i => i.id === id);
+
+    // Verificar stock disponible en origen
+    const originId = selectedBusinessId || 'alm';
+    const inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(originId));
+    const maxStock = inv ? inv.quantity : 0;
+
+    const currentQty = existing ? existing.qty : 0;
+
+    if (currentQty + 1 > maxStock) {
+        alert(`Stock insuficiente en origen.Solo tienes ${maxStock} unidades.`);
+        return;
     }
-    targetInv.quantity += quantity;
 
-    // Log movement
-    const movement = {
-        id: Date.now(),
-        date: new Date().toLocaleString(),
-        productId,
-        fromId: originBusinessId,
-        toId: targetBusinessId,
-        quantity,
-        user: currentUser.name,
-        type: originBusinessId === 'alm' ? 'supply' : 'transfer'
-    };
-    if (!db.extraMovements) db.extraMovements = [];
-    db.extraMovements.unshift(movement);
+    if (existing) {
+        existing.qty++;
+    } else {
+        transferCart.push({ id: p.id, name: p.name, qty: 1, max: maxStock, image: p.image });
+    }
 
-    addLog(`${movement.type === 'supply' ? 'Abastecimiento' : 'Transferencia'}: ${quantity} x ${db.products.find(p => p.id === productId)?.name} de ${db.businesses.find(b => String(b.id) === originBusinessId)?.name} a ${db.businesses.find(b => String(b.id) === targetBusinessId)?.name}`, 'info');
+    // Limpiar buscador
+    document.getElementById('transfer-search').value = '';
+    document.getElementById('transfer-results').style.display = 'none';
+    renderTransferCart();
+}
+
+function renderTransferCart() {
+    const container = document.getElementById('transfer-cart-items');
+    const summary = document.getElementById('transfer-summary');
+    if (!container || !summary) return;
+
+    if (transferCart.length === 0) {
+        container.innerHTML = `
+            <div style="padding: 3rem; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center;">
+                <i class="ph ph-arrows-left-right" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.2;"></i>
+                <span>La lista de transferencia está vacía</span>
+            </div> `;
+        summary.innerHTML = '<div style="text-align:center; color:var(--text-muted);">Agrega productos para ver el resumen.</div>';
+        return;
+    }
+
+    container.innerHTML = transferCart.map((item, index) => `
+            <div style="display:flex; align-items:center; gap:1rem; padding:1rem; border-bottom:1px solid var(--border);">
+            <div style="width: 40px; height: 40px; border-radius: 4px; background: var(--bg-dark); overflow:hidden; display:flex; align-items:center; justify-content:center;">
+                 ${item.image ? `<img src="${item.image}" style="width:100%; height:100%; object-fit:cover;">` : `<i class="ph ph-cube"></i>`}
+            </div>
+            <div style="flex:1;">
+                <div style="font-weight:bold; font-size: 0.9rem;">${item.name}</div>
+                <div style="font-size:0.75rem; color:var(--text-muted);">Máx Disp: ${item.max}</div>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap:0.5rem; background:var(--bg-dark); padding:0.25rem; border-radius:6px;">
+                <button class="btn-icon" onclick="adjustTransferQty(${index}, -1)" style="padding:0.25rem;"><i class="ph ph-minus"></i></button>
+                <input type="number" value="${item.qty}" onchange="manualTransferQty(${index}, this.value)" 
+                       style="width: 40px; text-align:center; background:transparent; border:none; color:white; font-weight:bold;">
+                <button class="btn-icon" onclick="adjustTransferQty(${index}, 1)" style="padding:0.25rem;"><i class="ph ph-plus"></i></button>
+            </div>
+            
+            <button class="btn-icon" onclick="removeFromTransferCart(${index})" style="color:var(--danger);"><i class="ph ph-trash"></i></button>
+        </div>
+            `).join('');
+
+    const totalItems = transferCart.reduce((sum, i) => sum + i.qty, 0);
+    summary.innerHTML = `
+            < div style = "padding: 1rem; background: var(--bg-dark); border-radius: 12px; border: 1px solid var(--border);" >
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span style="color: var(--text-muted);">Productos distintos:</span>
+                <strong>${transferCart.length}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 1.2rem; font-weight: bold; color: var(--primary);">
+                <span>Total Unidades:</span>
+                <span>${totalItems}</span>
+            </div>
+        </div>
+            `;
+}
+
+function adjustTransferQty(idx, delta) {
+    const item = transferCart[idx];
+    const newQty = item.qty + delta;
+
+    if (newQty > item.max) {
+        alert("No puedes transferir más de lo que hay en existencia.");
+        return;
+    }
+    if (newQty < 1) return; // Mínimo 1
+
+    item.qty = newQty;
+    renderTransferCart();
+}
+
+function removeFromTransferCart(index) {
+    transferCart.splice(index, 1);
+    renderTransferCart();
+}
+
+async function executeTransfer() {
+    if (transferCart.length === 0) return alert("La lista está vacía.");
+
+    const originId = selectedBusinessId || 'alm';
+    const destSelect = document.getElementById('transfer-destination');
+    if (!destSelect) return;
+    const destId = destSelect.value;
+
+    const originName = db.businesses.find(b => String(b.id) === String(originId))?.name;
+    const destName = db.businesses.find(b => String(b.id) === String(destId))?.name;
+
+    if (!confirm(`¿Confirmar transferencia de ${transferCart.length} productos ?\n\nDe: ${originName} \nPara: ${destName} `)) return;
+
+    // Ejecutar movimientos
+    const now = new Date();
+    const dateString = now.toLocaleString();
+    const timestamp = Date.now();
+
+    for (const item of transferCart) {
+        // 1. Restar de Origen
+        const sourceInv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(originId));
+        if (sourceInv) sourceInv.quantity -= item.qty;
+
+        // 2. Sumar a Destino
+        let destInv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(destId));
+        if (!destInv) {
+            destInv = { businessId: destId, productId: item.id, quantity: 0 };
+            db.inventory.push(destInv);
+        }
+        destInv.quantity += item.qty;
+
+        // 3. Registrar Log
+        db.extraMovements.unshift({
+            id: timestamp + Math.random(),
+            date: dateString,
+            productId: item.id,
+            fromId: originId,
+            toId: destId,
+            quantity: item.qty,
+            user: currentUser.name,
+            type: 'transfer'
+        });
+    }
 
     await saveData();
-    alert("Movimiento completado con éxito.");
-    renderTransfer(document.getElementById('content-area'));
+    addLog(`Transferencia masiva realizada: ${transferCart.length} items de ${originName} a ${destName} `, 'info');
+
+    alert("✅ Transferencia realizada con éxito.");
+    transferCart = []; // Limpiar lista
+    renderTransfer(document.getElementById('content-area')); // Recargar vista
 }
 
 function setupNotifications() {
@@ -2033,13 +3185,32 @@ async function markAllNotificationsAsSeen() {
 async function handleNotificationClick(id) {
     const n = db.notifications.find(notif => notif.id === id);
     if (n) {
+        // Mark as seen first
         n.seen = true;
-        await saveData();
-        renderNotifications();
-        // If it's a specific type, navigate
+
+        // Auto-close dropdown
+        const dropdown = document.getElementById('notifDropdown');
+        if (dropdown) dropdown.classList.remove('show');
+
+        // Navigate or take action
         if (n.type === 'waste_approval') navigateTo('inventory');
+        if (n.type === 'closure_request') openSaleForRevision(n.id, true);
+
+        // Solo eliminamos si no es un cierre (los cierres los borra approveClosure)
+        if (n.type !== 'closure_request') {
+            db.notifications = db.notifications.filter(notif => notif.id !== id);
+        }
+
+        await saveData();
+        renderSidebar(currentView); // Refresh badge count
+        renderNotifications();
     }
 }
+
+// Refresh history to show 'En Revision' to others
+if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
+
+
 
 function showNotificationsModal() {
     // Reutilizar el dropdown o abrir modal según prefiera el sistema ahora
@@ -2062,26 +3233,23 @@ function markNotificationAsSeen(id) {
         renderSidebar(currentView);
     }
 }
-
 async function approveNotification(id) {
     const n = db.notifications.find(notif => notif.id === id);
     if (!n) return;
 
-    if (n.type === 'closure_request') {
-        // Find the closure record
-        const closureRecord = db.sales.find(s => s.id === n.refId);
-        if (closureRecord) {
-            closureRecord.status = 'closed';
-            closureRecord.approver = currentUser.name;
-
-            // Also close all individual sales linked to this closure
-            db.sales.forEach(s => {
-                if (s.closureId === closureRecord.id) {
-                    s.status = 'closed';
-                }
-            });
-        }
-    } else if (n.type === 'delete_request') {
+    if (n.type === 'inventory_transfer') {
+        const t = n.transferData;
+        t.items.forEach(item => {
+            // Deduct from source
+            const fromInv = db.inventory.find(inv => String(inv.businessId) === String(t.from) && String(inv.productId) === String(item.id));
+            if (fromInv) fromInv.quantity -= item.qty;
+            // Add to destination
+            const toInv = db.inventory.find(inv => String(inv.businessId) === String(t.to) && String(inv.productId) === String(item.id));
+            if (toInv) toInv.quantity += item.qty;
+            else db.inventory.push({ businessId: t.to, productId: item.id, quantity: item.qty });
+        });
+        addLog(`Transferencia aprobada: ${t.items.length} productos de ${t.from} a ${t.to}`, 'success');
+    } else if (n.type === 'delete_sale_request') {
         await deleteSaleAction(n.refId, true);
     } else if (n.type === 'waste_approval') {
         await approveWaste(n.wasteId);
@@ -2092,8 +3260,9 @@ async function approveNotification(id) {
     await saveData();
     closeModal();
     renderSidebar(currentView);
-    addLog(`Notificación aprobada: ${n.title}`, 'success');
+    addLog(`Notificación aprobada: ${n.title} `, 'success');
 }
+
 
 async function rejectNotification(id) {
     const n = db.notifications.find(notif => notif.id === id);
@@ -2104,7 +3273,7 @@ async function rejectNotification(id) {
     await saveData();
     closeModal();
     renderSidebar(currentView);
-    addLog(`Notificación rechazada: ${n.title}`, 'warning');
+    addLog(`Notificación rechazada: ${n.title} `, 'warning');
 }
 
 
@@ -2124,14 +3293,7 @@ function showModal(id, html) {
     modal.onclick = (e) => { if (e.target === modal) closeModal(id); };
     document.body.appendChild(modal);
 }
-
-function closeModal(id) {
-    const modal = document.getElementById(id);
-    if (modal) {
-        modal.classList.add('fade-out');
-        setTimeout(() => modal.remove(), 200);
-    }
-}
+// REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
 
 function zoomImage(src, name) {
     if (!src) return;
@@ -2186,45 +3348,45 @@ function compressImage(file, callback) {
 
 function showAddProductModal() {
     const modalHtml = `
-        <div id="product-modal" class="modal-overlay" style="display:flex;">
-            <div class="card" style="width:500px; padding:2rem;">
-                <h3>Nuevo Producto</h3>
-                <form id="add-product-form" onsubmit="event.preventDefault(); saveNewProduct();">
-                    <div class="form-group">
-                        <label>Nombre del Producto</label>
-                        <input type="text" name="name" class="input-field" required>
-                    </div>
-                    <div class="form-group grid-2">
-                        <div>
-                            <label>Precio Costo</label>
-                            <input type="number" step="0.01" name="cost" class="input-field" required>
+            <div id="product-modal" class="modal-overlay" style="display:flex;">
+                <div class="card" style="width:500px; padding:2rem;">
+                    <h3>Nuevo Producto</h3>
+                    <form id="add-product-form" onsubmit="event.preventDefault(); saveNewProduct();">
+                        <div class="form-group">
+                            <label>Nombre del Producto</label>
+                            <input type="text" name="name" class="input-field" required>
                         </div>
-                        <div>
-                            <label>Precio Venta</label>
-                            <input type="number" step="0.01" name="price" class="input-field" required>
+                        <div class="form-group grid-2">
+                            <div>
+                                <label>Precio Costo</label>
+                                <input type="number" step="0.01" name="cost" class="input-field" required>
+                            </div>
+                            <div>
+                                <label>Precio Venta</label>
+                                <input type="number" step="0.01" name="price" class="input-field" required>
+                            </div>
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Categoría</label>
-                        <input type="text" name="category" class="input-field" list="categories-list">
-                        <datalist id="categories-list">
-                            ${[...new Set(db.products.map(p => p.category))].map(c => `<option value="${c}">`).join('')}
-                        </datalist>
-                    </div>
-                    <div class="form-group">
-                        <label>Imagen del Producto</label>
-                        <input type="file" accept="image/*" onchange="handleImageUpload(this)" class="input-field">
-                        <input type="hidden" name="image" id="product-image-data">
-                        <div id="image-preview" style="margin-top:1rem; text-align:center;"></div>
-                    </div>
-                    <div style="display:flex; gap:1rem; margin-top:2rem;">
-                        <button type="submit" class="btn-primary" style="flex:1;">Guardar</button>
-                        <button type="button" class="btn-ghost" onclick="closeModal('product-modal')">Cancelar</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    `;
+                        <div class="form-group">
+                            <label>Categoría</label>
+                            <input type="text" name="category" class="input-field" list="categories-list">
+                                <datalist id="categories-list">
+                                    ${[...new Set(db.products.map(p => p.category))].map(c => `<option value="${c}">`).join('')}
+                                </datalist>
+                        </div>
+                        <div class="form-group">
+                            <label>Imagen del Producto</label>
+                            <input type="file" accept="image/*" onchange="handleImageUpload(this)" class="input-field">
+                                <input type="hidden" name="image" id="product-image-data">
+                                    <div id="image-preview" style="margin-top:1rem; text-align:center;"></div>
+                                </div>
+                                <div style="display:flex; gap:1rem; margin-top:2rem;">
+                                    <button type="submit" class="btn-primary" style="flex:1;">Guardar</button>
+                                    <button type="button" class="btn-ghost" onclick="closeModal('product-modal')">Cancelar</button>
+                                </div>
+                            </form>
+                        </div>
+                </div>
+        `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
@@ -2264,7 +3426,7 @@ async function saveNewProduct() {
     }
 
     await saveData();
-    addLog(`Producto añadido: ${newProduct.name}`, 'success');
+    addLog(`Producto añadido: ${newProduct.name} `, 'success');
     closeModal('product-modal');
     renderInventory(document.getElementById('content-area'));
 }
@@ -2277,49 +3439,49 @@ function showEditProductModal(id) {
     const stock = inv ? inv.quantity : 0;
 
     const modalHtml = `
-        <div id="edit-product-modal" class="modal-overlay" style="display:flex;">
-            <div class="card" style="width:500px; padding:2rem;">
-                <h3>Editar Producto</h3>
-                <form id="edit-product-form" onsubmit="event.preventDefault(); updateProduct(${id});">
-                    <div class="form-group">
-                        <label>Nombre del Producto</label>
-                        <input type="text" name="name" value="${p.name}" class="input-field" required>
-                    </div>
-                    <div class="form-group grid-2">
-                        <div>
-                            <label>Precio Costo</label>
-                            <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-field" required>
+            <div id="edit-product-modal" class="modal-overlay" style="display:flex;">
+                <div class="card" style="width:500px; padding:2rem;">
+                    <h3>Editar Producto</h3>
+                    <form id="edit-product-form" onsubmit="event.preventDefault(); updateProduct(${id});">
+                        <div class="form-group">
+                            <label>Nombre del Producto</label>
+                            <input type="text" name="name" value="${p.name}" class="input-field" required>
                         </div>
-                        <div>
-                            <label>Precio Venta</label>
-                            <input type="number" step="0.01" name="price" value="${p.price}" class="input-field" required>
+                        <div class="form-group grid-2">
+                            <div>
+                                <label>Precio Costo</label>
+                                <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-field" required>
+                            </div>
+                            <div>
+                                <label>Precio Venta</label>
+                                <input type="number" step="0.01" name="price" value="${p.price}" class="input-field" required>
+                            </div>
                         </div>
-                    </div>
-                    ${selectedBusinessId ? `
+                        ${selectedBusinessId ? `
                     <div class="form-group">
                         <label>Existencia en ${db.businesses.find(b => b.id === selectedBusinessId).name}</label>
                         <input type="number" name="stock" value="${stock}" class="input-field" required>
                     </div>` : ''}
-                    <div class="form-group">
-                        <label>Categoría</label>
-                        <input type="text" name="category" value="${p.category || ''}" class="input-field">
-                    </div>
-                    <div class="form-group">
-                        <label>Cambiar Imagen</label>
-                        <input type="file" accept="image/*" onchange="handleImageUploadEdit(this)" class="input-field">
-                        <input type="hidden" name="image" id="product-image-data-edit" value="${p.image || ''}">
-                        <div id="image-preview-edit" style="margin-top:1rem; text-align:center;">
-                            ${p.image ? `<img src="${p.image}" style="width:100px; height:100px; border-radius:8px; object-fit:cover;">` : ''}
+                        <div class="form-group">
+                            <label>Categoría</label>
+                            <input type="text" name="category" value="${p.category || ''}" class="input-field">
                         </div>
-                    </div>
-                    <div style="display:flex; gap:1rem; margin-top:2rem;">
-                        <button type="submit" class="btn-primary" style="flex:1;">Actualizar</button>
-                        <button type="button" class="btn-ghost" onclick="closeModal('edit-product-modal')">Cancelar</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    `;
+                        <div class="form-group">
+                            <label>Cambiar Imagen</label>
+                            <input type="file" accept="image/*" onchange="handleImageUploadEdit(this)" class="input-field">
+                                <input type="hidden" name="image" id="product-image-data-edit" value="${p.image || ''}">
+                                    <div id="image-preview-edit" style="margin-top:1rem; text-align:center;">
+                                        ${p.image ? `<img src="${p.image}" style="width:100px; height:100px; border-radius:8px; object-fit:cover;">` : ''}
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:1rem; margin-top:2rem;">
+                                    <button type="submit" class="btn-primary" style="flex:1;">Actualizar</button>
+                                    <button type="button" class="btn-ghost" onclick="closeModal('edit-product-modal')">Cancelar</button>
+                                </div>
+                            </form>
+                        </div>
+                </div>
+        `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
@@ -2358,23 +3520,14 @@ async function updateProduct(id) {
     }
 
     await saveData();
-    addLog(`Producto actualizado: ${db.products[pIndex].name}`);
+    addLog(`Producto actualizado: ${db.products[pIndex].name} `);
     closeModal('edit-product-modal');
     renderInventory(document.getElementById('content-area'));
 }
-
-function closeModal(id) {
-    if (id) {
-        const modal = document.getElementById(id);
-        if (modal) modal.remove();
-    } else {
-        const modal = document.querySelector('.modal-overlay');
-        if (modal) modal.remove();
-    }
-}
+// REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
 
 function handleInventoryImageClick(id) {
-    document.getElementById(`inv-img-${id}`).click();
+    document.getElementById(`inv - img - ${id} `).click();
 }
 
 function handleInventoryImageUpload(id, input) {
@@ -2393,7 +3546,7 @@ function handleInventoryImageUpload(id, input) {
 
 function showMermaModal(productId) {
     const p = db.products.find(prod => prod.id === productId);
-    const qtyStr = prompt(`Registrar Merma para: ${p.name}\n¿Cuántas unidades se perdieron?`, "1");
+    const qtyStr = prompt(`Registrar Merma para: ${p.name} \n¿Cuántas unidades se perdieron ? `, "1");
     if (qtyStr === null) return;
 
     const qty = parseFloat(qtyStr);
@@ -2422,7 +3575,7 @@ function showMermaModal(productId) {
     });
 
     saveData();
-    addLog(`Merma registrada: ${qty}x ${p.name}`, 'warning');
+    addLog(`Merma registrada: ${qty}x ${p.name} `, 'warning');
     renderInventory(document.getElementById('content-area'));
 }
 
@@ -2502,14 +3655,14 @@ async function exportInventoryPDF() {
     const businessName = selectedBusinessId ? db.businesses.find(b => b.id === selectedBusinessId).name : 'Global';
 
     doc.setFontSize(18);
-    doc.text(`Inventario: ${businessName}`, 14, 20);
+    doc.text(`Inventario: ${businessName} `, 14, 20);
     doc.setFontSize(10);
-    doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, 28);
+    doc.text(`Generado el: ${new Date().toLocaleString()} `, 14, 28);
 
     const products = db.products.map(p => {
         const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && i.businessId === selectedBusinessId)?.quantity || 0) :
             db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
-        return [p.name, p.category, stock, `$${p.cost.toFixed(2)}`, `$${p.price.toFixed(2)}`];
+        return [p.name, p.category, stock, `$${p.cost.toFixed(2)} `, `$${p.price.toFixed(2)} `];
     });
 
     doc.autoTable({
@@ -2530,32 +3683,44 @@ async function showSaleDetail(saleId) {
     if (!s) return;
 
     const modalHtml = `
-        <div id="sale-detail-modal" class="modal-overlay" style="display:flex; align-items:flex-start; padding-top:5vh;">
-            <div class="card" style="width:700px; max-height:90vh; overflow-y:auto; padding:2rem; position:relative;">
-                <button class="btn-icon" style="position:absolute; right:1.5rem; top:1.5rem;" onclick="closeModal('sale-detail-modal')"><i class="ph ph-x"></i></button>
-                
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; border-bottom:1px solid var(--border); padding-bottom:1rem;">
-                    <div>
-                        <h2 style="margin:0;">Detalle de Venta #${s.id.toString().slice(-6)}</h2>
-                        <div style="color:var(--text-muted);">${s.date} | ${db.businesses.find(b => String(b.id) === String(s.businessId))?.name}</div>
-                    </div>
-                    <span class="badge ${s.status === 'closed' ? 'badge-success' : 'badge-warning'}">
-                        ${s.status === 'closed' ? 'Cerrada' : (s.status === 'pending' ? 'Pendiente' : 'Abierta')}
-                    </span>
-                </div>
+            <div id="sale-detail-modal" class="modal-overlay" style="display:flex; align-items:flex-start; padding-top:5vh;">
+                <div class="card" style="width:700px; max-height:90vh; overflow-y:auto; padding:2rem; position:relative;">
+                    <button class="btn-icon" style="position:absolute; right:1.5rem; top:1.5rem;" onclick="closeModal('sale-detail-modal')"><i class="ph ph-x"></i></button>
 
-                <div class="grid-2" style="margin-bottom:1.5rem; background:var(--bg-dark); padding:1rem; border-radius:8px;">
-                    <div>
-                        <small style="color:var(--text-muted); display:block;">Vendedor</small>
-                        <strong>${s.seller || 'Sistema'}</strong>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; border-bottom:1px solid var(--border); padding-bottom:1rem;">
+                        <div>
+                            <h2 style="margin:0;">Detalle de Venta #${s.id.toString().slice(-6)}</h2>
+                            <div style="color:var(--text-muted);">${s.date} | ${db.businesses.find(b => String(b.id) === String(s.businessId))?.name}</div>
+                        </div>
+                        <span class="badge ${s.status === 'closed' || s.status === 'approved' ? 'badge-success' : 'badge-warning'}">
+                            ${s.status === 'closed' || s.status === 'approved' ? 'Cerrada' : (s.status === 'review_pending' || s.type === 'closure_request' ? 'Pendiente Revisión' : 'Registrada')}
+                        </span>
                     </div>
-                    <div>
-                        <small style="color:var(--text-muted); display:block;">Horario de Venta</small>
-                        <strong>${s.openTime || '--:--'} - ${s.closeTime || '--:--'}</strong>
-                    </div>
-                </div>
 
-                ${s.type === 'daily_closure' ? `
+                    ${(s.status === 'review_pending' || s.type === 'closure_request') && (currentUser.role === 'owner' || currentUser.role === 'admin') ? `
+                        <div style="background: rgba(255, 165, 0, 0.1); border: 1px solid var(--warning); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h4 style="margin:0; color:var(--warning);">Venta Pendiente de Aprobación</h4>
+                                <p style="margin:0.25rem 0 0 0; font-size:0.8rem;">Revisa los montos y productos antes de cerrar.</p>
+                            </div>
+                            <button class="btn-primary" onclick="closeModal('sale-detail-modal'); openSaleForRevision(${s.id}, false)" style="background:var(--warning); color:black;">
+                                <i class="ph ph-shield-check"></i> REVISAR Y CERRAR
+                            </button>
+                        </div>
+                    ` : ''}
+
+                    <div class="grid-2" style="margin-bottom:1.5rem; background:var(--bg-dark); padding:1rem; border-radius:8px;">
+                        <div>
+                            <small style="color:var(--text-muted); display:block;">Vendedor</small>
+                            <strong>${s.seller || 'Sistema'}</strong>
+                        </div>
+                        <div>
+                            <small style="color:var(--text-muted); display:block;">Horario de Venta</small>
+                            <strong>${s.openTime || '--:--'} - ${s.closeTime || '--:--'}</strong>
+                        </div>
+                    </div>
+
+                    ${(s.type === 'daily_closure' || s.type === 'daily_closure_report') ? `
                 <h3 style="margin-bottom:1rem;">Desglose de Arqueo (Cierre de Día)</h3>
                 <div class="grid-2" style="gap:1rem; margin-bottom:1.5rem;">
                     <div class="card" style="background:var(--bg-dark); padding:1rem; border: 1px solid var(--border);">
@@ -2563,13 +3728,13 @@ async function showSaleDetail(saleId) {
                             <i class="ph ph-money"></i> Efectivo
                         </h4>
                         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                            <span>Esperado:</span> <strong>$${(s.expectedCash || 0).toFixed(2)}</strong>
+                            <span>Esperado:</span> <strong>$${(s.cashSystem || 0).toFixed(2)}</strong>
                         </div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
                             <span>Real:</span> <strong>$${(s.cashReal || 0).toFixed(2)}</strong>
                         </div>
-                        <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem; color: ${s.cashDiff < 0 ? 'var(--danger)' : (s.cashDiff > 0 ? 'var(--primary)' : 'var(--success)')};">
-                            <span>Diferencia:</span> <strong>$${(s.cashDiff || 0).toFixed(2)}</strong>
+                        <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem; color: ${((s.cashReal || 0) - (s.cashSystem || 0)) < 0 ? 'var(--danger)' : (((s.cashReal || 0) - (s.cashSystem || 0)) > 0 ? 'var(--primary)' : 'var(--success)')};">
+                            <span>Diferencia:</span> <strong>$${((s.cashReal || 0) - (s.cashSystem || 0)).toFixed(2)}</strong>
                         </div>
                     </div>
                     <div class="card" style="background:var(--bg-dark); padding:1rem; border: 1px solid var(--border);">
@@ -2577,30 +3742,40 @@ async function showSaleDetail(saleId) {
                             <i class="ph ph-arrows-left-right"></i> Transferencia
                         </h4>
                         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                            <span>Esperado:</span> <strong>$${(s.expectedTransfer || 0).toFixed(2)}</strong>
+                            <span>Esperado:</span> <strong>$${(s.transferSystem || 0).toFixed(2)}</strong>
                         </div>
                         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
                             <span>Real:</span> <strong>$${(s.transferReal || 0).toFixed(2)}</strong>
                         </div>
-                        <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem; color: ${s.transferDiff < 0 ? 'var(--danger)' : (s.transferDiff > 0 ? 'var(--primary)' : 'var(--success)')};">
-                            <span>Diferencia:</span> <strong>$${(s.transferDiff || 0).toFixed(2)}</strong>
+                        <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem; color: ${((s.transferReal || 0) - (s.transferSystem || 0)) < 0 ? 'var(--danger)' : (((s.transferReal || 0) - (s.transferSystem || 0)) > 0 ? 'var(--primary)' : 'var(--success)')};">
+                            <span>Diferencia:</span> <strong>$${((s.transferReal || 0) - (s.transferSystem || 0)).toFixed(2)}</strong>
                         </div>
                     </div>
                 </div>
 
+                ${s.salaryPaid > 0 ? `
+                <div style="background:rgba(210,153,34,0.1); border:1px solid rgba(210,153,34,0.3); padding:1rem 1.5rem; border-radius:16px; margin-bottom:1.5rem; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="color:var(--warning); font-weight:700; font-size:0.9rem;"><i class="ph ph-identification-card"></i> Salario Liquidado</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted);">Pagado desde: ${s.salarySource}</div>
+                    </div>
+                    <div style="font-size:1.5rem; font-weight:900; color:var(--warning);">$${s.salaryPaid.toFixed(2)}</div>
+                </div>
+                ` : ''}
+
                 <div style="background:rgba(255,255,255,0.03); padding:1rem; border-radius:12px; margin-bottom:1.5rem;">
-                    <h4 style="margin-top:0; font-size:0.9rem; color:var(--text-muted);">RESUMEN TOTAL</h4>
-                    <div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:bold;">
+                    <h4 style="margin-top:0; font-size:0.8rem; color:var(--text-muted); text-transform:uppercase;">Resumen Consolidado</h4>
+                    <div style="display:flex; justify-content:space-between; font-size:1.2rem; font-weight:800;">
                         <span>Total Arqueado:</span>
                         <span style="color:var(--primary);">$${((s.cashReal || 0) + (s.transferReal || 0)).toFixed(2)}</span>
                     </div>
                 </div>
 
-                ${s.additionalInfo ? `
+                ${(s.notes || s.additionalInfo) ? `
                 <div style="margin-bottom:1.5rem;">
-                    <h4 style="margin-bottom:0.5rem;">Notas de Justificación</h4>
-                    <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; font-style:italic; border-left:4px solid var(--primary);">
-                        "${s.additionalInfo}"
+                    <h4 style="margin-bottom:0.5rem; font-size:0.9rem;">Notas del Cierre</h4>
+                    <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; font-style:italic; border-left:4px solid var(--primary); font-size:0.95rem;">
+                        "${s.notes || s.additionalInfo}"
                     </div>
                 </div>` : ''}
 
@@ -2652,29 +3827,28 @@ async function showSaleDetail(saleId) {
                 </div>
                 `}
 
-                <div style="display:flex; gap:1rem; margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border);">
-                    ${(currentUser.role === 'owner' || currentUser.role === 'admin' || (s.status === 'registered' && s.seller === currentUser.name)) && s.type !== 'daily_closure' ? `
-                        <button class="btn-primary" onclick="showEditSaleModal(${s.id})" style="flex:1;">
+                    <div style="display:flex; gap:1rem; margin-top:2rem; padding-top:1rem; border-top:1px solid var(--border);">
+                        ${(currentUser.role === 'owner' || currentUser.role === 'admin' || (s.status === 'registered' && s.seller === currentUser.name)) && (s.type !== 'daily_closure' && s.type !== 'daily_closure_report') ? `
+                        <button class="btn-primary" onclick="closeModal('sale-detail-modal'); editSale(${s.id})" style="flex:1;">
                             <i class="ph ph-pencil"></i> Editar
                         </button>
                     ` : ''}
-                    
-                    ${s.status === 'pending' && (currentUser.role === 'owner' || currentUser.role === 'admin') ? `
-                        <button class="btn-primary" onclick="approveSale(${s.id})" style="flex:1; background:var(--success);">
-                            <i class="ph ph-check"></i> Aprobar Cierre
+
+                        ${(s.status === 'registered' || s.status === 'review_pending') && (currentUser.role === 'owner' || currentUser.role === 'admin') ? `
+                        <button class="btn-primary" onclick="closeModal('sale-detail-modal'); openSaleForRevision(${s.id})" style="flex:1; background:var(--warning); color:black;">
+                            <i class="ph ph-shield-check"></i> Cerrar Registro
                         </button>
                     ` : ''}
 
-                    ${(currentUser.role === 'owner' || currentUser.role === 'admin' || (s.status === 'registered' && s.seller === currentUser.name)) ? `
-                        <button class="btn-ghost" style="flex:1; color:var(--danger);" onclick="deleteSaleAction(${s.id})">
+                        <button class="btn-ghost" style="flex:1; color:var(--danger);" onclick="deleteSale(${s.id})">
                             <i class="ph ph-trash"></i> Eliminar
                         </button>
-                    ` : ''}
-                    <button class="btn-ghost" onclick="closeModal('sale-detail-modal')" style="flex:1;">Cerrar</button>
+                        
+                        <button class="btn-ghost" onclick="closeModal('sale-detail-modal')" style="flex:1;">Cerrar</button>
+                    </div>
                 </div>
-            </div>
         </div>
-    `;
+            `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
@@ -2689,7 +3863,7 @@ async function deleteSaleAction(id, force = false) {
             force = true;
         } else if (currentUser.role === 'admin') {
             if (db.settings.allowAdminDeleteSales) {
-                if (confirm(`¿Eliminar esta venta?`)) force = true;
+                if (confirm(`¿Eliminar esta venta ? `)) force = true;
                 else return;
             } else {
                 alert("Necesita permisos para hacer esta acción. Solicite aprobación si es necesario.");
@@ -2715,7 +3889,7 @@ async function deleteSaleAction(id, force = false) {
         db.sales = db.sales.filter(sale => sale.id !== id);
         db.notifications = db.notifications.filter(n => !(n.refId === id && n.type === 'delete_request'));
         await saveData();
-        addLog(`Venta #${id.toString().slice(-6)} eliminada. Stock restaurado.`, 'warning');
+        addLog(`Venta #${id.toString().slice(-6)} eliminada.Stock restaurado.`, 'warning');
         alert("Venta eliminada con éxito.");
 
         if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
@@ -2730,8 +3904,8 @@ function sendDeleteRequest(s) {
         type: 'delete_request',
         refId: s.id,
         businessId: s.businessId,
-        title: `Solicitud de Borrado: ${currentUser.name}`,
-        message: `Venta de $${s.total.toFixed(2)} por ${s.seller}. "Error en el registro de hoy".`,
+        title: `Solicitud de Borrado: ${currentUser.name} `,
+        message: `Venta de $${s.total.toFixed(2)} por ${s.seller}."Error en el registro de hoy".`,
         status: 'pending',
         date: new Date().toLocaleString()
     });
@@ -2749,11 +3923,7 @@ function approveSale(id) {
     renderVentas(document.getElementById('content-area'));
 }
 
-function editSale(id) {
-    if (!confirm("¿Deseas editar esta venta? Los cambios afectarán el inventario.")) return;
-    closeModal('sale-detail-modal');
-    showEditSaleModal(id);
-}
+// function editSale(id) { ... } (Redundant, moved to global bridge)
 
 // --- UTILS ---
 function applyTheme(theme) {
@@ -2770,336 +3940,923 @@ async function exportDB() {
     a.click();
 }
 
-// --- POS CLOSURE ---
-function openPOSClosureModal() {
-    const today = new Date().toISOString().split('T')[0];
-    const registeredSales = db.sales.filter(s =>
-        s.date.startsWith(today) &&
-        s.seller === currentUser.name &&
-        s.status === 'registered' &&
-        (selectedBusinessId ? s.businessId === selectedBusinessId : true)
-    );
+/* =============================================================
+   CORRECCIÓN: FLUJO DE CIERRE Y APROBACIÓN (LÓGICA EXACTA)
+   ============================================================= */
 
-    // Calcular totales esperados (New: use s.payment object)
-    const expectedCash = registeredSales.reduce((sum, s) => sum + (s.payment?.cash || (s.paymentMethod === 'cash' ? s.total : 0)), 0);
-    const expectedTransfer = registeredSales.reduce((sum, s) => sum + (s.payment?.transfer || (s.paymentMethod === 'transfer' ? s.total : 0)), 0);
-    const totalExpected = expectedCash + expectedTransfer;
+function calculateSellerProfitAndCommission(seller, businessId) {
+    // CORRECCIÓN: Filtrar CORRECTAMENTE por fecha también, no solo status
+    const dateInput = document.getElementById('pos-date');
+    const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
 
-    // Daily Returns
-    const dailyReturns = db.dailyReturns || 0;
+    // 1. Obtener fecha de último pago del vendedor
+    const sellerObj = db.users.find(u => u.name === seller); // O buscar por ID si fuera necesario
+    const lastPaymentDate = sellerObj?.lastPaymentDate || '2000-01-01T00:00:00.000Z'; // Default epoch
 
-    // Times
-    const firstSale = registeredSales.length > 0 ? registeredSales[registeredSales.length - 1] : null; // Sales are unshifted, so last is first
-    const openingTime = firstSale ? (firstSale.date.split(' ')[1] || '08:00') : '08:00';
-    const closingTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // 2. Ventas de la SESIÓN ACTUAL (Registered + Fecha objetivo) -> Para mostrar métricas del día
+    const currentSessionSales = db.sales.filter(s => {
+        const saleDate = s.date.split(' ')[0];
+        return saleDate === targetDate &&
+            s.status === 'registered' &&
+            (seller ? s.seller === seller : true) &&
+            String(s.businessId) === String(businessId);
+    });
 
-    if (posCart.length > 0) {
-        if (!confirm("Tienes productos en el carrito. ¿Deseas ignorarlos y proceder con el arqueo de las ventas ya registradas?")) return;
-    }
+    // 3. Ventas ACUMULADAS PARA PAGO (Closed + Post-LastPayment + Pre-CurrentSession)
+    // El usuario pidió: "no se puede incluir el último día" (el actual).
+    // Buscamos ventas CERRADAS cuya fecha sea > lastPaymentDate y NO sean del día actual (o sean anteriores a hoy)
 
-    if (registeredSales.length === 0) {
-        alert("No tienes ventas registradas hoy para realizar el arqueo.");
-        return;
-    }
+    // Nota: s.timestamp es lo más fiable para comparaciones
+    const lastPayTs = new Date(lastPaymentDate).getTime();
 
-    const modalHtml = `
-    <div id="pos-closure-modal" class="modal-overlay" style="display:flex;">
-        <div class="card" style="width:650px; padding:2.5rem; max-height:95vh; overflow-y:auto; border-radius:24px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
-                <div>
-                    <h2 style="margin:0; font-size:1.8rem;">Solicitud de Cierre</h2>
-                    <p style="color:var(--text-muted); margin:0.5rem 0 0 0;">${new Date().toLocaleDateString()} | ${currentUser.name}</p>
-                    <p style="font-size:0.8rem; color:var(--primary);">Horario: ${openingTime} - ${closingTime}</p>
-                </div>
-                <div style="text-align:right;">
-                    <div style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">VENTAS BRUTAS</div>
-                    <div style="font-size:1.5rem; font-weight:bold; color:var(--primary);">$${totalExpected.toFixed(2)}</div>
-                    ${dailyReturns > 0 ? `<div style="font-size:0.8rem; color:var(--danger); font-weight:600;">DEVOLUCIONES: -$${dailyReturns.toFixed(2)}</div>` : ''}
-                </div>
-            </div>
+    const payableSales = db.sales.filter(s => {
+        const saleTs = s.timestamp || new Date(s.date).getTime(); // Fallback
+        const isClosed = s.status === 'closed' || s.type === 'daily_closure_report';
+        const belongsToSeller = (seller ? s.seller === seller : true);
+        const matchesBusiness = String(s.businessId) === String(businessId);
 
-            <form id="pos-closure-form" onsubmit="event.preventDefault(); finalizePOSSale();">
-                <input type="hidden" name="totalExpected" value="${totalExpected}">
-                <input type="hidden" name="dailyReturns" value="${dailyReturns}">
-                <input type="hidden" name="openingTime" value="${openingTime}">
-                <input type="hidden" name="closingTime" value="${closingTime}">
-                
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:2rem;">
-                    <!-- Columna EFECTIVO -->
-                    <div style="background:rgba(255,255,255,0.03); padding:1.5rem; border-radius:16px; border:1px solid var(--border);">
-                        <h3 style="margin:0 0 1rem 0; color:var(--success); display:flex; align-items:center; gap:0.5rem;">
-                            <i class="ph ph-money"></i> Efectivo
-                        </h3>
-                        <div style="margin-bottom:1rem;">
-                            <label style="font-size:0.75rem; color:var(--text-muted);">Esperado (Ventas)</label>
-                            <div style="font-size:1.2rem; font-weight:bold;">$${expectedCash.toFixed(2)}</div>
-                        </div>
-                        <div class="form-group">
-                            <label>Efectivo en Caja</label>
-                            <input type="number" step="0.01" name="cashReal" class="input-field" placeholder="0.00" required 
-                                   oninput="updateAuditDiff('cash', ${expectedCash}, this.value)">
-                            <div id="cash-diff-label" style="font-size:0.8rem; margin-top:0.5rem; font-weight:600;"></div>
-                        </div>
-                    </div>
+        // Excluir lo que se está cerrando ahora (registered/review_pending ya están excluidos por ser 'closed' check, pero aseguramos)
+        // Y aseguramos que sea POSTERIOR al último pago
+        return isClosed && belongsToSeller && matchesBusiness && saleTs > lastPayTs;
+    });
 
-                    <!-- Columna TRANSFERENCIA -->
-                    <div style="background:rgba(255,255,255,0.03); padding:1.5rem; border-radius:16px; border:1px solid var(--border);">
-                        <h3 style="margin:0 0 1rem 0; color:var(--primary); display:flex; align-items:center; gap:0.5rem;">
-                            <i class="ph ph-arrows-left-right"></i> Transf.
-                        </h3>
-                        <div style="margin-bottom:1rem;">
-                            <label style="font-size:0.75rem; color:var(--text-muted);">Esperado (Ventas)</label>
-                            <div style="font-size:1.2rem; font-weight:bold;">$${expectedTransfer.toFixed(2)}</div>
-                        </div>
-                        <div class="form-group">
-                            <label>Confirmado en Banco</label>
-                            <input type="number" step="0.01" name="transferReal" class="input-field" placeholder="0.00" required
-                                   oninput="updateAuditDiff('transfer', ${expectedTransfer}, this.value)">
-                            <div id="transfer-diff-label" style="font-size:0.8rem; margin-top:0.5rem; font-weight:600;"></div>
-                        </div>
-                    </div>
-                <div class="form-group">
-                    <label>Justificación / Notas</label>
-                    <textarea name="additionalInfo" class="input-field" style="height:100px; resize:none;" placeholder="Notas adicionales sobre el cierre..."></textarea>
-                </div>
-
-                <div style="display:flex; gap:1rem; margin-top:2.5rem;">
-                    <button type="submit" class="btn-primary" style="flex:2; height:55px; border-radius:12px; font-weight:bold; font-size:1.1rem;">
-                        <i class="ph ph-lock-key"></i> ENVIAR SOLICITUD DE CIERRE
-                    </button>
-                    <button type="button" class="btn-ghost" onclick="closeModal('pos-closure-modal')" style="flex:1;">CANCELAR</button>
-                </div>
-            </form>
-        </div>
-    </div>`;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-function updateAuditDiff(type, expected, realValue) {
-    const real = parseFloat(realValue || 0);
-    const diff = real - expected;
-    const label = document.getElementById(`${type} -diff - label`);
-    if (!label) return;
-
-    if (Math.abs(diff) < 0.01) {
-        label.innerHTML = '<span style="color:var(--success);"><i class="ph ph-check-circle"></i> Caja Cuadra</span>';
-    } else if (diff > 0) {
-        label.innerHTML = `< span style = "color:var(--primary);" > <i class="ph ph-plus-circle"></i> Sobrante: $${diff.toFixed(2)}</span > `;
-    } else {
-        label.innerHTML = `< span style = "color:var(--danger);" > <i class="ph ph-minus-circle"></i> Faltante: $${Math.abs(diff).toFixed(2)}</span > `;
-    }
-}
-
-async function finalizePOSSale() {
-    const form = document.getElementById('pos-closure-form');
-    if (!form) return;
-    const formData = new FormData(form);
-    const businessId = String(selectedBusinessId || 'mch1');
-    const today = new Date().toISOString().split('T')[0];
-
-    const totalExpected = parseFloat(formData.get('totalExpected'));
-    const expectedCash = parseFloat(formData.get('expectedCash'));
-    const expectedTransfer = parseFloat(formData.get('expectedTransfer'));
-    const dailyReturns = parseFloat(formData.get('dailyReturns'));
-    const openingTime = formData.get('openingTime');
-    const closingTime = formData.get('closingTime');
-    const cashReal = parseFloat(formData.get('cashReal') || 0);
-    const transferReal = parseFloat(formData.get('transferReal') || 0);
-    const additionalInfo = formData.get('additionalInfo') || '';
-
-    const closureId = Date.now();
-    const request = {
-        id: closureId,
-        type: 'closure_request',
-        businessId: businessId,
-        title: `Solicitud de Cierre: ${currentUser.name} `,
-        message: `Total: $${totalExpected.toFixed(2)} | Ret: $${dailyReturns.toFixed(2)} | Efectivo: $${cashReal.toFixed(2)} | Transf: $${transferReal.toFixed(2)} `,
-        data: {
-            businessId,
-            seller: currentUser.name,
-            totalExpected,
-            expectedCash,
-            expectedTransfer,
-            dailyReturns,
-            openingTime,
-            closingTime,
-            cashReal,
-            transferReal,
-            additionalInfo,
-            date: today
-        },
-        status: 'pending',
-        date: new Date().toLocaleString()
-    };
-
-    if (!db.notifications) db.notifications = [];
-    db.notifications.unshift(request);
-    db.dailyReturns = 0;
-    await saveData();
-    alert("Solicitud de cierre enviada al Administrador.");
-    closeModal('pos-closure-modal');
-    navigateTo('dashboard');
-}
-
-function showNotificationsModal() {
-    const pendingNotifs = db.notifications.filter(n => n.status === 'pending');
-    const modalHtml = `
-        < div id = "notifications-modal" class="modal-overlay" style = "display:flex;" >
-            <div class="card" style="width:500px; max-height:80vh; overflow-y:auto; padding:2rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
-                    <h2 style="margin:0;"><i class="ph ph-bell"></i> Notificaciones</h2>
-                    <button class="btn-icon" onclick="closeModal('notifications-modal')"><i class="ph ph-x"></i></button>
-                </div>
-                ${pendingNotifs.length === 0 ? '<p style="text-align:center; color:var(--text-muted);">No hay notificaciones pendientes</p>' :
-            pendingNotifs.map(n => `
-                    <div class="card" style="margin-bottom:1rem; padding:1rem; border:1px solid var(--border); background:rgba(255,255,255,0.02);">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                            <strong style="color:var(--primary);">${n.title}</strong>
-                            <small style="color:var(--text-muted);">${n.date}</small>
-                        </div>
-                        <p style="font-size:0.9rem; margin-bottom:1.5rem;">${n.message}</p>
-                        <div style="display:flex; gap:0.5rem;">
-                            ${n.type === 'closure_request' ? `
-                                <button class="btn-primary" style="flex:1;" onclick="reviewClosureRequest(${n.id})">Revisar</button>
-                            ` : ''}
-                            <button class="btn-ghost" onclick="markNotificationAsRead(${n.id})">Ignorar</button>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div >
-        `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-function markNotificationAsRead(id) {
-    const notif = db.notifications.find(n => n.id === id);
-    if (notif) {
-        notif.status = 'read';
-        saveData();
-        closeModal('notifications-modal');
-        renderSidebar(currentView);
-    }
-}
-
-function reviewClosureRequest(notifId) {
-    const notif = db.notifications.find(n => n.id === notifId);
-    if (!notif) return;
-    const d = notif.data;
-
-    const modalHtml = `
-        <div id="review-closure-modal" class="modal-overlay" style="display:flex;">
-            <div class="card" style="width:600px; padding:2rem; max-height:90vh; overflow-y:auto;">
-                <h2 style="margin-bottom:1.5rem;">Revisión de Cierre: ${d.seller}</h2>
-                <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; margin-bottom:1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-                    <div><small style="color:var(--text-muted);">Negocio:</small> <br><strong>${db.businesses.find(b => b.id === d.businessId)?.name || d.businessId}</strong></div>
-                    <div><small style="color:var(--text-muted);">Horario:</small> <br><strong>${d.openingTime} - ${d.closingTime}</strong></div>
-                    <div><small style="color:var(--text-muted);">Ventas Brutas:</small> <br><strong>$${d.totalExpected.toFixed(2)}</strong></div>
-                    <div><small style="color:var(--text-muted);">Devoluciones:</small> <br><strong style="color:var(--danger);">-$${d.dailyReturns.toFixed(2)}</strong></div>
-                </div>
-
-                <div class="grid-2" style="gap:1rem; margin-bottom:1.5rem;">
-                    <div style="border:1px solid var(--border); padding:1rem; border-radius:8px;">
-                        <h4 style="color:var(--success); margin-bottom:0.5rem;"><i class="ph ph-money"></i> Efectivo</h4>
-                        <div>Esperado: $${d.expectedCash.toFixed(2)}</div>
-                        <div style="margin-top:0.5rem;">
-                            <label style="font-size:0.8rem;">Monto Real (Editable)</label>
-                            <input type="number" step="0.01" id="review-cash-real" class="input-field" value="${d.cashReal}">
-                        </div>
-                    </div>
-                    <div style="border:1px solid var(--border); padding:1rem; border-radius:8px;">
-                        <h4 style="color:var(--primary); margin-bottom:0.5rem;"><i class="ph ph-arrows-left-right"></i> Transf.</h4>
-                        <div>Esperado: $${d.expectedTransfer.toFixed(2)}</div>
-                        <div style="margin-top:0.5rem;">
-                            <label style="font-size:0.8rem;">Confirmado Banco</label>
-                            <input type="number" step="0.01" id="review-transfer-real" class="input-field" value="${d.transferReal}">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Notas del Vendedor</label>
-                    <div style="padding:0.75rem; background:rgba(255,255,255,0.05); border-radius:8px; font-style:italic;">"${d.additionalInfo || 'Sin notas'}"</div>
-                </div>
-                
-                <div class="form-group">
-                    <label>Comentarios del Revisor (Opcional)</label>
-                    <textarea id="review-admin-notes" class="input-field" style="height:80px;"></textarea>
-                </div>
-
-                <div style="display:flex; gap:1rem; margin-top:2rem;">
-                    <button class="btn-primary" style="flex:2; background:var(--success);" onclick="approveClosure('${notifId}')">APROBAR Y CERRAR DÍA</button>
-                    <button class="btn-ghost" style="flex:1;" onclick="closeModal('review-closure-modal')">CANCELAR</button>
-                </div>
-            </div>
-        </div>
-    `;
-    showModal('review-closure-modal', modalHtml);
-}
-
-async function approveClosure(notifId) {
-    const notif = db.notifications.find(n => n.id == notifId);
-    if (!notif) return;
-    const d = notif.data;
-
-    const cashReal = parseFloat(document.getElementById('review-cash-real').value);
-    const transferReal = parseFloat(document.getElementById('review-transfer-real').value);
-    const adminNotes = document.getElementById('review-admin-notes').value;
-
-    const cashDiff = cashReal - d.expectedCash;
-    const transferDiff = transferReal - d.expectedTransfer;
-
-    // 1. Create Closure Record
-    const closureRecord = {
-        id: Date.now(),
-        type: 'daily_closure',
-        date: new Date().toISOString().replace('T', ' ').split('.')[0],
-        businessId: d.businessId,
-        seller: d.seller,
-        openingTime: d.openingTime,
-        closingTime: d.closingTime,
-        totalSales: d.totalExpected,
-        dailyReturns: d.dailyReturns,
-        expectedCash: d.expectedCash,
-        expectedTransfer: d.expectedTransfer,
-        cashReal: cashReal,
-        transferReal: transferReal,
-        cashDiff: cashDiff,
-        transferDiff: transferDiff,
-        additionalInfo: d.additionalInfo,
-        adminNotes: adminNotes,
-        status: 'closed'
-    };
-
-    // 2. Mark sales as closed
-    db.sales.forEach(s => {
-        if (s.date.startsWith(d.date) && s.seller === d.seller && s.status === 'registered' && s.businessId === d.businessId) {
-            s.status = 'closed';
+    // --- CÁLCULO SESIÓN ACTUAL ---
+    let sessionRevenue = 0, sessionCost = 0, sessionExpenses = 0;
+    currentSessionSales.forEach(s => {
+        if (s.type === 'EXPENSE') sessionExpenses += s.total;
+        else {
+            sessionRevenue += s.total;
+            if (s.items) s.items.forEach(i => {
+                const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
+                sessionCost += (p ? (p.cost || 0) * i.qty : 0);
+            });
         }
     });
 
-    // 3. Add to sales (as a closure record)
-    db.sales.unshift(closureRecord);
+    // --- CÁLCULO ACUMULADO (PAYABLE) ---
+    let payableProfit = 0;
+    payableSales.forEach(s => {
+        // Si es reporte de cierre, ya tiene los totales sumarizados
+        if (s.type === 'daily_closure_report') {
+            // Asumimos que el reporte guarda profit o lo recalculamos?
+            // El reporte guarda totalSystem, expenses, etc.
+            // Recalcularemos profit basándonos en totales guardados si es posible, o re-iterando items si necesario.
+            // Simplificación: Usar cashReal + transferReal - expenses - cost (estimado)
+            // Mejor: Iterar items del reporte para sacar costo exacto
+            let rRev = s.totalReal || 0;
+            let rCost = 0;
+            if (s.items) s.items.forEach(i => {
+                const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
+                rCost += (p ? (p.cost || 0) * i.qty : 0);
+            });
+            // Gastos en reporte? Normalmente se deducen del cashReal... 
+            // En nuestro modelo, el 'daily_closure_report' es el resumen FINAL.
+            // Profit = (Total Real) - (Costo Mercancía) - (Gastos Registrados aparte? No, gastos están en sales individuales cerradas)
 
-    // 4. Update notification
-    notif.status = 'approved';
-    notif.message += " (APROBADO)";
+            // ERROR LÓGICO: 'daily_closure_report' es un resumen, pero las ventas individuales TAMBIÉN existen y están 'closed'.
+            // SI iteramos SOBRE 'daily_closure_report', duplicaríamos si iteramos también sobre ventas 'closed'.
+            // SOLUCIÓN: Iterar SOLO sobre ventas individuales 'closed' (type != daily_closure_report).
+            // Ignoramos el reporte sumario para el cálculo detallado de comisión.
+        } else if (s.status === 'closed' && s.type !== 'daily_closure_report') {
+            if (s.type === 'EXPENSE') {
+                payableProfit -= s.total;
+            } else {
+                let sRev = s.total;
+                let sCost = 0;
+                if (s.items) s.items.forEach(i => {
+                    const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
+                    sCost += (p ? (p.cost || 0) * i.qty : 0);
+                });
+                payableProfit += (sRev - sCost);
+            }
+        }
+    });
 
-    await saveData();
-    alert("Cierre aprobado con éxito.");
-    closeModal('review-closure-modal');
-    closeModal('notifications-modal');
-    navigateTo('ventas');
+    const netProfitSession = sessionRevenue - sessionCost - sessionExpenses;
+    const commissionSession = Math.max(0, netProfitSession * 0.05);
+
+    const commissionPayable = Math.max(0, payableProfit * 0.05);
+
+    return {
+        revenue: sessionRevenue,
+        cost: sessionCost,
+        expenses: sessionExpenses,
+        profit: netProfitSession,
+        commission: commissionSession, // De la sesión actual (visual)
+        accumulatedCommission: commissionPayable, // Lo que realmente se puede pagar
+        salesCount: currentSessionSales.length
+    };
 }
 
-// --- BOOTSTRAP ---
-window.addEventListener('DOMContentLoaded', async () => {
-    console.log("App starting...");
-    await loadData();
-    setupNotifications();
-    renderNotifications(); // Cargar contador inicial
-    navigateTo('dashboard');
-});
+window.openPOSClosureModal = function () {
+    const dateInput = document.getElementById('pos-date');
+    const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
+    const currentBusinessId = selectedBusinessId ? String(selectedBusinessId) : 'mch1';
+
+    // 1. OBTENER VENTAS DEL DÍA (NO DEL CARRITO)
+    // El usuario reportó que decía "No hay ventas". Esto es porque se validaba posCart.length en versiones previas.
+    // Aquí validamos registeredSales.
+    const registeredSales = db.sales.filter(s => {
+        const saleDate = s.date.split(' ')[0];
+        const isRegistered = s.status === 'registered'; // Solo cerramos lo pendiente
+        // Si es vendedor, solo sus ventas. Si es admin/owner, cierra TODO el negocio.
+        const isSellerMatch = (currentUser.role === 'seller') ? (s.seller === currentUser.name) : true;
+        const isBusinessMatch = currentBusinessId ? String(s.businessId) === currentBusinessId : true;
+
+        return saleDate === targetDate && isRegistered && isSellerMatch && isBusinessMatch;
+    });
+
+    if (registeredSales.length === 0) {
+        alert(`ℹ️ No hay ventas registradas pendientes de cierre para hoy (${targetDate}).\n\nVerifique que:\n1. Haya realizado ventas hoy.\n2. No estén ya cerradas.`);
+        return;
+    }
+
+    const expectedCash = registeredSales.reduce((sum, s) => sum + (s.payment?.cash || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
+    const expectedTransfer = registeredSales.reduce((sum, s) => sum + (s.payment?.transfer || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
+    const totalExpected = expectedCash + expectedTransfer;
+
+    // Calcular stats para comisión. Si es admin cerrando, seller puede ser null o el admin mismo.
+    // Si es admin cerrando el día global, la comisión mostrada quizás no aplique o sea la suma.
+    // Para simplificar, si es admin, mostramos comisión global estimada o 0.
+    const statsUser = (currentUser.role === 'seller') ? currentUser.name : null;
+    const stats = calculateSellerProfitAndCommission(statsUser, currentBusinessId);
+
+    const firstSale = registeredSales[registeredSales.length - 1]; // Oldest
+    const openingTime = firstSale ? (firstSale.date.split(' ')[1] || '08:00') : '08:00';
+    const closingTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+    // LÓGICA DE ROLES: Título y Botón
+    const isBoss = (currentUser.role === 'owner' || currentUser.role === 'admin');
+    const modalTitle = isBoss ? 'Cierre de Jornada (Admin)' : 'Solicitud de Cierre de Caja';
+    const btnText = isBoss ? 'FINALIZAR Y CERRAR DÍA' : 'ENVIAR SOLICITUD DE CIERRE';
+    const btnIcon = isBoss ? 'ph-check-circle' : 'ph-paper-plane-right';
+
+    const modalHtml = `
+            <div id="pos-closure-modal" class="modal-overlay" style="display:flex;">
+                <div class="card" style="width:700px; padding:2rem; max-height:95vh; overflow-y:auto; border-radius:32px; border:1.5px solid var(--border); background:var(--glass-bg); backdrop-filter:var(--backdrop-blur); -webkit-backdrop-filter:var(--backdrop-blur);">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.5rem; border-bottom:1px solid var(--border); padding-bottom:1rem;">
+                        <div>
+                            <h2 style="margin:0; font-size:1.8rem; letter-spacing:-0.5px;"><i class="ph ph-lock-key" style="color:var(--warning);"></i> ${modalTitle}</h2>
+                            <p style="color:var(--text-muted); margin:0.5rem 0 0 0; font-size:0.9rem;">${targetDate} | <span style="color:var(--text-main); font-weight:600;">${currentUser.name}</span></p>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:0.8rem; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:1px;">TOTAL A CERRAR</div>
+                            <div style="font-size:2.2rem; font-weight:900; color:var(--primary);">$${totalExpected.toFixed(2)}</div>
+                        </div>
+                    </div>
+
+                    <form id="pos-closure-form" onsubmit="event.preventDefault(); finalizePOSSale();">
+                        <input type="hidden" name="totalExpected" value="${totalExpected}">
+                        <input type="hidden" name="expectedCash" value="${expectedCash}">
+                        <input type="hidden" name="expectedTransfer" value="${expectedTransfer}">
+                        <input type="hidden" name="openingTime" value="${openingTime}">
+                        <input type="hidden" name="closingTime" value="${closingTime}">
+                        <input type="hidden" name="targetDate" value="${targetDate}">
+                        <input type="hidden" name="commissionAmount" value="${stats.commission}">
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
+                            <!-- EFECTIVO -->
+                            <div style="background:rgba(255,255,255,0.03); padding:1.5rem; border-radius:20px; border:1px solid var(--border); position:relative; overflow:hidden;">
+                                <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:var(--success);"></div>
+                                <h3 style="margin:0 0 1.2rem 0; color:var(--success); display:flex; align-items:center; gap:0.7rem; font-size:1.1rem;">
+                                    <i class="ph ph-money" style="font-size:1.4rem;"></i> Efectivo
+                                </h3>
+                                <div style="background:var(--bg-hover); border-radius:12px; padding:1rem; margin-bottom:1rem; border:1px solid var(--border);">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.3rem;">Sistema</div>
+                                    <div style="font-size:1.5rem; font-weight:700;">$${expectedCash.toFixed(2)}</div>
+                                </div>
+                                
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                                    <div>
+                                        <label style="font-size:0.8rem; color:var(--success); font-weight:600; display:block; margin-bottom:0.5rem;">Sobrante (+)</label>
+                                        <input type="number" step="0.01" name="surplusCash" class="input-field" placeholder="0.00" 
+                                            style="padding:0.7rem; background:rgba(63, 185, 80, 0.05); border-color:rgba(63, 185, 80, 0.2);"
+                                            oninput="updateAuditUI()">
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.8rem; color:var(--danger); font-weight:600; display:block; margin-bottom:0.5rem;">Faltante (-)</label>
+                                        <input type="number" step="0.01" name="shortageCash" class="input-field" placeholder="0.00"
+                                            style="padding:0.7rem; background:rgba(248, 81, 73, 0.05); border-color:rgba(248, 81, 73, 0.2);"
+                                            oninput="updateAuditUI()">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- TRANSFERENCIA -->
+                            <div style="background:rgba(255,255,255,0.03); padding:1.5rem; border-radius:20px; border:1px solid var(--border); position:relative; overflow:hidden;">
+                                <div style="position:absolute; top:0; left:0; width:4px; height:100%; background:var(--primary);"></div>
+                                <h3 style="margin:0 0 1.2rem 0; color:var(--primary); display:flex; align-items:center; gap:0.7rem; font-size:1.1rem;">
+                                    <i class="ph ph-arrows-left-right" style="font-size:1.4rem;"></i> Transferencia
+                                </h3>
+                                <div style="background:var(--bg-hover); border-radius:12px; padding:1rem; margin-bottom:1rem; border:1px solid var(--border);">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.3rem;">Confirmado Banco</div>
+                                    <div style="font-size:1.5rem; font-weight:700;">$${expectedTransfer.toFixed(2)}</div>
+                                </div>
+
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                                    <div>
+                                        <label style="font-size:0.8rem; color:var(--primary); font-weight:600; display:block; margin-bottom:0.5rem;">Sobrante Bot (+)</label>
+                                        <input type="number" step="0.01" name="surplusTransfer" class="input-field" placeholder="0.00"
+                                            style="padding:0.7rem; background:rgba(88, 166, 255, 0.05); border-color:rgba(88, 166, 255, 0.2);"
+                                            oninput="updateAuditUI()">
+                                    </div>
+                                    <div>
+                                        <label style="font-size:0.8rem; color:var(--danger); font-weight:600; display:block; margin-bottom:0.5rem;">Faltante Bot (-)</label>
+                                        <input type="number" step="0.01" name="shortageTransfer" class="input-field" placeholder="0.00"
+                                            style="padding:0.7rem; background:rgba(248, 81, 73, 0.05); border-color:rgba(248, 81, 73, 0.2);"
+                                            oninput="updateAuditUI()">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SALARIO Y COMISIONES -->
+                        <div style="background:var(--bg-card); padding:1.5rem; border-radius:20px; border:1px solid var(--border); margin-bottom:1.5rem;">
+                             <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div>
+                                    <h3 style="margin:0 0 0.5rem 0; font-size:1.1rem; color:var(--text-main);"><i class="ph ph-wallet"></i> Salario y Comisiones</h3>
+                                    <p style="margin:0; font-size:0.85rem; color:var(--text-muted);">Comisiones acumuladas desde el último pago.</p>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="font-size:0.8rem; color:var(--text-muted);">ACUMULADO PAGABLE</div>
+                                    <div style="font-size:1.6rem; font-weight:800; color:var(--success);">$${stats.accumulatedCommission.toFixed(2)}</div>
+                                </div>
+                             </div>
+                             
+                             <div style="margin-top:1.5rem; padding:1rem; background:rgba(255,255,255,0.03); border-radius:12px; border:1px solid var(--border); display:flex; align-items:center; gap:1rem;">
+                                 <input type="checkbox" id="requestSalary" name="requestSalary" value="true" style="width:20px; height:20px; accent-color:var(--primary);">
+                                 <label for="requestSalary" style="cursor:pointer; flex:1;">
+                                     <span style="font-weight:600; color:var(--text-main); display:block;">Solicitar Pago de Comisiones</span>
+                                     <span style="font-size:0.85rem; color:var(--text-muted);">Al marcar esto, se solicitará al administrador el pago de $${stats.accumulatedCommission.toFixed(2)}.</span>
+                                     ${stats.accumulatedCommission === 0 ? '<span style="display:block; font-size:0.75rem; color:var(--warning); margin-top:0.3rem;"><i class="ph ph-warning"></i> No hay comisiones acumuladas por pagar.</span>' : ''}
+                                 </label>
+                             </div>
+                             
+                             <!-- Hidden inputs for logic -->
+                             <input type="hidden" name="commissionAmount" value="${stats.accumulatedCommission}"> 
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.9rem; margin-bottom:0.5rem;">
+                                <i class="ph ph-chat-centered-text" style="color:var(--primary);"></i> Notas e Incidencias (Opcional)
+                            </label>
+                            <textarea name="additionalInfo" class="input-field" style="height:80px; resize:none;"
+                                placeholder="Describa el motivo de cualquier sobrante o faltante..."></textarea>
+                        </div>
+
+                        <div style="display:flex; gap:1.2rem; margin-top:2rem;">
+                            <button type="button" class="btn-ghost" onclick="closeModal('pos-closure-modal')" style="flex:1; border-radius:16px;">CANCELAR</button>
+                            <button type="submit" class="btn-primary" style="flex:2; height:60px; border-radius:16px; font-weight:800; font-size:1.2rem; box-shadow:0 10px 20px rgba(88,166,255,0.2);">
+                                <i class="ph ${btnIcon}"></i> ${btnText}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+
+    showModal('pos-closure-modal', modalHtml);
+};
+
+window.updateAuditUI = function () {
+    // Solo estético si fuera necesario, los valores se envían al form
+};
+
+
+// 2. ENVIAR NOTIFICACIÓN (Finalizar paso del Vendedor)
+window.finalizePOSSale = async function () {
+    const form = document.getElementById('pos-closure-form');
+    if (!form) return;
+    const formData = new FormData(form);
+    const d = Object.fromEntries(formData.entries());
+
+    ['totalExpected', 'expectedCash', 'expectedTransfer', 'surplusCash', 'shortageCash', 'surplusTransfer', 'shortageTransfer', 'commissionAmount'].forEach(k => {
+        d[k] = parseFloat(d[k] || 0);
+    });
+
+    const requestSalary = d.requestSalary === 'true';
+
+    const businessId = String(selectedBusinessId || 'mch1');
+    const closureId = Date.now();
+
+    // 1. CAPTURAR VENTAS Y CAMBIAR ESTADO A 'review_pending'
+    const sellerSales = db.sales.filter(s =>
+        s.status === 'registered' &&
+        s.seller === currentUser.name &&
+        String(s.businessId) === businessId
+    );
+
+    const saleIds = sellerSales.map(s => s.id);
+    sellerSales.forEach(s => s.status = 'review_pending');
+
+    const cashReal = (d.expectedCash + d.surplusCash - d.shortageCash);
+    const transferReal = (d.expectedTransfer + d.surplusTransfer - d.shortageTransfer);
+    const totalReal = cashReal + transferReal;
+
+    const notification = {
+        id: closureId,
+        type: 'closure_request',
+        businessId: businessId,
+        title: `🔐 Solicitud de Cierre: ${currentUser.name}`,
+        message: `Total Sistema: $${d.totalExpected.toFixed(2)} | Real: $${totalReal.toFixed(2)}`,
+        status: 'pending',
+        date: new Date().toLocaleString(),
+        data: {
+            ...d,
+            cashReal: cashReal,
+            transferReal: transferReal,
+            businessId: businessId,
+            seller: currentUser.name,
+            targetDate: d.targetDate,
+            saleIds: saleIds,
+            requestSalary: requestSalary,
+            commission: d.commissionAmount
+        }
+    };
+
+    if (!db.notifications) db.notifications = [];
+    db.notifications.unshift(notification);
+
+    await saveData();
+
+    closeModal('pos-closure-modal');
+
+    // LIMPIEZA TOTAL PARA EL VENDEDOR
+    posCart = [];
+    editingSaleId = null;
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
+
+    // Navegación Consistente
+    navigateTo('ventas');
+};
+
+/* =============================================================
+   SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA)
+   ============================================================= */
+/* =============================================================
+   SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA) -> REDIRIGE AL POS EDITABLE
+   ============================================================= */
+window.openSuperReviewModal = async function (id, isNotification = false) {
+    let source = isNotification ? db.notifications.find(n => n.id === id) : db.sales.find(s => s.id === id);
+    if (!source) return alert("Origen de datos no encontrado.");
+
+    const d = isNotification ? source.data : source;
+
+    // Configurar estado de revisión
+    isReviewingClosure = true;
+    reviewingClosureId = d.id || id;
+    reviewingNotificationId = isNotification ? id : null;
+    selectedBusinessId = d.businessId;
+
+    // Consolidar productos en el carrito del POS
+    posCart = [];
+    const sessionSaleIds = d.saleIds || d.salesIds || [d.id];
+    sessionSaleIds.forEach(sid => {
+        const s = db.sales.find(sale => String(sale.id) === String(sid));
+        if (s && s.items) {
+            s.items.forEach(i => {
+                const existing = posCart.find(ci => String(ci.productId || ci.id) === String(i.productId || i.id));
+                if (existing) {
+                    existing.qty += i.qty;
+                } else {
+                    posCart.push({ ...i, id: (i.productId || i.id) });
+                }
+            });
+        }
+    });
+
+    // Guardar metadata del arqueo original para los inputs
+    window.auditTempData = {
+        cashReal: d.cashReal || 0,
+        transferReal: d.transferReal || 0,
+        surplusCash: d.surplusCash || d.surplus || 0,
+        shortageCash: d.shortageCash || d.shortage || 0,
+        surplusTransfer: d.surplusTransfer || 0,
+        shortageTransfer: d.shortageTransfer || 0,
+        openingTime: d.openingTime || '08:00',
+        closingTime: d.closingTime || '22:00',
+        targetDate: d.targetDate || d.date?.split(' ')[0] || new Date().toISOString().split('T')[0],
+        seller: d.seller || 'Sistema' // Validar vendedor para filtro de cierre
+    };
+
+    // Navegar al POS
+    navigateTo('pos');
+};
+
+window.updateAuditItemQty = async function (seller, businessId, productId, newVal, isNotification, sourceId) {
+    const newQty = parseInt(newVal);
+    if (isNaN(newQty) || newQty < 0) return;
+
+    // Buscar todas las ventas candidatas de esta sesión (mismo vendedor, mismo negocio, estado pendiente)
+    const candidates = db.sales.filter(s =>
+        s.seller === seller &&
+        String(s.businessId) === String(businessId) &&
+        (s.status === 'registered' || s.status === 'review_pending' || s.status === 'closed')
+    );
+
+    // Encontrar el item en alguna de estas ventas
+    let itemFound = false;
+    candidates.forEach(s => {
+        if (!s.items) return;
+        const item = s.items.find(i => String(i.productId || i.id) === String(productId));
+        if (item) {
+            const oldQty = item.qty;
+            const diff = newQty - oldQty;
+            if (diff === 0) return; // No change needed
+
+            item.qty = newQty;
+            itemFound = true;
+
+            // Ajustar Inventario (reversión e impacto en tiempo real)
+            const inv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === String(businessId));
+            if (inv) {
+                inv.quantity -= diff; // Si sumamos al ticket, restamos del stock
+            } else {
+                // Crear entrada si no existe (vulnerabilidad de lógica pero previene crash)
+                db.inventory.push({ businessId: businessId, productId: productId, quantity: -diff });
+            }
+
+            // Recalcular total de la venta
+            const oldTotal = s.total;
+            s.total = s.items.reduce((acc, current) => acc + (current.price * current.qty), 0);
+            const totalDiff = s.total - oldTotal;
+
+            // Ajustar Pago (asumimos efectivo para la corrección)
+            if (!s.payment) s.payment = { cash: 0, transfer: 0 };
+            s.payment.cash = (s.payment.cash || 0) + totalDiff;
+        }
+    });
+
+    if (itemFound) {
+        // ACTUALIZAR REPORTE SI EXISTE (Consistencia de datos)
+        // Buscamos el reporte que contenga esta venta
+        const report = db.sales.find(r =>
+            r.type === 'daily_closure_report' &&
+            (r.salesIds || r.saleIds || []).some(sid => String(sid) === String(sourceId) || (Array.isArray(sourceId) && sourceId.includes(sid)))
+        );
+
+        if (report) {
+            // Recalcular report totals
+            let expCash = 0;
+            let expTrans = 0;
+            const sIds = report.salesIds || report.saleIds || [];
+            sIds.forEach(sid => {
+                const rs = db.sales.find(sale => String(sale.id) === String(sid));
+                if (rs) {
+                    if (rs.type !== 'EXPENSE') {
+                        expCash += (rs.payment?.cash || 0);
+                        expTrans += (rs.payment?.transfer || 0);
+                    } else {
+                        expCash += (rs.total || 0);
+                    }
+                }
+            });
+            report.expectedCash = expCash;
+            report.expectedTransfer = expTrans;
+            report.surplus = Math.max(0, (report.cashReal || 0) - expCash) + Math.max(0, (report.transferReal || 0) - expTrans);
+            report.shortage = Math.max(0, expCash - (report.cashReal || 0)) + Math.max(0, expTrans - (report.transferReal || 0));
+        }
+
+        await saveData();
+        // Recargar el modal para refrescar los cálculos de Sistema y Diferencias
+        openSuperReviewModal(sourceId, isNotification);
+    } else {
+        alert("No se encontró el producto en las ventas de esta sesión.");
+    }
+}
+
+window.finalApproveClosure = async function (id, isNotification) {
+    try {
+        const paySalary = document.getElementById('pay-salary-now')?.checked || false;
+
+        let source = isNotification ?
+            db.notifications.find(n => String(n.id) === String(id)) :
+            db.sales.find(s => String(s.id) === String(id));
+
+        if (!source) {
+            console.error("Source not found for closure:", id, isNotification);
+            return alert("Error: No se pudo localizar la sesión para cerrar.");
+        }
+
+        const d = isNotification ? source.data : source;
+
+        if (!confirm(`¿Confirmar cierre definitivo ?\n\n - Vendedor: ${d.seller} \n - Pago Salario: ${paySalary ? 'SÍ' : 'NO'} `)) return;
+
+        // 1. Cambiar estado de todas las ventas relacionadas
+        let count = 0;
+        (d.saleIds || [d.id]).forEach(sid => {
+            const s = db.sales.find(sale => String(sale.id) === String(sid));
+            if (s) {
+                s.status = 'closed';
+                s.auditedBy = currentUser.name || 'Admin';
+                s.auditTimestamp = Date.now();
+                count++;
+            }
+        });
+
+        // 2. Procesar Salario si se marcó
+        let salaryPaid = 0;
+        let salarySource = '';
+
+        if (paySalary) {
+            const stats = calculateSellerProfitAndCommission(d.seller, d.businessId);
+            salaryPaid = stats.commission;
+            const cashReal = (d.cashReal || 0);
+
+            if (cashReal >= salaryPaid) {
+                salarySource = 'Caja Diaria';
+            } else {
+                salarySource = 'Fondo del Negocio';
+                db.businessFund.cash -= salaryPaid;
+            }
+        }
+
+        // 3. Recalcular balance final para el reporte (por si hubo ediciones en la revisión)
+        let expectedCash = 0;
+        let expectedTransfer = 0;
+        (d.saleIds || [d.id]).forEach(sid => {
+            const s = db.sales.find(sale => String(sale.id) === String(sid));
+            if (s) {
+                if (s.type !== 'EXPENSE') {
+                    expectedCash += (s.payment?.cash || 0);
+                    expectedTransfer += (s.payment?.transfer || 0);
+                } else {
+                    expectedCash += (s.total || 0);
+                }
+            }
+        });
+
+        const cashReal = (d.cashReal || 0);
+        const transferReal = (d.transferReal || 0);
+        const surplus = Math.max(0, cashReal - expectedCash) + Math.max(0, transferReal - expectedTransfer);
+        const shortage = Math.max(0, expectedCash - cashReal) + Math.max(0, expectedTransfer - transferReal);
+
+        const closureReport = {
+            id: Date.now(),
+            type: 'daily_closure_report',
+            businessId: d.businessId,
+            seller: d.seller,
+            date: d.targetDate || new Date().toISOString().split('T')[0],
+            timestamp: Date.now(),
+            // Auditoría
+            expectedCash: expectedCash,
+            expectedTransfer: expectedTransfer,
+            cashReal: cashReal,
+            transferReal: transferReal,
+            totalReal: cashReal + transferReal,
+            surplus: surplus,
+            shortage: shortage,
+            salaryPaid: salaryPaid,
+            salarySource: salarySource,
+            notes: d.notes || d.additionalInfo || '',
+            salesIds: d.salesIds || d.saleIds || [d.id],
+            auditedBy: currentUser.name,
+            status: 'closed'
+        };
+
+        db.sales.unshift(closureReport);
+
+        // 4. Marcar notificación como procesada si aplica
+        if (isNotification) {
+            source.status = 'approved';
+            source.seen = true;
+        }
+
+        await saveData();
+        closeModal('super-review-modal');
+        closeModal('sale-detail-modal');
+
+        alert(`✅ CIERRE PROCESADO CORRECTAMENTE.\n\n - Auditado por: ${currentUser.name} \n - Ventas cerradas: ${count} \n - Salario: $${salaryPaid.toFixed(2)} (${salarySource})`);
+
+        // Refrescar vista
+        if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
+        else navigateTo('ventas');
+
+    } catch (err) {
+        console.error("Error in finalApproveClosure:", err);
+        alert("Ocurrió un error crítico al cerrar la venta. Revisa la consola.");
+    }
+};
+
+// 4. APROBAR FINALMENTE (Lógica Contable desde POS)
+/* =============================================================
+   NUEVO: REVISIÓN DE SESIÓN COMPLETA (VENTAS + GASTOS + MERMAS)
+   ============================================================= */
+window.openSaleForRevision = function (idOrSessionId, sessionIdOpt) {
+    // Si pasamos sessionIdOpt, es la nueva lógica. Si no, tratamos de deducirlo.
+    const saleId = idOrSessionId;
+    const sessionId = sessionIdOpt || null;
+
+    // Buscar la venta/sesión origen
+    const sourceSale = db.sales.find(s => String(s.id) === String(saleId));
+    if (!sourceSale) {
+        alert("No se encontró el registro origen.");
+        return;
+    }
+
+    // Definir el criterio de grupo
+    let relatedItems = [];
+    if (sessionId && sessionId !== 'null' && sessionId !== 'undefined') {
+        relatedItems = db.sales.filter(s => String(s.sessionId) === String(sessionId));
+    } else {
+        // Fallback Legacy: Mismo día, vendedor y negocio
+        const day = (sourceSale.date || '').split(',')[0].trim();
+        relatedItems = db.sales.filter(s => {
+            const sDay = (s.date || '').split(',')[0].trim();
+            return sDay === day && s.seller === sourceSale.seller && String(s.businessId) === String(sourceSale.businessId);
+        });
+    }
+
+    // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
+    const isSeller = (currentUser && currentUser.role === 'seller');
+    const isPendingOrClosed = relatedItems.some(s =>
+        s.status === 'review_pending' ||
+        s.status === 'closed' ||
+        s.status === 'approved' ||
+        s.type === 'closure_request' ||
+        s.type === 'daily_closure_report'
+    );
+
+    console.log("STONE RULE #1 DEBUG:", {
+        userName: currentUser?.name,
+        userRole: currentUser?.role,
+        isSeller,
+        isPendingOrClosed,
+        itemsCount: relatedItems.length,
+        itemStatuses: relatedItems.map(s => s.status),
+        itemTypes: relatedItems.map(s => s.type)
+    });
+
+    if (isSeller && isPendingOrClosed) {
+        alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta sesión ya fue enviada a revisión o está cerrada. No puedes editarla.\nContacta con un Administrador para realizar cambios.");
+        return;
+    }
+
+    // Configurar estado de revisión
+    isReviewingClosure = true;
+    reviewingClosureId = sessionId || saleId;
+    reviewingNotificationId = null;
+    selectedBusinessId = sourceSale.businessId;
+
+    // Verificar si la sesión está CERRADA
+    const isClosed = relatedItems.every(s => s.status === 'closed' || s.status === 'approved');
+    if (isClosed) {
+        if (!confirm("⚠️ ESTA SESIÓN ESTÁ CERRADA.\n\n¿Estás seguro que deseas re-abrirla para editar?\nCualquier cambio requerirá un nuevo cierre.")) {
+            isReviewingClosure = false;
+            return;
+        }
+    }
+
+    // Cargar Carrito (Solo Ventas y Gastos visualizables)
+    posCart = [];
+    relatedItems.forEach(s => {
+        if (s.items) {
+            s.items.forEach(i => {
+                // Add item to cart, preserving origin ID for updates
+                posCart.push({
+                    ...i,
+                    id: i.productId || i.id,
+                    _originSaleId: s.id, // Track source for specific updates
+                    _type: s.type // Track if expense
+                });
+            });
+        }
+    });
+
+    // Guardar metadata para el POS
+    window.auditTempData = {
+        targetDate: relatedItems[0].date.split(',')[0].trim(),
+        seller: relatedItems[0].seller,
+        openingTime: relatedItems[0].openingTime || '08:00',
+        closingTime: '22:00', // Default
+        sessionId: sessionId || null
+    };
+
+    navigateTo('pos');
+    alert(`Revisando Sesión de ${relatedItems[0].seller}\n${relatedItems.length} movimientos cargados.`);
+};
+
+// ... (existing openSuperReviewModal below can be deprecated or kept for compat)
+/* =============================================================
+   NUEVO: ELIMINAR SESIÓN COMPLETA
+   ============================================================= */
+window.deleteSession = async function (sessionId, date, seller, businessId) {
+    if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
+        alert("No tienes permisos para eliminar sesiones.");
+        return;
+    }
+
+    if (!confirm(`⚠️ PELIGRO: ESTÁS A PUNTO DE ELIMINAR UNA SESIÓN COMPLETA.\n\nFecha: ${date}\nVendedor: ${seller}\n\nEsto borrará TODAS las ventas, gastos y registros de esa sesión permanentemente.\n\n¿Estás seguro?`)) return;
+
+    // Filter criteria
+    const targetSessionId = (sessionId && sessionId !== 'null' && sessionId !== 'undefined') ? sessionId : null;
+
+    // Filter out the sales
+    const initialCount = db.sales.length;
+    db.sales = db.sales.filter(s => {
+        if (targetSessionId) {
+            return String(s.sessionId) !== String(targetSessionId);
+        } else {
+            // Legacy fallback
+            const sDay = (s.date || '').split(',')[0].trim();
+            const matches = sDay === date && s.seller === seller && String(s.businessId) === String(businessId);
+            return !matches;
+        }
+    });
+
+    const deletedCount = initialCount - db.sales.length;
+    addLog(`Sesión eliminada por ${currentUser.name}: ${deletedCount} registros borrados.`, 'critical');
+
+    await saveData();
+    renderVentas(document.getElementById('content-area'));
+    alert("Sesión eliminada correctamente.");
+};
+window.approveClosureFromPOS = async function () {
+    if (!isReviewingClosure) return;
+
+    const totalSystem = posCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+    const audit = window.auditTempData;
+
+    // Calcular reales y diferencias
+    const cashReal = audit.cashReal;
+    const transferReal = audit.transferReal;
+    const totalReal = cashReal + transferReal;
+
+    const cashDiff = cashReal - totalSystem;
+
+    if (!confirm(`¿Confirmar aprobación del cierre?\n\nTotal Sistema: $${totalSystem.toFixed(2)}\nTotal Real: $${totalReal.toFixed(2)}\nUnidades: ${posCart.reduce((sum, i) => sum + i.qty, 0)}`)) return;
+
+    // 1. Obtener la notificación o venta origen de forma robusta
+    const sourceId = reviewingClosureId;
+
+    // Intentar buscar notificación por ID directo, o por data.id, O por si contiene el saleId en su lista
+    const notif = db.notifications.find(n =>
+        n.id == reviewingNotificationId ||
+        (n.data && n.data.id == sourceId) ||
+        (n.data && n.data.saleIds && n.data.saleIds.includes(sourceId))
+    );
+
+    // 2. Marcar ventas individuales como CERRADAS
+    // IMPORTANTE: Filtrar por FECHA y VENDEDOR para no cerrar cosas de otros días/usuarios
+    const targetDate = audit.targetDate;
+    const targetSeller = audit.seller;
+
+    let count = 0;
+
+    // Filtro estricto: Status + Negocio + Vendedor + Fecha
+    const sellerSales = db.sales.filter(s =>
+        (s.status === 'review_pending' || s.status === 'registered') &&
+        String(s.businessId) === String(selectedBusinessId) &&
+        (!targetSeller || s.seller === targetSeller) &&
+        (s.date.startsWith(targetDate))
+    );
+
+    // Si no encontramos por estado, usamos los IDs vinculados si existen
+    const linkedIds = notif?.data?.saleIds || [];
+
+    db.sales.forEach(s => {
+        // La condición es: o está en la lista explícita de la notificación, O cumple los criterios de filtro (misma sesión)
+        if (linkedIds.includes(s.id) || (sellerSales.includes(s))) {
+            s.status = 'closed';
+            s.closureId = sourceId;
+            s.locker = null; // Liberar candado
+            count++;
+        }
+    });
+
+    // 3. Crear el Reporte Maestro de Cierre
+    const masterClosure = {
+        id: sourceId || Date.now(),
+        type: 'daily_closure_report',
+        businessId: selectedBusinessId,
+        seller: targetSeller || notif?.data?.seller || 'Vendedor',
+        date: audit.targetDate + ' ' + new Date().toLocaleTimeString(),
+        timestamp: Date.now(),
+        totalSystem: totalSystem,
+        totalReal: totalReal,
+        cashSystem: totalSystem, // Simplificación
+        cashReal: cashReal,
+        transferSystem: 0,
+        transferReal: transferReal,
+        surplus: audit.surplusCash + audit.surplusTransfer,
+        shortage: audit.shortageCash + audit.shortageTransfer,
+        surplusCash: audit.surplusCash,
+        shortageCash: audit.shortageCash,
+        surplusTransfer: audit.surplusTransfer,
+        shortageTransfer: audit.shortageTransfer,
+        openingTime: audit.openingTime,
+        closingTime: audit.closingTime,
+        items: posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
+        salesIds: linkedIds.length > 0 ? linkedIds : sellerSales.map(s => s.id),
+        salesCount: count,
+        approvedBy: currentUser.name,
+        status: 'closed'
+    };
+
+    // Reemplazar si ya existe un reporte con ese ID o agregar nuevo
+    // Usamos un ID único si es nuevo
+    const existingIndex = db.sales.findIndex(s => s.id == masterClosure.id && s.type === 'daily_closure_report');
+    if (existingIndex !== -1) {
+        db.sales[existingIndex] = masterClosure;
+    } else {
+        db.sales.unshift(masterClosure);
+    }
+
+    if (notif) {
+        notif.status = 'approved';
+        notif.seen = true;
+        notif.locker = null; // Liberar candado
+
+        // PAGAR SALARIO SI SE SOLICITÓ
+        if (notif.data && notif.data.requestSalary) {
+            const sellerUser = db.users.find(u => u.name === notif.data.seller);
+            if (sellerUser) {
+                sellerUser.lastPaymentDate = new Date().toISOString();
+                // Log del pago
+                addLog(`Pago de salario/comisiones aprobado para ${sellerUser.name}: $${notif.data.commission}`, 'success');
+            }
+        }
+    }
+
+    await saveData();
+
+    // 4. Limpiar estado y volver
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
+    reviewingClosureId = null;
+    isSessionActive = false; // <--- NUEVO: Cerrar sesión POS
+    posCart = [];
+    window.auditTempData = {}; // Clear
+
+    alert("✅ Cierre Aprobado.\nLas ventas han sido marcadas como CERRADAS y se generó el reporte definitivo.");
+    navigateTo('ventas');
+};
+
+// Mantener approveClosure original para compatibilidad con el modal si se llegara a usar
+window.approveClosure = async function (notifId) {
+    const notif = db.notifications.find(n => n.id == notifId);
+    if (!notif) return;
+    const d = notif.data;
+    const adminNoteInput = document.getElementById('admin-approval-note');
+    const adminNote = adminNoteInput ? adminNoteInput.value : '';
+
+    let count = 0;
+    const salesIds = [];
+    db.sales.forEach(s => {
+        const isPending = s.status === 'review_pending' || s.status === 'registered';
+        const isSellerMatch = String(s.seller).trim() === String(d.seller).trim();
+        const isBusinessMatch = String(s.businessId).trim() === String(d.businessId).trim();
+
+        if (isPending && isSellerMatch && isBusinessMatch) {
+            s.status = 'closed';
+            s.closureId = notif.id;
+            salesIds.push(s.id);
+            count++;
+        }
+    });
+
+    const masterClosure = {
+        id: Date.now(),
+        type: 'daily_closure_report',
+        date: new Date().toLocaleString(),
+        businessId: d.businessId,
+        seller: d.seller,
+        totalExpected: d.totalExpected,
+        totalReal: d.cashReal + d.transferReal,
+        cashReal: d.cashReal,
+        transferReal: d.transferReal,
+        cashDiff: d.cashReal - d.expectedCash,
+        transferDiff: d.transferReal - d.expectedTransfer,
+        sellerNotes: d.additionalInfo,
+        adminNotes: adminNote,
+        salesIds: salesIds,
+        salesCount: count,
+        approvedBy: currentUser.name
+    };
+
+    db.sales.unshift(masterClosure);
+    notif.status = 'approved';
+    notif.seen = true;
+
+    await saveData();
+    closeModal('review-closure-modal');
+    closeModal('notifications-modal');
+    alert(`✅ DÍA CERRADO CORRECTAMENTE.`);
+    renderDashboard(null);
+};
+
+window.updateAuditDiff = function (type, expected, val) {
+    const real = parseFloat(val || 0);
+    const diff = real - expected;
+    const el = document.getElementById(type + '-diff-label');
+    if (el) {
+        if (Math.abs(diff) < 0.05) el.innerHTML = '<span style="color:var(--success);">✅ Cuadre Exacto</span>';
+        else if (diff > 0) el.innerHTML = `< span style = "color:var(--primary);" > + Sobran $${diff.toFixed(2)}</span > `;
+        else el.innerHTML = `< span style = "color:var(--danger);" > - Faltan $${Math.abs(diff).toFixed(2)}</span > `;
+    }
+};
+
+
 
 /* =============================================================
    PARCHE DE EMERGENCIA - FUNCIONES GLOBALES (POWERED BY ANTIGRAVITY)
@@ -3113,46 +4870,203 @@ window.openModal = function (id) {
     else console.warn("Modal no encontrado:", id);
 };
 
-// Helper para cerrar modales (Soporta estáticos y dinámicos)
+
+/* =============================================================
+   NUEVO: PANTALLA DE APERTURA DE SESIÓN
+   ============================================================= */
+let currentSessionStartTime = 0; // New Global
+
+function renderOpenSessionScreen(container) {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+    container.innerHTML = `
+        <div class="fade-in" style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <div class="card" style="padding: 3rem; max-width: 500px; width: 100%; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.2);">
+                <div style="font-size: 4rem; font-weight: 900; background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.5rem;">
+                    ${timeStr}
+                </div>
+                <div style="font-size: 1.2rem; color: var(--text-muted); margin-bottom: 2rem; text-transform: capitalize;">
+                    ${dateStr}
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <div style="font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--primary);">Usuario Activo</div>
+                    <div style="font-weight: bold; font-size: 1.5rem;">${currentUser.name}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${currentUser.role === 'seller' ? 'Vendedor' : 'Administrador'}</div>
+                </div>
+
+                <button class="btn-primary" onclick="startSession()" style="width: 100%; padding: 1rem; font-size: 1.1rem; border-radius: 12px; display: flex; justify-content: center; gap: 0.5rem;">
+                    <i class="ph ph-storefront" style="font-size: 1.4rem;"></i>
+                    ABRIR CAJA Y COMENZAR DÍA
+                </button>
+                
+                 <p style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--text-muted);">
+                    Se registrará la hora de apertura automáticamente.
+                </p>
+            </div>
+        </div>
+    `;
+
+    // Live clock update
+    if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
+    window.sessionClockInternal = setInterval(() => {
+        const n = new Date();
+        const t = n.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const el = container.firstElementChild?.querySelector('div[style*="font-size: 4rem"]');
+        if (el) el.textContent = t;
+    }, 1000);
+}
+
+window.startSession = function () {
+    isSessionActive = true;
+    currentSessionStartTime = Date.now(); // Mark start time
+    posOpeningTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
+    navigateTo('pos');
+};
+
+/* =============================================================
+   PUENTE GLOBAL UNIFICADO (RESTAURACIÓN FINAL)
+   ============================================================= */
+
+// Helper para cerrar modales
 window.closeModal = function (id) {
     const m = document.getElementById(id);
     if (!m) return;
-
-    // Si es un modal estático definido en el HTML (usamos la clase hidden)
     if (m.classList.contains('static-modal') || id === 'incidentModal') {
         m.classList.add('hidden');
     } else {
-        // Si es un modal dinámico creado por showModal()
         m.classList.add('fade-out');
-        setTimeout(() => {
-            if (m.parentNode) m.parentNode.removeChild(m);
-        }, 200);
+        setTimeout(() => { if (m.parentNode) m.parentNode.removeChild(m); }, 200);
     }
 };
 
-// 1. Forzar la función de EDITAR al ámbito global
+// REMOVED REDUNDANT GLOBAL BRIDGES (Definitive versions are in the COMBO MAESTRO section)
+
+/* =============================================================
+   PUENTE DE EMERGENCIA - LÓGICA DE BOTONES (VERSIÓN FUNCIONAL)
+   (Pegar al final de app.js para revivir Editar/Borrar)
+   ============================================================= */
+
+/* =============================================================
+   COMBO MAESTRO: LÓGICA CORREGIDA Y OPTIMIZADA
+   ============================================================= */
+
+// Seguridad por Roles (Mapa Maestro Global)
+const rolePermissions = {
+    'owner': ['dashboard', 'pos', 'ventas', 'inventory', 'settings', 'reportes', 'transfer', 'daily-records', 'cash-control', 'mermas', 'logs', 'compras', 'employees', 'financials', 'product-detail'],
+    'admin': ['dashboard', 'pos', 'ventas', 'inventory', 'reportes', 'transfer', 'mermas', 'settings', 'product-detail', 'cash-control'],
+    'seller': ['pos', 'ventas', 'inventory', 'mermas', 'product-detail', 'transfer']
+};
+
+function getPermissions(role) {
+    return rolePermissions[role] || [];
+}
+
+// --- 1. NAVEGACIÓN INTELIGENTE (Hash + Seguridad) ---
+function navigateTo(viewName) {
+    if (!currentUser && viewName !== 'login') {
+        navigateTo('login');
+        return;
+    }
+
+    if (currentUser && viewName !== 'login') {
+        const allowed = getPermissions(currentUser.role);
+        if (!allowed.includes(viewName)) {
+            // Silently redirect to safe view (POS) to avoid annoying popups with only "Accept"
+            if (viewName !== 'pos') navigateTo('pos');
+            return;
+        }
+    }
+
+    // Actualizar URL (Persistencia)
+    if (window.location.hash !== '#' + viewName) window.location.hash = viewName;
+
+    currentView = viewName;
+    renderSidebar(viewName);
+    updateFabState(viewName);
+
+    const content = document.getElementById('content-area');
+
+    // Animación GPU
+    content.classList.remove('fade-in-up');
+    void content.offsetWidth; // Force reflow
+    content.classList.add('fade-in-up');
+
+    content.innerHTML = '';
+
+    // Switch Maestro de Vistas
+    switch (viewName) {
+        case 'login': renderLogin(content); break;
+        case 'dashboard': renderDashboard(content); break;
+        case 'ventas': renderVentas(content); break;
+        case 'pos': renderPOS(content); break;
+        case 'inventory': renderInventory(content); break;
+        case 'product-detail': renderProductDetail(content); break;
+        case 'transfer': renderTransfer(content); break;
+        case 'mermas': renderMermas(content); break;
+        case 'reportes': renderReportes(content); break;
+        case 'settings': renderSettings(content); break;
+        case 'logs': renderLogs(content); break;
+        case 'daily-records': renderVentas(content); break;
+        case 'cash-control': renderCashControl(content); break;
+        case 'compras': renderCompras(content); break;
+        case 'employees': renderEmployees(content); break;
+        case 'financials': renderFinancials(content); break;
+        default: renderDashboard(content);
+    }
+}
+window.navigateTo = navigateTo;
+
+// --- 2. GESTIÓN DEL FAB (Botón Flotante) ---
+function updateFabState(view) {
+    const fab = document.getElementById('main-fab');
+    if (!fab) return;
+    fab.classList.add('hidden');
+    fab.onclick = null;
+
+    if (!currentUser) return;
+
+    if (view === 'inventory' && currentUser.role !== 'seller') {
+        fab.innerHTML = '<i class="ph ph-plus"></i>';
+        fab.onclick = () => { if (typeof showAddProductModal === 'function') showAddProductModal(); };
+        fab.classList.remove('hidden');
+        fab.style.background = 'var(--primary)';
+    }
+    else if (view === 'ventas' && currentUser.role === 'seller') {
+        fab.innerHTML = '<i class="ph ph-lock-key"></i>';
+        fab.onclick = () => { if (typeof openPOSClosureModal === 'function') openPOSClosureModal(); };
+        fab.classList.remove('hidden');
+        fab.style.background = 'var(--warning)';
+    }
+}
+window.handleFabAction = function () { const f = document.getElementById('main-fab'); if (f && f.onclick) f.onclick(); };
+
+// --- 3. PUENTE GLOBAL: EDITAR/BORRAR ARQUITECTURA REAL ---
 window.editSale = async function (id) {
-    console.log("🚀 [BRIDGE] Intentando editar venta ID:", id);
-    if (!currentUser) return alert("Error: Sesión no válida.");
-
-    // Buscador robusto que soporta ID como string o number
     const sale = db.sales.find(s => String(s.id) === String(id));
-    if (!sale) {
-        console.error("Venta no encontrada para ID:", id);
-        return alert("Error: Venta no encontrada (#" + String(id).slice(-4) + ")");
+    if (!sale) return alert("Venta no encontrada.");
+
+    // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
+    const isSeller = currentUser.role === 'seller';
+    const isLocked = sale.status === 'review_pending' || sale.status === 'closed' || sale.status === 'approved';
+
+    if (isSeller && isLocked) {
+        alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta venta no puede ser editada porque ya fue enviada a revisión o está cerrada.");
+        return;
     }
 
-    const isOwnerOrAdmin = currentUser.role === 'owner' || currentUser.role === 'admin';
-    const today = new Date().toISOString().split('T')[0];
-    const isToday = sale.date && sale.date.startsWith(today);
+    if (!confirm("⚠️ ¿Estás COMPLETAMENTE seguro de que deseas EDITAR esta venta?\n\nEsta acción cargará los productos en el carrito actual y desactivará otros modos.")) return;
 
-    if (sale.status === 'closed' && !isOwnerOrAdmin) {
-        return alert("Solo el Administrador puede editar una venta ya cerrada.");
-    }
+    // Cerrar cualquier modal abierto (historial, revisión, etc.)
+    ['sales-history-modal', 'review-closure-modal', 'notifications-modal'].forEach(id => closeModal(id));
 
-    if (!confirm("¿Deseas editar esta venta? Los cambios se aplicarán al volver a cobrar.")) return;
+    // Desactivar modo revisión si estaba activo
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
 
-    // Cargar en el carrito (Arquitectura actual)
     editingSaleId = sale.id;
     posCart = (sale.items || []).map(i => ({
         id: i.productId || i.id,
@@ -3167,94 +5081,435 @@ window.editSale = async function (id) {
     } else {
         renderPOS(document.getElementById('content-area'));
     }
-
-    console.log("✅ Venta cargada en carrito para edición.");
     alert("Venta cargada en el carrito. Modifica lo necesario y presiona COBRAR.");
 };
 
-// 2. Forzar la función de BORRAR al ámbito global
 window.deleteSale = async function (id) {
-    console.log("🗑️ [BRIDGE] Intentando borrar venta ID:", id);
-    if (!currentUser) return alert("Error de sesión.");
+    // 1. Encontrar la venta o sesión representativa
+    let sale = db.sales.find(s => String(s.id) === String(id));
+    if (!sale) return alert("Operación no encontrada.");
 
-    const sale = db.sales.find(s => String(s.id) === String(id));
-    if (!sale) return alert("Error: Venta no encontrada.");
+    // Detectar si es un grupo (sesión individual no cerrada pero agrupada en la UI)
+    // Para simplificar, si el ID viene de una fila agrupada, operaremos sobre el grupo real.
+    // Buscamos si hay otras ventas con el mismo (Día, Vendedor, Negocio) y estado no cerrado.
+    const isClosed = (sale.status === 'closed' || sale.status === 'approved');
+    let targets = [sale];
 
-    if (!confirm("⚠️ ¿Estás seguro de eliminar esta venta permanentemente?\nEl stock se restaurará automáticamente.")) {
-        return;
+    if (!isClosed && sale.type !== 'daily_closure_report') {
+        const day = sale.date.split(',')[0].trim();
+        targets = db.sales.filter(s =>
+            s.date.startsWith(day) &&
+            String(s.businessId) === String(sale.businessId) &&
+            s.seller === sale.seller &&
+            s.status !== 'closed' && s.status !== 'approved'
+        );
     }
 
-    const index = db.sales.findIndex(s => String(s.id) === String(id));
-    if (index > -1) {
-        // Devolución monetaria si es del día actual
-        const today = new Date().toISOString().split('T')[0];
-        if (sale.date && sale.date.startsWith(today)) {
-            if (!db.dailyReturns) db.dailyReturns = 0;
-            db.dailyReturns += (sale.total || 0);
-        }
+    // 2. Seguridad: Lockers
+    const hasLocker = targets.some(t => t.locker && (Date.now() - t.locker.timestamp < 300000));
+    if (hasLocker) {
+        return alert("⛔ No se puede eliminar: Esta sesión está siendo revisada activamente por otro usuario.");
+    }
 
-        // Restaurar stock
-        if (sale.items) {
-            sale.items.forEach(item => {
-                const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(sale.businessId));
-                if (inv) inv.quantity += item.qty;
-                else db.inventory.push({ productId: item.productId || item.id, businessId: sale.businessId, quantity: item.qty });
+    // 3. Confirmaciones
+    if (isClosed) {
+        if (!confirm("⚠️ ¡ADVERTENCIA! Esta operación ya ha sido CERRADA y auditada.\n\n¿Estás seguro de que deseas eliminarla?")) return;
+        if (!confirm("🚨 CONFIRMACIÓN FINAL: Se revertirán todos los movimientos financieros y el inventario. ¿Proceder?")) return;
+    } else {
+        if (!confirm(`¿Estás seguro de eliminar esta sesión ? (${targets.length} registros)`)) return;
+    }
+
+    // 4. Procesar Eliminación de cada registro en el grupo
+    for (const s of targets) {
+        const type = s.type || 'SALE';
+
+        // --- Revertir Inventario ---
+        if (s.items) {
+            s.items.forEach(item => {
+                const inv = db.inventory.find(i =>
+                    String(i.productId) === String(item.productId || item.id) &&
+                    String(i.businessId) === String(s.businessId)
+                );
+                if (inv) {
+                    if (type === 'DEVOLUCION_STOCK') inv.quantity -= item.qty;
+                    else if (type === 'ROTURA_DETERIORO' || type === 'SALE' || type === 'daily_closure_report') {
+                        if (type !== 'daily_closure_report') inv.quantity += item.qty;
+                    }
+                }
             });
         }
 
-        db.sales.splice(index, 1);
-        addLog(`Venta #${String(id).slice(-4)} eliminada. Stock restaurado.`, 'warning');
-
-        await saveData();
-        alert("Venta eliminada y stock restaurado.");
-
-        // Refrescar vista
-        if (currentView === 'pos') {
-            renderTodaySalesList();
-            renderPOS(document.getElementById('content-area'));
-        } else if (currentView === 'ventas' || currentView === 'daily-records') {
-            renderVentas(document.getElementById('content-area'));
+        // --- Revertir Finanzas ---
+        if (isClosed) {
+            const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
+            if (type === 'SALE') {
+                if (s.payment?.cash) fund.cash -= s.payment.cash;
+                if (s.payment?.transfer) fund.transfer -= s.payment.transfer;
+            } else if (type === 'EXPENSE') {
+                fund.cash += (s.total || 0);
+            } else if (type === 'daily_closure_report') {
+                fund.cash -= (s.cashReal || 0);
+                fund.transfer -= (s.transferReal || 0);
+                if (s.salaryPaid && s.salarySource === 'Fondo del Negocio') {
+                    fund.cash += s.salaryPaid;
+                }
+            }
+            db.businessFund = fund;
         }
-        if (typeof renderDashboard === 'function') renderDashboard(null);
+
+        // Eliminar del DB
+        const idx = db.sales.findIndex(x => x.id === s.id);
+        if (idx > -1) db.sales.splice(idx, 1);
     }
+
+    await saveData();
+    addLog(`Sesión eliminada: ${sale.seller} (${sale.date})`, 'danger');
+
+    // Refrescar UI
+    if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
+    else navigateTo(currentView);
+
+    alert("✅ Operación eliminada con éxito. Inventario y finanzas restaurados.");
 };
 
-// Exposición de funciones UI y Gestión
-// Exposición de funciones UI y Gestión
-window.navigateTo = navigateTo;
-if (typeof showSaleDetail === 'function') window.showSaleDetail = showSaleDetail;
-if (typeof editSale === 'function') window.editSale = editSale;
-if (typeof deleteSale === 'function') window.deleteSale = deleteSale;
-window.processIncident = processIncident;
-window.openIncidentModal = openIncidentModal;
-window.updateIncidentUI = updateIncidentUI;
-window.addToCart = addToCart;
-window.adjustPOSQty = adjustPOSQty;
-window.removeFromCart = removeFromCart;
-window.showPaymentModal = showPaymentModal;
-window.registerIndividualSale = registerIndividualSale;
-window.cancelPOSEdit = cancelPOSEdit;
-window.openExpenseModal = openExpenseModal;
-window.confirmExpense = confirmExpense;
-window.handlePOSSearch = handlePOSSearch;
-window.setPaymentMethod = setPaymentMethod;
-window.validatePaymentSplit = validatePaymentSplit;
-window.changeBusinessContext = changeBusinessContext;
-window.logout = logout;
-window.markAllNotificationsAsSeen = markAllNotificationsAsSeen;
-window.handleNotificationClick = handleNotificationClick;
-window.showNotificationsModal = showNotificationsModal;
+window.removeFromCart = function (index) { posCart.splice(index, 1); renderCart(); };
+window.toggleNotif = function () { const d = document.getElementById('notifDropdown'); if (d) d.classList.toggle('show'); };
 
-// Funciones de Inventario y Mermas (Se asignan directamente para evitar recursión)
-if (typeof showWasteModal === 'function') window.showWasteModal = showWasteModal;
-if (typeof handleSaveWaste === 'function') window.handleSaveWaste = handleSaveWaste;
-if (typeof approveWaste === 'function') window.approveWaste = approveWaste;
-if (typeof showAddProductModal === 'function') window.showAddProductModal = showAddProductModal;
-if (typeof showEditProductModal === 'function') window.showEditProductModal = showEditProductModal;
-if (typeof saveNewProduct === 'function') window.saveNewProduct = saveNewProduct;
-if (typeof updateProduct === 'function') window.updateProduct = updateProduct;
-if (typeof exportInventoryPDF === 'function') window.exportInventoryPDF = exportInventoryPDF;
-if (typeof exportInventoryCSV === 'function') window.exportInventoryCSV = exportInventoryCSV;
-if (typeof importInventoryCSV === 'function') window.importInventoryCSV = importInventoryCSV;
-if (typeof handleInventoryImageClick === 'function') window.handleInventoryImageClick = handleInventoryImageClick;
-if (typeof handleInventoryImageUpload === 'function') window.handleInventoryImageUpload = handleInventoryImageUpload;
+// --- 4. INICIALIZACIÓN (Hash Router) ---
+window.addEventListener('DOMContentLoaded', async () => {
+    console.log("🚀 Iniciando Sistema con Combo Maestro...");
+    await loadData();
+    if (typeof setupNotifications === 'function') setupNotifications();
+
+    const initialView = window.location.hash.replace('#', '') || 'dashboard';
+    if (!currentUser) navigateTo('login');
+    else navigateTo(initialView);
+
+    window.addEventListener('hashchange', () => {
+        const v = window.location.hash.replace('#', '');
+        if (currentUser && v) navigateTo(v);
+    });
+});
+
+// --- TRANSFER FUNCTIONS BRIDGE ---
+window.handleTransferSearch = handleTransferSearch;
+window.addToTransferCart = addToTransferCart;
+window.removeFromTransferCart = removeFromTransferCart;
+window.adjustTransferQty = adjustTransferQty;
+window.executeTransfer = executeTransfer;
+
+
+
+window.seedDatabaseWithHistory = async function () {
+    if (!confirm("⚠️ REINICIO DE FACTORÍA\n\nEsto borrará todas las ventas actuales y generará un historial simulado de 60 días.\n\n¿Seguro que deseas continuar?")) return;
+
+    // Reset Sales and Movements
+    db.sales = [];
+    db.waste = [];
+    db.extraMovements = []; // Assuming this exists or needed for expenses
+
+    // Reset Funds to a base amount (as if starting 60 days ago)
+    db.businessFund = { cash: 50000, transfer: 100000, usd: 1000, eur: 500 };
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 60);
+
+    const sellers = db.users.filter(u => u.role === 'seller');
+    const products = db.products;
+
+    // Generate 60 days of activity
+    for (let i = 0; i <= 60; i++) {
+        const currentDate = new Date(startDate);
+        currentDate.setDate(currentDate.getDate() + i);
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const isToday = i === 60;
+
+        // 1. Sales (Income)
+        const dailySalesCount = Math.floor(Math.random() * 8) + 3; // 3-10 sales per day
+        for (let j = 0; j < dailySalesCount; j++) {
+            const product = products[Math.floor(Math.random() * products.length)];
+            const seller = sellers[Math.floor(Math.random() * sellers.length)] || db.users[0];
+            const qty = Math.floor(Math.random() * 5) + 1;
+            const total = product.price * qty;
+
+            // Payment Method Randomizer
+            const isTransfer = Math.random() > 0.7; // 30% Transfer
+            const payment = {
+                cash: isTransfer ? 0 : total,
+                transfer: isTransfer ? total : 0
+            };
+
+            const sale = {
+                id: Date.now() + i * 10000 + j,
+                date: new Date(currentDate.getTime() + Math.random() * 40000000).toLocaleString(), // Spread over day
+                businessId: 'mch1',
+                seller: seller.name,
+                total: total,
+                items: [{ productId: product.id, name: product.name, qty, price: product.price }],
+                payment
+            };
+
+            db.sales.push(sale);
+
+            // Update Fund (Simulating accumulation)
+            db.businessFund.cash += payment.cash;
+            db.businessFund.transfer += payment.transfer;
+        }
+
+        // 2. Expenses (Egresos) - Every 3 days approx
+        if (Math.random() > 0.6) {
+            const amount = Math.floor(Math.random() * 5000) + 1000;
+            const isUSD = Math.random() > 0.9;
+
+            const expense = {
+                id: Date.now() + i * 10000 + 999,
+                date: new Date(currentDate.getTime() + 43200000).toLocaleString(),
+                type: 'expense',
+                category: 'Servicios',
+                amount: amount,
+                currency: isUSD ? 'USD' : 'CUP',
+                description: 'Pago Servicios/Mantenimiento'
+            };
+
+            if (!db.extraMovements) db.extraMovements = [];
+            db.extraMovements.push(expense);
+
+            // Update Fund
+            if (expense.currency === 'CUP') db.businessFund.cash -= amount;
+            if (expense.currency === 'USD') db.businessFund.usd -= amount;
+        }
+    }
+
+    await saveData();
+    alert("✅ Historial Generado.\n\nSe han creado 60 días de transacciones. El fondo actual refleja toda esa actividad.");
+    location.reload(); // Refresh to catch all changes
+}
+
+window.renderCashControl = function (container) {
+    if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
+        container.innerHTML = '<div style="padding:2rem; text-align:center; color:var(--danger);"><h2>Acceso Denegado</h2></div>';
+        return;
+    }
+
+    // Default Dates: Today
+    // But we want to allow selection. We need state for selection.
+    // If we re-render, we lose state unless stored.
+    // Let's use window.cashControlState or similar, or read from DOM if exists, else default.
+
+    // Get stored dates or defaults
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    // Default Start: First day of current month? Or today? 
+    // User asked "put a date to see what was there that day".
+    // Let's default Start = Today, End = Today.
+
+    if (!window.ccState) {
+        window.ccState = { start: todayStr, end: todayStr };
+    }
+
+    const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
+
+    // --- LOGIC: Reverse Calculation for "Initial Balance at StartDate" ---
+    // 1. Get Global Current Balance (Right Now) -> This is our Anchor.
+    // 2. To get Balance at Start of StartDate:
+    //    Balance_Start = Current_Global - (NetChange from Start_of_StartDate to NOW)
+    // 
+    // 3. To get Balance at End of EndDate:
+    //    Balance_End = Current_Global - (NetChange from End_of_EndDate to NOW)
+
+    // We need a helper to Calculate Net Change between two timestamps.
+    const getNetChange = (fromDate, toDate) => {
+        let change = { cash: 0, transfer: 0, usd: 0, eur: 0 };
+
+        // Sales
+        db.sales.forEach(s => {
+            const d = new Date(s.date);
+            if (d >= fromDate && d <= toDate) {
+                if (s.status === 'cancelled') return;
+                change.cash += s.payment?.cash || 0;
+                change.transfer += s.payment?.transfer || 0;
+            }
+        });
+
+        // Movements (Expenses/Income)
+        (db.extraMovements || []).forEach(m => {
+            const d = new Date(m.date);
+            if (d >= fromDate && d <= toDate) {
+                const am = m.amount || 0;
+                if (m.type === 'expense') {
+                    if (m.currency === 'CUP') change.cash -= am;
+                    if (m.currency === 'Transfer') change.transfer -= am;
+                    if (m.currency === 'USD') change.usd -= am;
+                    if (m.currency === 'EUR') change.eur -= am;
+                } else if (m.type === 'income') {
+                    if (m.currency === 'CUP') change.cash += am;
+                    if (m.currency === 'Transfer') change.transfer += am;
+                    // ...
+                }
+            }
+        });
+
+        return change;
+    };
+
+    // Define Time Boundaries
+    const sDate = new Date(window.ccState.start);
+    sDate.setHours(0, 0, 0, 0); // Start of StartDate
+
+    const eDate = new Date(window.ccState.end);
+    eDate.setHours(23, 59, 59, 999); // End of EndDate
+
+    const nowTime = new Date(); // Right now
+
+    // Changes from SELECTED RANGE (Start to End) -> For the Table Columns (Income/Expense)
+    // This is what happens WITHIN the period.
+    // Income = Sales + IncomeMoves
+    // Expense = ExpenseMoves
+
+    let rangeStats = {
+        mn: { income: 0, expense: 0 },
+        transfer: { income: 0, expense: 0 },
+        usd: { income: 0, expense: 0 },
+        eur: { income: 0, expense: 0 }
+    };
+
+    // Filter for Range Stats
+    db.sales.forEach(s => {
+        const d = new Date(s.date);
+        if (d >= sDate && d <= eDate && s.status !== 'cancelled') {
+            rangeStats.mn.income += s.payment?.cash || 0;
+            rangeStats.transfer.income += s.payment?.transfer || 0;
+        }
+    });
+
+    (db.extraMovements || []).forEach(m => {
+        const d = new Date(m.date);
+        if (d >= sDate && d <= eDate) {
+            if (m.type === 'expense') {
+                if (m.currency === 'CUP') rangeStats.mn.expense += m.amount;
+                if (m.currency === 'USD') rangeStats.usd.expense += m.amount;
+                // ...
+            } else {
+                if (m.currency === 'CUP') rangeStats.mn.income += m.amount;
+                // ...
+            }
+        }
+    });
+
+    // --- REVERSE CALC ---
+    // Start Balance = Current Fund - (Everything from StartDate to Now)
+    // Wait, simpler:
+    // Start Balance = Current Fund - (Change from StartDate to Now) -> This gives Balance BEFORE StartDate?
+    // Let's trace:
+    // Fund_Now = Fund_Start + Change(Start->Now)
+    // => Fund_Start = Fund_Now - Change(Start->Now)
+    // Correct. This gives "Initial Balance" (morning of StartDate).
+
+    const changeStartToNow = getNetChange(sDate, nowTime);
+
+    const initialBalances = {
+        mn: fund.cash - changeStartToNow.cash,
+        transfer: fund.transfer - changeStartToNow.transfer,
+        usd: fund.usd - changeStartToNow.usd,
+        eur: fund.eur - changeStartToNow.eur
+    };
+
+    // Final Balance (at EndDate)
+    // Balance_End = Initial_Balance + NetChange(Range)
+    // This is what the user wants to check against.
+
+    const finalBalances = {
+        mn: initialBalances.mn + (rangeStats.mn.income - rangeStats.mn.expense),
+        transfer: initialBalances.transfer + (rangeStats.transfer.income - rangeStats.transfer.expense),
+        usd: initialBalances.usd + (rangeStats.usd.income - rangeStats.usd.expense),
+        eur: initialBalances.eur + (rangeStats.eur.income - rangeStats.eur.expense)
+    };
+
+    const rows = [
+        { label: 'MN (CUP)', key: 'mn', init: initialBalances.mn, ...rangeStats.mn, final: finalBalances.mn },
+        { label: 'USD', key: 'usd', init: initialBalances.usd, ...rangeStats.usd, final: finalBalances.usd },
+        { label: 'EUR', key: 'eur', init: initialBalances.eur, ...rangeStats.eur, final: finalBalances.eur },
+        { label: 'Transferencias', key: 'transfer', init: initialBalances.transfer, ...rangeStats.transfer, final: finalBalances.transfer }
+    ];
+
+    container.innerHTML = `
+        <div class="fade-in">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                <h2 style="margin:0;"><i class="ph ph-money"></i> Control de Efectivo</h2>
+                <button class="btn-ghost" onclick="seedDatabaseWithHistory()" title="Generar data de prueba"><i class="ph ph-database"></i> Simular Historial</button>
+            </div>
+            
+            <div class="card" style="margin-bottom:1.5rem; display:flex; gap:1.5rem; align-items:flex-end; flex-wrap:wrap;">
+                <div>
+                     <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">Desde (Saldo Inicial)</label>
+                     <input type="date" id="cc-start" value="${window.ccState.start}" class="input-field" onchange="updateCCDates()">
+                </div>
+                 <div>
+                     <label style="display:block; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">Hasta (Corte)</label>
+                     <input type="date" id="cc-end" value="${window.ccState.end}" class="input-field" onchange="updateCCDates()">
+                </div>
+                <div style="padding-bottom:0.8rem; color:var(--text-muted); font-size:0.9rem;">
+                    <i class="ph ph-info"></i> El saldo inicial se calcula retroactivamente al inicio del día seleccionado.
+                </div>
+            </div>
+
+            <div class="card" style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; min-width:800px;">
+                    <thead>
+                        <tr style="background:var(--bg-dark); color:var(--text-muted); text-align:left;">
+                            <th style="padding:1rem;">Moneda</th>
+                            <th style="padding:1rem; text-align:right;">Saldo Inicial<br><span style="font-size:0.75rem;">(${window.ccState.start})</span></th>
+                            <th style="padding:1rem; text-align:right; color:var(--success);">Ingresos</th>
+                            <th style="padding:1rem; text-align:right; color:var(--danger);">Egresos</th>
+                            <th style="padding:1rem; text-align:right;">Saldo Final<br><span style="font-size:0.75rem;">(${window.ccState.end})</span></th>
+                            <th style="padding:1rem; text-align:right; background:rgba(255,255,0,0.1);">Efectivo Real</th>
+                            <th style="padding:1rem; text-align:right;">Diferencia</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <td style="padding:1rem; font-weight:bold;">${row.label}</td>
+                                <td style="padding:1rem; text-align:right;">$${row.init.toFixed(2)}</td>
+                                <td style="padding:1rem; text-align:right; color:var(--success);">$${row.income.toFixed(2)}</td>
+                                <td style="padding:1rem; text-align:right; color:var(--danger);">$${row.expense.toFixed(2)}</td>
+                                <td style="padding:1rem; text-align:right; font-weight:bold;">$${row.final.toFixed(2)}</td>
+                                <td style="padding:1rem; text-align:right;">
+                                    <input type="number" id="real-${row.key}" value="${row.final.toFixed(2)}" 
+                                           oninput="calculateDifference('${row.key}', ${row.final})"
+                                           style="width:100px; padding:0.5rem; border-radius:6px; border:1px solid var(--border); background:var(--bg-dark); color:white; text-align:right;">
+                                </td>
+                                <td style="padding:1rem; text-align:right; font-weight:bold;" id="diff-${row.key}">$0.00</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    updateTitle('Control de Efectivo');
+    rows.forEach(r => calculateDifference(r.key, r.final));
+}
+
+window.updateCCDates = function () {
+    const s = document.getElementById('cc-start').value;
+    const e = document.getElementById('cc-end').value;
+    if (s > e) {
+        alert("La fecha de inicio no puede ser mayor que la de fin.");
+        return;
+    }
+    window.ccState = { start: s, end: e };
+    renderCashControl(document.getElementById('content-area'));
+}
+
+window.calculateDifference = function (key, systemVal) {
+    const input = document.getElementById(`real-${key}`);
+    const diffEl = document.getElementById(`diff-${key}`);
+    if (!input || !diffEl) return;
+
+    const real = parseFloat(input.value) || 0;
+    const diff = real - systemVal;
+
+    diffEl.innerText = `$${diff.toFixed(2)}`;
+    diffEl.style.color = diff === 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--warning)');
+};

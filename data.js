@@ -1,4 +1,4 @@
-const REAL_INVENTORY = {
+window.REAL_INVENTORY = {
   "mch1": [
     {
       "Clave": "ABANICO",
@@ -27956,3 +27956,24 @@ const REAL_INVENTORY = {
     }
   ]
 };
+/* SISTEMA DE CAJAS FUERTES */
+window.cajasBalance = {
+  usd: 0,
+  eur: 0,
+  mn: 0,
+  transfer: 0
+};
+
+window.actualizarSaldo = function (moneda, monto) {
+  // Normalize key
+  const key = moneda.toLowerCase().trim();
+  if (window.cajasBalance.hasOwnProperty(key)) {
+    window.cajasBalance[key] += parseFloat(monto) || 0;
+    console.log(`[Caja] Saldo de ${key.toUpperCase()} actualizado: ${window.cajasBalance[key]}`);
+    return true;
+  } else {
+    console.error(`[Caja] Moneda ${moneda} no válida.`);
+    return false;
+  }
+};
+
