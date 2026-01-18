@@ -1662,3 +1662,107 @@ input[type="time"]::-webkit-calendar-picker-indicator {
         font-size: 1.25rem;
     }
 }
+/* --- EMERGENCY MOBILE FIXES --- */
+@media screen and (max-width: 1024px) {
+
+    /* BREAK FLEX LAYOUT */
+    .app-container {
+        display: block !important;
+        position: relative !important;
+        height: auto !important;
+        min-height: 100vh !important;
+    }
+
+    /* FORCE SIDEBAR HIDDEN */
+    .sidebar {
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 280px !important;
+        transform: translateX(-100%) !important;
+        z-index: 10000 !important;
+        transition: transform 0.3s ease !important;
+    }
+
+    /* SHOW SIDEBAR WHEN ACTIVE */
+    .sidebar.show-sidebar {
+        transform: translateX(0) !important;
+    }
+
+    /* CONTENT FULL WIDTH */
+    .main-content {
+        width: 100% !important;
+        margin-left: 0 !important;
+        flex: none !important;
+    }
+
+    /* MENU BTN VISIBLE */
+    #mobile-menu-btn {
+        display: inline-block !important;
+    }
+
+    /* GRIDS SINGLE COL */
+    .grid-3 {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* --- GLOBAL MOBILE CONTAINMENT FIX --- */
+html, body {
+    overflow-x: hidden !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+}
+
+@media screen and (max-width: 768px) {
+    /* Prevent any element from exceeding viewport width */
+    * {
+        max-width: 100vw !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Fix Flex Wraps */
+    .top-bar, 
+    .card[style*="display:flex"], 
+    .card[style*="display: flex"],
+    div[style*="display:flex"], 
+    div[style*="display: flex"] {
+        flex-wrap: wrap !important;
+        height: auto !important; /* Allow growing */
+    }
+
+    /* Exception for scrollable tables and specialized rows */
+    .card[style*="overflow-x:auto"],
+    .card[style*="overflow-x: auto"] {
+        max-width: 100vw !important;
+        display: block !important;
+    }
+
+    /* Inputs shouldn't force width */
+    input, select, textarea {
+        width: 100% !important;
+        min-width: 0 !important; /* Allow shrinking */
+    }
+
+    /* Modal Fixes */
+    .modal-content {
+        width: 95vw !important;
+        margin: 10px auto !important;
+        max-height: 90vh !important;
+        overflow-y: auto !important;
+    }
+    
+    /* Login Fix */
+    .login-container {
+        padding: 1rem !important;
+    }
+    
+    /* Stats Grid */
+    .grid-3 {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 1rem !important;
+    }
+}
