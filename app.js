@@ -5535,3 +5535,79 @@ window.calculateDifference = function (key, systemVal) {
     diffEl.innerText = `$${diff.toFixed(2)}`;
     diffEl.style.color = diff === 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--warning)');
 };
+
+// --- RESPONSIVE UI HELPERS ---
+
+function setupResponsiveUI() {
+    console.log("📱 Setting up Responsive UI...");
+
+    // 1. Inject Hamburger Button if missing
+    const topBar = document.querySelector('.top-bar');
+    if (topBar && !document.getElementById('mobile-menu-btn')) {
+        const btn = document.createElement('button');
+        btn.id = 'mobile-menu-btn';
+        btn.innerHTML = '<i class="ph ph-list"></i>';
+        btn.onclick = toggleSidebar;
+        topBar.prepend(btn); // Add to left of Title
+    }
+
+    // 2. Create Sidebar Overlay if missing
+    if (!document.querySelector('.sidebar-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.classList.add('sidebar-overlay');
+        overlay.onclick = closeSidebar; // Click outside closes
+        document.body.appendChild(overlay);
+    }
+
+    // 3. Add Close Listeners to Sidebar Links (Mobile UX)
+    // When a link is clicked on mobile, sidebar should close
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        sidebar.addEventListener('click', (e) => {
+            if (e.target.closest('li')) {
+                closeSidebar();
+            }
+        });
+    }
+}
+
+window.toggleSidebar = function () {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (sidebar) sidebar.classList.toggle('show-sidebar');
+    if (overlay) overlay.classList.toggle('active');
+}
+
+window.closeSidebar = function () {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.querySelector('.sidebar-overlay');
+    if (sidebar) sidebar.classList.remove('show-sidebar');
+    if (overlay) overlay.classList.remove('active');
+}
+
+// Ensure theme toggle is robust
+const originalToggleTheme = window.toggleTheme;
+window.toggleTheme = function () {
+    // 1. Update State
+    db.settings.theme = db.settings.theme === 'light' ? 'dark' : 'light';
+
+    // 2. Apply Immediately (Visual Feedback)
+    if (db.settings.theme === 'light') {
+        document.body.classList.add('theme-light');
+    } else {
+        document.body.classList.remove('theme-light');
+    }
+
+    // 3. Save (Background)
+    saveData();
+
+    // 4. Re-render Sidebar (to update Icon)
+    // We pass currentView to maintain active state
+    renderSidebar(currentView);
+};
+
+// Hook into Initialization
+const originalLoad = window.onload; // or duplicate listener approach
+window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(setupResponsiveUI, 100); // Slight delay to ensure DOM readiness
+});

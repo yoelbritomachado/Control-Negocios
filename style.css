@@ -1531,3 +1531,134 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     border-radius: 4px;
 }
 
+
+
+/* --- RESPONSIVE DESIGN (Mobile & Tablet) --- */
+
+/* HAMBURGER MENU BUTTON (Hidden on Desktop) */
+#mobile-menu-btn {
+    display: none;
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: 1.5rem;
+    cursor: pointer;
+    margin-right: 1rem;
+    padding: 0.5rem;
+}
+
+/* TABLET & MOBILE OVERRIDES (< 1024px) */
+@media (max-width: 1024px) {
+    .app-container {
+        position: relative; /* Context for absolute sidebar */
+    }
+
+    /* Sidebar Hidden by Default */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        transform: translateX(-100%); /* Hide off-screen */
+        z-index: 1000;
+        box-shadow: 0 0 50px rgba(0,0,0,0.5);
+    }
+
+    .sidebar.show-sidebar {
+        transform: translateX(0); /* Slide in */
+    }
+
+    /* Overlay when sidebar is open */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0,0,0,0.5);
+        backdrop-filter: blur(4px);
+        z-index: 999;
+    }
+
+    .sidebar-overlay.active {
+        display: block;
+    }
+
+    /* Show Menu Button */
+    #mobile-menu-btn {
+        display: block;
+    }
+
+    /* Top Bar adjustments */
+    .top-bar {
+        padding: 0 1rem;
+    }
+    
+    .top-bar h1 {
+        font-size: 1.1rem; 
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Grids: Auto-Flow (2 columns usually) */
+    .grid-3, .pos-management-actions {
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    }
+}
+
+/* MOBILE SPECIFIC (< 768px) */
+@media (max-width: 768px) {
+    #content-area {
+        padding: 1rem; /* Less padding */
+    }
+
+    /* Cards: Stack items */
+    .card {
+        padding: 1rem;
+    }
+
+    /* Typography */
+    .stat-value {
+        font-size: 1.8rem;
+    }
+
+    /* Login Screen */
+    .login-card {
+        padding: 2rem;
+        width: 90%;
+    }
+
+    /* Tables: Force Horizontal Scroll */
+    .card[style*="overflow-x:auto"] {
+        /* Already handled by inline style, but reinforcing */
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    table {
+        min-width: 600px; /* Ensure table keeps shape and triggers scroll */
+    }
+
+    /* POS Search Grid */
+    #pos-search-results {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+    }
+
+    .pos-search-item .img-box {
+        height: 100px !important;
+    }
+    
+    /* Modals */
+    .modal-content {
+        width: 95%;
+        padding: 1.5rem;
+    }
+
+    .modal-header h2 {
+        font-size: 1.25rem;
+    }
+}
