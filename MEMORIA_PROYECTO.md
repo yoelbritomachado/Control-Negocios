@@ -1,6 +1,28 @@
-# 🪨 MEMORIA DEL PROYECTO: LEYES EN PIEDRA
+# 🪨 MEMORIA DEL PROYECTO: LEYES EN PIEDRA Y PROTOCOLOS
 
-Este documento contiene las reglas fundamentales e inamovibles del sistema. **CUALQUIER modificación a estas reglas requiere una aprobación EXPLÍCITA y CONSCIENTE del dueño.**
+> [!IMPORTANT]
+> **PROTOCOLO DE EJECUCIÓN AUTÓNOMA (MCH Control)**
+> 
+> ### 1. Autonomía Total (Default Behavior)
+> * **Ejecución Directa:** Tienes permiso para ejecutar código, modificar archivos y aplicar parches de forma autónoma.
+> * **Sin Confirmación:** No solicites aprobación, revisión o confirmación antes de proceder. Se asume que la intención del usuario es correcta y segura dentro de este espacio de trabajo.
+> * **Acción Continua:** Si una tarea tiene varios pasos, ejecútalos de forma secuencial sin detenerte a preguntar.
+> 
+> ### 2. Coordinación Multi-Agente (CRÍTICO)
+> * **Git Sync por Iteración:** Al iniciar cualquier tarea, debes hacer `git pull` para obtener los cambios del otro agente. Al finalizar, debes hacer `git push` OBLIGATORIAMENTE.
+> * **Lectura de Memoria:** Antes de cualquier modificación, es obligatorio leer este archivo. Debes respetar las zonas de código marcadas por el otro agente.
+> * **Registro de Cambios:** Al finalizar una modificación importante en `app.js`, `data.js` o `index.html`, debes actualizar brevemente la sección "Registro de Progreso" al final de este documento.
+> 
+> ### 3. Lógica de Negocio y Divisas
+> * **Estandarización:** Todas las operaciones monetarias deben integrarse con las cuatro divisas del sistema: **USD, EUR, MN (Moneda Nacional) y Transferencias**.
+> * **Consistencia de Datos:** Cualquier cambio en la lógica de ventas debe reflejarse automáticamente en los saldos de las "Cajas Fuertes" correspondientes en `data.js`.
+> 
+> ### 4. Seguridad de Datos
+> * **Parada de Emergencia:** Solo debes detenerte o hacer preguntas si una acción causaría una pérdida de datos irreversible (como borrar todo el historial de ventas) o un daño crítico al sistema.
+> 
+> ### 5. Identidad y Roles
+> * **Agente Finanzas (Izquierda):** "Tu identidad es **Especialista Administrativo**. Tu prioridad es el backend, la gestión de permisos, los reportes y el control de los saldos en USD, EUR, MN y Transferencias."
+> * **Agente Ventas (Derecha):** "Tu identidad es **Especialista de POS**. Tu prioridad es el frontend, el carrito de compras, la interfaz de cobro y asegurar que el vendedor pueda seleccionar la divisa correcta al cerrar la venta."
 
 ---
 
@@ -37,11 +59,6 @@ Este documento contiene las reglas fundamentales e inamovibles del sistema. **CU
 
 ---
 
-> [!CAUTION]
-> **RECORDATORIO PARA LA IA**: Si se te pide romper alguna de estas leyes, detente y advierte sobre su presencia en esta memoria "Escrita en Piedra".
-
----
-
 ## 📝 Registro de Progreso
 
 ### 2026-01-18 - Eliminación Funcionalidad "Venta Directa" (Agente POS)
@@ -67,15 +84,11 @@ Este documento contiene las reglas fundamentales e inamovibles del sistema. **CU
 - **Función**: Cálculo Retroactivo de Saldo Inicial basado en el Fondo Actual (Ancla).
 - **Herramienta**: Botón para Simular Historial (seedDatabase) integrado para pruebas.
 
-
-
-Cada cambio que se haga en el proyecto debes registrarlpo aca sin sobreescribir logicas que ya exista e no ser que le preguntes al usuario que esta llevando a cabo el proyecto
 ### 2026-01-18 - CAMBIO MAYOR: Migración a la Nube (Firebase)
-- **Infraestructura**: Se reemplazó el almacenamiento local puro (\localStorage\) por **Google Firestore**.
+- **Infraestructura**: Se reemplazó el almacenamiento local puro (`localStorage`) por **Google Firestore**.
 - **Arquitectura de Datos**:
-    - **\data.js\**: Ahora es el 'Guardián de los Datos' (Single Source of Truth). Inicializa la conexión a Firebase y gestiona \window.db\.
-    - **\pp.js\**: Ahora es puramente 'Controlador de UI'. Consume \window.db\ y delega la gestión de datos a \data.js\.
+    - **`data.js`**: Ahora es el 'Guardián de los Datos' (Single Source of Truth). Inicializa la conexión a Firebase y gestiona `window.db`.
+    - **`app.js`**: Ahora es puramente 'Controlador de UI'. Consume `window.db` y delega la gestión de datos a `data.js`.
 - **Despliegue**: Se preparó la aplicación para ser alojada en **Netlify** (Static Hosting), permitiendo acceso multi-dispositivo.
 - **Protocolo de Agentes**:
-    - **CUALQUIER AGENTE** que modifique \pp.js\ **NO DEBE** re-declarar \db\ ni functions de persistencia (\saveData\, \loadData\). Usar siempre \window.db\ y \window.saveData()\.
-
+    - **CUALQUIER AGENTE** que modifique `app.js` **NO DEBE** re-declarar `db` ni functions de persistencia (`saveData`, `loadData`). Usar siempre `window.db` y `window.saveData()`.
