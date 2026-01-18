@@ -743,8 +743,28 @@ window.generateMockSales = async function () {
     const sellers = db.users.filter(u => u.role === 'seller');
 
     if (products.length === 0) {
-        alert("No hay productos. Importa datos primero.");
-        return;
+        if (confirm("No hay productos. ¿Deseas cargar productos de ejemplo para generar la data?")) {
+            // Auto-import defaults
+            if (window.REAL_INVENTORY) {
+                db.products = window.REAL_INVENTORY.map(p => ({ ...p }));
+                // Also ensure businesses exist
+                if (!db.businesses || db.businesses.length === 0) {
+                    db.businesses = [
+                        { id: 'mch1', name: 'Sede Principal', address: 'Calle 123' },
+                        { id: 'mch2', name: 'Sucursal Norte', address: 'Av. Norte' }
+                    ];
+                }
+                // Re-fetch
+                products.push(...db.products);
+                businesses.push(...db.businesses);
+                await saveData();
+            } else {
+                alert("Error: No se encontró el inventario base en data.js");
+                return;
+            }
+        } else {
+            return;
+        }
     }
 
     const count = 20;
