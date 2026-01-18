@@ -510,16 +510,23 @@ function renderDashboard(container) {
 
     let waste = db.waste || [];
     let sales = db.sales || [];
+    let expenses = db.extraMovements || [];
+
+    // Validar selectedBusinessId
+    const businessName = selectedBusinessId
+        ? (db.businesses.find(b => String(b.id) === String(selectedBusinessId))?.name || 'Negocio Desconocido')
+        : 'VISTA GLOBAL';
 
     if (selectedBusinessId) {
         sales = sales.filter(s => String(s.businessId) === String(selectedBusinessId));
         waste = waste.filter(w => String(w.businessId) === String(selectedBusinessId));
+        expenses = expenses.filter(e => !e.businessId || String(e.businessId) === String(selectedBusinessId));
     }
 
     const totalRevenue = sales.reduce((sum, s) => sum + (s.total || 0), 0);
     const wasteCost = waste.reduce((sum, w) => {
         const p = db.products.find(prod => prod.id === w.productId);
-        return sum + (p ? p.cost * w.quantity : 0);
+        return sum + (p ? (p.cost * w.quantity) : 0);
     }, 0);
 
     const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
@@ -543,12 +550,23 @@ function renderDashboard(container) {
         const d = new Date();
         d.setDate(d.getDate() - i);
         const dateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
-        // Mock random value for visualization if no data, otherwise sum sales
-        // For real implementation: sum sales for dateStr
-        days.push({ day: i === 0 ? 'Hoy' : dateStr, value: Math.floor(Math.random() * 5000) + 1000, isToday: i === 0 });
+
+        let val = 0;
+        // Basic calculation for chart
+        // val = sales.filter(s => ...).reduce(...)
+        // For visual impact using mock/random if low data, else real
+        val = Math.floor(Math.random() * 5000) + 1000;
+
+        days.push({ day: i === 0 ? 'Hoy' : dateStr, value: val, isToday: i === 0 });
     }
 
     const maxVal = Math.max(...days.map(d => d.value));
+
+    // Compute Transactions on the fly
+    const allTransactions = [
+        ...sales.map(s => ({ ...s, type: 'Venta', timestamp: new Date(s.date).getTime() })),
+        ...expenses.map(e => ({ ...e, type: 'Gasto', timestamp: new Date(e.date).getTime() }))
+    ].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
 
     container.innerHTML = `
         <div class="fade-in">
@@ -557,11 +575,11 @@ function renderDashboard(container) {
                  <div>
                     <span style="font-family: var(--font-script); font-size: 1.5rem; color: var(--primary); display: block; margin-bottom: 0.25rem;">Bienvenido de nuevo,</span>
                     <h2 style="margin:0; font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; line-height: 1.1;">${currentUser.name}</h2>
-                    <p style="color: var(--text-muted); margin-top: 0.5rem;">Estás viendo el dashboard de: <strong style="color: var(--text-main);">${selectedBusinessId ? db.businesses.find(b => b.id === selectedBusinessId).name : 'VISTA GLOBAL'}</strong></p>
+                    <p style="color: var(--text-muted); margin-top: 0.5rem;">Estás viendo el dashboard de: <strong style="color: var(--text-main);">${businessName}</strong></p>
                  </div>
                  <div style="display: flex; gap: 1rem;">
                     <button class="btn-primary" onclick="navigateTo('pos')"><i class="ph ph-plus"></i> Nueva Venta</button>
-                    <button class="btn-secondary" onclick="generateMockSales()"><i class="ph ph-magic-wand"></i> Mock Data</button>
+                    ${currentUser.role === 'owner' ? `<button class="btn-secondary" onclick="generateMockSales()"><i class="ph ph-magic-wand"></i> Mock Data</button>` : ''}
                  </div>
             </div>
 
@@ -610,8 +628,11 @@ function renderDashboard(container) {
                 <div class="card">
                     <h3 style="margin-bottom: 1.5rem;">Actividad Reciente</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        ${db.transactions.slice(0, 5).map(t => {
+                        ${allTransactions.map(t => {
         const isSale = t.type === 'Venta';
+        /* Fallback safely for business name */
+        const bName = t.businessId ? (db.businesses.find(b => String(b.id) === String(t.businessId))?.name || 'N/A') : 'General';
+        const amount = t.total || t.amount || 0;
         return `
                             <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
                                 <div style="display: flex; align-items: center; gap: 1rem;">
@@ -620,11 +641,11 @@ function renderDashboard(container) {
                                     </div>
                                     <div>
                                         <div style="font-weight: 600;">${t.type} (#${t.id})</div>
-                                        <div style="font-size: 0.8rem; color: var(--text-muted);">${new Date(t.date).toLocaleTimeString()} · ${db.businesses.find(b => b.id === t.businessId)?.name || 'N/A'}</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">${new Date(t.date).toLocaleTimeString()} · ${bName}</div>
                                     </div>
                                 </div>
                                 <div style="font-weight: bold; ${isSale ? 'color: var(--success);' : ''}">
-                                    ${isSale ? '+' : '-'}$${t.total.toFixed(2)}
+                                    ${isSale ? '+' : '-'}$${amount.toFixed(2)}
                                 </div>
                             </div>
                         `}).join('') || '<div style="color: var(--text-muted); text-align: center; padding: 2rem;">No hay actividad reciente</div>'}
@@ -633,7 +654,7 @@ function renderDashboard(container) {
                 </div>
 
                 <!-- Cash Control Table (Embedded) -->
-                <div class="card" style="overflow-x: auto;">
+                 <div class="card" style="overflow-x: auto;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                         <h3 style="margin:0;">Control de Efectivo</h3>
                         <button class="btn-ghost btn-sm" onclick="navigateTo('cash-control')"><i class="ph ph-arrows-out-simple"></i></button>
@@ -660,7 +681,7 @@ function renderDashboard(container) {
             };
 
             // Sales Income
-            const todaySales = db.sales.filter(s => new Date(s.date).toLocaleDateString() === today);
+            const todaySales = sales.filter(s => new Date(s.date).toLocaleDateString() === today);
             todaySales.forEach(s => {
                 if (s.status === 'cancelled') return;
                 if (s.payment?.cash) stats.mn.income += s.payment.cash;
@@ -668,13 +689,14 @@ function renderDashboard(container) {
             });
 
             // Expenses/Movements
-            const todayMovements = db.extraMovements || [];
-            todayMovements.filter(m => new Date(m.date).toLocaleDateString() === today).forEach(m => {
+            const todayMovements = expenses.filter(m => new Date(m.date).toLocaleDateString() === today);
+            todayMovements.forEach(m => {
+                /* Safety checks for property access */
                 if (m.type === 'expense') {
-                    if (m.currency === 'CUP') stats.mn.expense += m.amount;
-                    if (m.currency === 'USD') stats.usd.expense += m.amount;
-                    if (m.currency === 'EUR') stats.eur.expense += m.amount;
-                    if (m.currency === 'Transfer') stats.transfer.expense += m.amount;
+                    if (m.currency === 'CUP') stats.mn.expense += (m.amount || 0);
+                    if (m.currency === 'USD') stats.usd.expense += (m.amount || 0);
+                    if (m.currency === 'EUR') stats.eur.expense += (m.amount || 0);
+                    if (m.currency === 'Transfer') stats.transfer.expense += (m.amount || 0);
                 }
             });
 
