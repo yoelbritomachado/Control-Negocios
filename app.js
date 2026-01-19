@@ -3964,7 +3964,7 @@ function showEditProductModal(id) {
     if (!p) return;
 
     // Determine current stock if in a business context
-    const inv = selectedBusinessId ? db.inventory.find(i => i.productId === id && String(i.businessId) === String(selectedBusinessId)) : null;
+    const inv = selectedBusinessId ? db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId)) : null;
     const stock = inv ? inv.quantity : 0;
 
     const modalHtml = `
@@ -3978,7 +3978,7 @@ function showEditProductModal(id) {
                             <h3 style="margin: 0; font-size: 1.1rem; font-weight: 500;">Editar Producto</h3>
                         </div>
                         <div style="display: flex; gap: 1rem;">
-                            <button type="button" onclick="updateProduct(${id})" style="background: none; border: none; color: white; cursor: pointer;">
+                            <button type="button" onclick="updateProduct('${id}')" style="background: none; border: none; color: white; cursor: pointer;">
                                 <i class="ph ph-check" style="font-size: 1.5rem;"></i>
                             </button>
                         </div>
@@ -4088,7 +4088,7 @@ async function updateProduct(id) {
     }
 
     const formData = new FormData(form);
-    const pIndex = db.products.findIndex(prod => prod.id === id);
+    const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
     if (pIndex === -1) return;
 
     // Update core fields
