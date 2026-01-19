@@ -4070,21 +4070,25 @@ function showEditProductModal(id) {
 
                             <!-- 4. Contextual Fields -->
                             <div style="background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
-                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Ajustes</h4>
+                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Ajustes de Inventario</h4>
                                 <div class="grid-2" style="gap: 2rem;">
                                     <div>
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Categoría</label>
-                                        <input type="text" name="category" value="${p.category || ''}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" list="categories-list">
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                            Existencia (${selectedBusinessId ? (db.businesses.find(b => String(b.id) === String(selectedBusinessId))?.name || 'Sede') : 'Total Global'})
+                                        </label>
+                                        <input type="number" name="stock" value="${stock}" 
+                                               class="input-minimal" 
+                                               style="width: 100%; padding: 0.5rem 0; font-weight: 600; color: var(--primary);"
+                                               ${selectedBusinessId ? '' : 'readonly title="Selecciona una sede para editar el stock"'} >
+                                        ${!selectedBusinessId ? '<span style="font-size:0.7rem; color:var(--text-muted);">Solo lectura en vista global</span>' : ''}
                                     </div>
                                     <div>
                                         <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Cantidad Mínima</label>
                                         <input type="number" name="min_stock" value="${p.minStock || 10}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;">
                                     </div>
-                                    ${selectedBusinessId ? `
-                                    <div style="grid-column: span 2;">
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Existencia Actual (${db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name})</label>
-                                        <input type="number" name="stock" value="${stock}" class="input-minimal" style="width: 100%; padding: 0.5rem 0; font-weight: bold; color: var(--primary);">
-                                    </div>` : ''}
+                                    
+                                    <!-- Hidden Category (preserved just in case logic needs it, default to existing) -->
+                                    <input type="hidden" name="category" value="${p.category || 'General'}">
                                 </div>
                             </div>
 
@@ -4152,6 +4156,15 @@ async function updateProduct(id) {
         if (selectedBusinessId) {
             let inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId));
             const newQty = parseFloat(formData.get('stock') || 0);
+            const currentQty = inv ? inv.quantity : 0;
+
+            if (newQty !== currentQty) {
+                const warningMsg = `⚠️ ¡ADVERTENCIA CRÍTICA! ⚠️\n\nEstás modificando el inventario MANUALMENTE de ${currentQty} a ${newQty}.\n\nEsta acción NO es una venta, ni entrada de mercancía, ni merma oficial.\nUse este método solo para CORRECCIONES de errores.\n\n¿Estás 100% seguro de que quieres forzar este cambio en el inventario?`;
+
+                if (!confirm(warningMsg)) {
+                    return; // Abort save
+                }
+            }
 
             if (!inv) {
                 inv = { businessId: selectedBusinessId, productId: id, quantity: newQty };
