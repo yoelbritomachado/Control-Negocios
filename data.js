@@ -1,3 +1,15 @@
+// Initialize DB immediately to prevent ReferenceErrors in app.js
+window.db = {
+  products: [],
+  inventory: [],
+  sales: [],
+  users: [],
+  notifications: [],
+  businesses: [],
+  settings: { theme: 'dark' },
+  logs: []
+};
+
 window.REAL_INVENTORY = {
   "mch1": [
     {

@@ -1076,8 +1076,9 @@ function renderInventory(container) {
     const cards = items.map(i => {
         // Semaphore Logic
         let semClass = 'green';
+        const min = i.minStock || 10;
         if (i.stock <= 0) semClass = 'red';
-        else if (i.stock < 10) semClass = 'yellow';
+        else if (i.stock < min) semClass = 'yellow';
 
         return `
             <div class="product-card-v2" onclick="showEditProductModal(${i.id})">
@@ -3050,7 +3051,7 @@ window.confirmAddExpenseCategory = async function () {
         allowedRoles: 'all' // Default to All
     });
 
-    await saveData();
+    await window.saveData();
     closeModal('cat-popup');
     renderSettings(document.getElementById('content-area'));
 };
@@ -3059,14 +3060,14 @@ window.updateExpenseCategoryRole = async function (id, role) {
     const cat = db.expenseCategories.find(c => c.id === id);
     if (cat) {
         cat.allowedRoles = role;
-        await saveData();
+        await window.saveData();
     }
 };
 
 window.deleteExpenseCategory = async function (id) {
     if (!confirm("¿Eliminar esta categoría permanentemente?")) return;
     db.expenseCategories = db.expenseCategories.filter(c => c.id !== id);
-    await saveData();
+    await window.saveData();
     renderSettings(document.getElementById('content-area'));
 };
 
@@ -3880,6 +3881,10 @@ function showAddProductModal() {
                                         <input type="number" name="initial_stock" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" placeholder="0">
                                     </div>
                                     <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Cantidad Mínima (Alerta)</label>
+                                        <input type="number" name="min_stock" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" placeholder="10" title="Si el stock baja de este número, se marcará en amarillo.">
+                                    </div>
+                                    <div>
                                         <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Categoría</label>
                                         <input type="text" name="category" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" list="categories-list" placeholder="General">
                                     </div>
@@ -3941,6 +3946,7 @@ async function saveNewProduct() {
             category: fd.get('category') || 'General',
             image: fd.get('image'), // Base64 string
             thumbnail: fd.get('thumbnail'), // Base64 string
+            minStock: parseFloat(fd.get('min_stock')) || 10,
             alias: ''
         };
 
@@ -4053,10 +4059,14 @@ function showEditProductModal(id) {
                                         <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Categoría</label>
                                         <input type="text" name="category" value="${p.category || ''}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" list="categories-list">
                                     </div>
-                                    ${selectedBusinessId ? `
                                     <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Cantidad Mínima</label>
+                                        <input type="number" name="min_stock" value="${p.minStock || 10}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;">
+                                    </div>
+                                    ${selectedBusinessId ? `
+                                    <div style="grid-column: span 2;">
                                         <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Existencia Actual (${db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name})</label>
-                                        <input type="number" name="stock" value="${stock}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;">
+                                        <input type="number" name="stock" value="${stock}" class="input-minimal" style="width: 100%; padding: 0.5rem 0; font-weight: bold; color: var(--primary);">
                                     </div>` : ''}
                                 </div>
                             </div>
@@ -4119,6 +4129,7 @@ async function updateProduct(id) {
         db.products[pIndex].category = formData.get('category');
         db.products[pIndex].image = formData.get('image');
         db.products[pIndex].thumbnail = formData.get('thumbnail'); // Update thumbnail
+        db.products[pIndex].minStock = parseFloat(formData.get('min_stock')) || 10;
 
         // Update stock if applicable
         if (selectedBusinessId) {
