@@ -102,3 +102,7 @@
     - Tablas con scroll horizontal automático (`overflow-x: auto`) para evitar roturas.
     - Grids (`.grid-3`, `.inventory-grid`) convertidos a `repeat(auto-fit)` para escalar fluidamente.
 - **Fix**: Reparado bug visual en `window.toggleTheme` para cambio instantáneo de color.
+
+### 2026-01-19 - Correcciones Inventario y Datos
+- **Fix**: Inicialización de DB en `data.js` para asegurar conexión estable.
+- **Inventario**: Agregados campos `minStock` y `cantidad` en los modales de producto.
