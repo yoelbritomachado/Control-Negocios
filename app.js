@@ -2610,7 +2610,7 @@ async function confirmExpense() {
     db.sales.unshift(expenseEntry);
     addLog(`Gasto registrado: -$${amount.toFixed(2)} (${reason})`, 'warning');
 
-    await saveData();
+    saveData().catch(e => console.error("Background save warning:", e));
     alert("Gasto registrado con éxito.");
     closeModal('expense-modal');
 
@@ -3970,13 +3970,8 @@ async function saveNewProduct() {
 
         addLog(`Producto añadido: ${newProduct.name}`, 'success');
 
-        console.log("Saving data...");
-        try {
-            await saveData();
-            console.log("Data saved.");
-        } catch (saveErr) {
-            console.error("Warning: saveData failed but proceeding with UI update", saveErr);
-        }
+        // Fire and forget persistence
+        saveData().catch(e => console.error("Background save warning:", e));
 
         closeModal('product-modal');
 
@@ -4166,13 +4161,8 @@ async function updateProduct(id) {
             }
         }
 
-        console.log("Saving updated product...");
-        try {
-            await saveData();
-            console.log("Product saved.");
-        } catch (saveErr) {
-            console.error("Warning: saveData failed", saveErr);
-        }
+        // Fire and forget persistence
+        saveData().catch(e => console.error("Background save warning:", e));
 
         addLog(`Producto actualizado: ${db.products[pIndex].name}`);
         closeModal('edit-product-modal');
