@@ -746,7 +746,29 @@ window.generateMockSales = async function () {
         if (confirm("No hay productos. ¿Deseas cargar productos de ejemplo para generar la data?")) {
             // Auto-import defaults
             if (window.REAL_INVENTORY) {
-                db.products = window.REAL_INVENTORY.map(p => ({ ...p }));
+                const allProducts = [];
+                let idCounter = 1;
+
+                // Flatten inventory from all branches
+                Object.values(window.REAL_INVENTORY).forEach(branchProducts => {
+                    if (Array.isArray(branchProducts)) {
+                        branchProducts.forEach(p => {
+                            if (p.Nombre) {
+                                allProducts.push({
+                                    id: String(idCounter++),
+                                    name: p.Nombre,
+                                    price: parseFloat(p.Precio || 0),
+                                    cost: parseFloat(p.Costo || 0),
+                                    image: '',
+                                    category: p['Categoría'] || 'General'
+                                });
+                            }
+                        });
+                    }
+                });
+
+                db.products = allProducts;
+
                 // Also ensure businesses exist
                 if (!db.businesses || db.businesses.length === 0) {
                     db.businesses = [
@@ -754,10 +776,27 @@ window.generateMockSales = async function () {
                         { id: 'mch2', name: 'Sucursal Norte', address: 'Av. Norte' }
                     ];
                 }
-                // Re-fetch
+
+                // Sync with inventory collection (initialize stock)
+                db.inventory = [];
+                db.businesses.forEach(b => {
+                    db.products.forEach(p => {
+                        db.inventory.push({
+                            businessId: b.id,
+                            productId: p.id,
+                            quantity: Math.floor(Math.random() * 50) + 10 // Random initial stock
+                        });
+                    });
+                });
+
+                // Re-fetch refs
+                products.length = 0;
                 products.push(...db.products);
+                businesses.length = 0; // Clear existing businesses array
                 businesses.push(...db.businesses);
+
                 await saveData();
+                console.log(`✅ ${db.products.length} productos importados automáticamente.`);
             } else {
                 alert("Error: No se encontró el inventario base en data.js");
                 return;
@@ -1268,9 +1307,6 @@ function renderPOS(container) {
             return;
         }
 
-        // BUG FIX: Removed 'posCart = []' to allow persistence during navigation.
-        // The cart should only be cleared explicitly after a successful sale or manual clear.
-
         // Obtener fecha actual en formato local
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -1279,44 +1315,46 @@ function renderPOS(container) {
         const canEditDate = true; // REGLA: Fecha habilitada para todos.
 
         const headerHtml = `
-        <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem;">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-                <i class="ph ph-calendar" style="font-size: 1.5rem; color: var(--primary);"></i>
-                <div>
-                    <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Fecha de Operación</label>
-                    <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" ${!canEditDate ? 'disabled' : ''} 
-                    style="background: transparent; border: none; color: inherit; font-weight: bold; font-size: 1rem; outline: none;">
+            <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <i class="ph ph-calendar" style="font-size: 1.5rem; color: var(--primary);"></i>
+                    <div>
+                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Fecha de Operación</label>
+                        <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" ${!canEditDate ? 'disabled' : ''} 
+                        style="background: transparent; border: none; color: inherit; font-weight: bold; font-size: 1rem; outline: none;">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 2rem; text-align: right;">
+                    <div>
+                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Apertura</label>
+                        <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" class="input-minimal" style="width: 100px;">
+                    </div>
+                    ${isReviewingClosure ? `
+                    <div>
+                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Cierre</label>
+                        <input type="time" id="pos-close-time" value="${window.auditTempData.closingTime || currentTime}" class="input-minimal" style="width: 100px;">
+                    </div>` : ''}
                 </div>
             </div>
-            <div style="display: flex; gap: 2rem; text-align: right;">
-                <div>
-                    <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Apertura</label>
-                    <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" class="input-minimal" style="width: 100px;">
-                </div>
-                ${isReviewingClosure ? `
-                <div>
-                    <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Cierre</label>
-                    <input type="time" id="pos-close-time" value="${window.auditTempData.closingTime}" class="input-minimal" style="width: 100px;">
-                </div>` : ''}
-            </div>
-        </div>
-    `;
+        `;
 
         const searchHtml = `
-        <div class="card search-container-card" style="margin-bottom: 1rem;">
-            <div class="search-bar">
-                <input type="text" id="pos-search" placeholder="Buscar producto por nombre..." 
-                       oninput="handlePOSSearch(this.value)" class="input-field" style="padding-left: 3rem;" autocomplete="off">
-                <i class="ph ph-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);"></i>
-                <div id="pos-results" class="pos-results"></div>
+            <div class="card search-container-card" style="margin-bottom: 1rem;">
+                <div class="search-bar">
+                    <input type="text" id="pos-search" placeholder="Buscar producto por nombre..." 
+                           oninput="handlePOSSearch(this.value)" class="input-field" style="padding-left: 3rem;" autocomplete="off">
+                    <i class="ph ph-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);"></i>
+                    <div id="pos-results" class="pos-results"></div>
+                </div>
             </div>
-        </div>
-    `;
+        `;
 
+        // Responsive Grid Structure
+        // 'pos-container' is targeted by CSS to become flex-column on mobile
         container.innerHTML = `
-        <div class="fade-in" style="display: grid; grid-template-columns: 1fr 450px; gap: 1.5rem; height: calc(100vh - 150px);">
-            <!-- Panel Izquierdo: Buscador y Carrito -->
-            <div style="display: flex; flex-direction: column; min-height: 0; gap: 1rem;">
+        <div id="pos-container" class="fade-in pos-container" style="display: grid; grid-template-columns: 1fr 450px; gap: 1.5rem; height: calc(100vh - 150px);">
+            <!-- Panel Izquierdo: Buscador y Productos -->
+            <div id="pos-left-panel" class="pos-left-panel" style="display: flex; flex-direction: column; min-height: 0; gap: 1rem;">
                 ${headerHtml}
                 ${isReviewingClosure ? `
                     <div class="pos-banner pos-banner-review">
@@ -1331,14 +1369,17 @@ function renderPOS(container) {
                     </div>
                 ` : ''}
                 ${searchHtml}
-                <div class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
-                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                
+                <!-- Use a specific ID for the products/cart area to target with CSS -->
+                <div id="pos-cart-area" class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
+                     <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0;"><i class="ph ph-shopping-cart"></i> Carrito</h3>
                         <div style="display: flex; gap: 0.5rem;">
                              <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 0.5rem;" title="Limpiar Carrito"><i class="ph ph-trash"></i></button>
                         </div>
                     </div>
                     <div id="pos-cart-items" style="flex: 1; overflow-y: auto;"></div>
+                    
                     ${!isWarehouseContext() ? `
                         <div class="pos-management-actions" style="padding: 1rem;">
                             <button class="btn-secondary btn-expense" onclick="openExpenseModal()">
@@ -1353,17 +1394,17 @@ function renderPOS(container) {
             </div>
 
             <!-- Panel Derecho: Lista de Hoy y Resumen -->
-            <div style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0;">
-                <!-- Lista de Movimientos del Día -->
-                <div class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
+            <div id="pos-right-panel" class="pos-right-panel" style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0;">
+                <!-- Lista de Movimientos del Día (Hidden on small mobile if desired, or kept under) -->
+                <div id="pos-daily-list-card" class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
                     <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark);">
                         <h3 style="margin: 0; font-size: 1rem;"><i class="ph ph-list-numbers"></i> Movimientos del Día</h3>
                     </div>
                     <div id="today-sales-list" style="flex: 1; height: 400px; overflow-y: auto;"></div>
                 </div>
 
-                    <!-- Resumen y Acciones -->
-                <div class="card" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--bg-card);">
+                <!-- Resumen y Acciones (Footer Desktop / Sticky Mobile) -->
+                <div id="pos-actions-card" class="card" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--bg-card);">
                     <div id="pos-summary"></div>
                     
                     <div style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -1394,16 +1435,70 @@ function renderPOS(container) {
                     </div>
                 </div>
             </div>
+            
+            <!-- STICKY FOOTER CONTAINER (Mobile Only Injection) -->
+            <div id="pos-mobile-footer" class="pos-footer-sticky" style="display: none;">
+                <!-- Content injected via updatePOSFooter() -->
+            </div>
         </div>
-    `;
+        `;
+
         updateTitle(isReviewingClosure ? 'Ventana en Revisión (Auditoría)' : 'Punto de Venta');
         renderCart();
         renderTodaySalesList();
+
+        // Initial Footer Sync
+        updatePOSMobileFooter();
+
+        // Listen for Resize to update visibility
+        window.removeEventListener('resize', updatePOSMobileFooter); // Prevent duplicates
+        window.addEventListener('resize', updatePOSMobileFooter);
+
     } catch (e) {
         console.error('Error rendering POS:', e);
         container.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger);"><i class="ph ph-warning-circle" style="font-size:2rem;"></i><br>Error cargando Punto de Venta.<br><small>${e.message}</small></div>`;
     }
 }
+
+// Helper to manage sticky footer content
+window.updatePOSMobileFooter = function () {
+    const footer = document.getElementById('pos-mobile-footer');
+    const actionsCard = document.getElementById('pos-actions-card');
+    const summary = document.getElementById('pos-summary');
+
+    if (!footer || !actionsCard) return;
+
+    if (window.innerWidth <= 768) {
+        // MOBILE MODE: Show Sticky Footer, Hide Desktop Card Content
+        footer.style.display = 'flex';
+        // We clone the important buttons to the footer if not already there
+        if (footer.innerHTML.trim() === '') {
+            // Calculate Total for display
+            const total = (window.posCart || []).reduce((sum, item) => sum + (item.price * item.qty), 0);
+            footer.innerHTML = `
+                <div class="total-display">$${total.toFixed(2)}</div>
+                <button class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" style="border-radius:20px;">
+                    ${isWarehouseContext() ? 'Transferir' : 'COBRAR'}
+                </button>
+             `;
+        } else {
+            // Update Total
+            const total = (window.posCart || []).reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const totalDisplay = footer.querySelector('.total-display');
+            if (totalDisplay) totalDisplay.innerText = `$${total.toFixed(2)}`;
+        }
+        actionsCard.style.display = 'none'; // Hide the original card to save space
+    } else {
+        // DESKTOP MODE
+        footer.style.display = 'none';
+        actionsCard.style.display = 'flex'; // Restore original
+        footer.innerHTML = ''; // Clear to prevent ID conflicts
+    }
+}
+
+// Hook into renderCart to update footer total dynamically
+const originalRenderCart = window.renderCart; // Safety check if exists
+
 
 
 
@@ -1993,6 +2088,11 @@ function renderCart() {
             ` : ''}
         </div>
     `;
+
+    // --- SYNC MOBILE FOOTER ---
+    if (typeof window.updatePOSMobileFooter === 'function') {
+        window.updatePOSMobileFooter();
+    }
 }
 
 function adjustPOSQty(idx, delta) {
