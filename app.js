@@ -3918,43 +3918,55 @@ function handleImageUpload(input) {
 }
 
 async function saveNewProduct() {
-    if (currentUser.role === 'seller') {
-        alert("No tienes permisos para añadir productos.");
-        return;
+    console.log("saveNewProduct called");
+    try {
+        if (currentUser.role === 'seller') {
+            alert("No tienes permisos para añadir productos.");
+            return;
+        }
+        const form = document.getElementById('add-product-form');
+
+        // Manual check to ensure we get feedback
+        const fd = new FormData(form);
+        if (!fd.get('name') || !fd.get('cost') || !fd.get('price')) {
+            alert("Por favor completa los campos obligatorios: Nombre, Costo y Precio.");
+            return;
+        }
+
+        const newProduct = {
+            id: Date.now(),
+            name: fd.get('name'),
+            cost: parseFloat(fd.get('cost')),
+            price: parseFloat(fd.get('price')),
+            category: fd.get('category') || 'General',
+            image: fd.get('image'), // Base64 string
+            thumbnail: fd.get('thumbnail'), // Base64 string
+            alias: ''
+        };
+
+        console.log("Saving product:", newProduct);
+
+        db.products.push(newProduct);
+
+        // Initial Stock Handling
+        const initialQty = parseFloat(fd.get('initial_stock') || 0);
+
+        if (selectedBusinessId) {
+            db.inventory.push({ businessId: selectedBusinessId, productId: newProduct.id, quantity: initialQty });
+        } else {
+            // En vista global, inicializar en Almacén por defecto
+            db.inventory.push({ businessId: 'alm', productId: newProduct.id, quantity: initialQty });
+        }
+
+        await saveData();
+        addLog(`Producto añadido: ${newProduct.name}`, 'success');
+        closeModal('product-modal');
+        renderInventory(document.getElementById('content-area'));
+
+    } catch (e) {
+        console.error("Error in saveNewProduct:", e);
+        alert("Error al guardar: " + e.message);
     }
-    const form = document.getElementById('add-product-form');
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        return;
-    }
-
-    const formData = new FormData(form);
-    const newProduct = {
-        id: Date.now(),
-        name: formData.get('name'),
-        cost: parseFloat(formData.get('cost')),
-        price: parseFloat(formData.get('price')),
-        category: formData.get('category') || 'General',
-        image: formData.get('image'),
-        thumbnail: formData.get('thumbnail'), // New Field
-        alias: ''
-    };
-    db.products.push(newProduct);
-
-    // Initial Stock Handling
-    const initialQty = parseFloat(formData.get('initial_stock') || 0);
-
-    if (selectedBusinessId) {
-        db.inventory.push({ businessId: selectedBusinessId, productId: newProduct.id, quantity: initialQty });
-    } else {
-        // En vista global, inicializar en Almacén por defecto
-        db.inventory.push({ businessId: 'alm', productId: newProduct.id, quantity: initialQty });
-    }
-
-    await saveData();
-    addLog(`Producto añadido: ${newProduct.name}`, 'success');
-    closeModal('product-modal');
-    renderInventory(document.getElementById('content-area'));
 }
 
 
@@ -4076,46 +4088,59 @@ function handleImageUploadEdit(input) {
 }
 
 async function updateProduct(id) {
-    if (currentUser.role === 'seller') {
-        alert("No tienes permisos para editar productos.");
-        return;
-    }
-    const form = document.getElementById('edit-product-form');
-    // Basic validation
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        return;
-    }
-
-    const formData = new FormData(form);
-    const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
-    if (pIndex === -1) return;
-
-    // Update core fields
-    db.products[pIndex].name = formData.get('name');
-    db.products[pIndex].cost = parseFloat(formData.get('cost'));
-    db.products[pIndex].price = parseFloat(formData.get('price'));
-    db.products[pIndex].category = formData.get('category');
-    db.products[pIndex].image = formData.get('image');
-    db.products[pIndex].thumbnail = formData.get('thumbnail'); // Update thumbnail
-
-    // Update stock if applicable
-    if (selectedBusinessId) {
-        let inv = db.inventory.find(i => i.productId === id && String(i.businessId) === String(selectedBusinessId));
-        const newQty = parseFloat(formData.get('stock'));
-
-        if (!inv) {
-            inv = { businessId: selectedBusinessId, productId: id, quantity: newQty };
-            db.inventory.push(inv);
-        } else {
-            inv.quantity = newQty;
+    console.log("updateProduct called for ID:", id);
+    try {
+        if (currentUser.role === 'seller') {
+            alert("No tienes permisos para editar productos.");
+            return;
         }
-    }
 
-    await saveData();
-    addLog(`Producto actualizado: ${db.products[pIndex].name}`);
-    closeModal('edit-product-modal');
-    renderInventory(document.getElementById('content-area'));
+        const form = document.getElementById('edit-product-form');
+        const formData = new FormData(form);
+        const name = formData.get('name');
+        const price = formData.get('price');
+        const cost = formData.get('cost');
+
+        if (!name || !price || !cost) {
+            alert('Por favor completa Nombre, Costo y Precio.');
+            return;
+        }
+
+        // Force string compare for safety
+        const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
+        if (pIndex === -1) {
+            alert('Error: Producto no encontrado en base de datos.');
+            return;
+        }
+
+        db.products[pIndex].name = name;
+        db.products[pIndex].cost = parseFloat(cost);
+        db.products[pIndex].price = parseFloat(price);
+        db.products[pIndex].category = formData.get('category');
+        db.products[pIndex].image = formData.get('image');
+        db.products[pIndex].thumbnail = formData.get('thumbnail'); // Update thumbnail
+
+        // Update stock if applicable
+        if (selectedBusinessId) {
+            let inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId));
+            const newQty = parseFloat(formData.get('stock') || 0);
+
+            if (!inv) {
+                inv = { businessId: selectedBusinessId, productId: id, quantity: newQty };
+                db.inventory.push(inv);
+            } else {
+                inv.quantity = newQty;
+            }
+        }
+
+        await saveData();
+        addLog(`Producto actualizado: ${db.products[pIndex].name}`);
+        closeModal('edit-product-modal');
+        renderInventory(document.getElementById('content-area'));
+    } catch (e) {
+        console.error("Error updating product:", e);
+        alert('Error inesperado al guardar: ' + e.message);
+    }
 }
 
 // REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
