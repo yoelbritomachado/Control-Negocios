@@ -3998,97 +3998,111 @@ function showEditProductModal(id) {
     const p = db.products.find(prod => prod.id === id);
     if (!p) return;
 
-    // Determine current stock if in a business context
-    const inv = selectedBusinessId ? db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId)) : null;
-    const stock = inv ? inv.quantity : 0;
+    function showEditProductModal(id) {
+        const p = db.products.find(prod => prod.id === id);
+        if (!p) return;
 
-    const modalHtml = `
+        let stock = 0;
+        let businessName = "Total Global";
+
+        // Logic: If specific business, use that stock. If global, use 'alm' (Warehouse) stock for editing.
+        if (selectedBusinessId) {
+            const inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId));
+            stock = inv ? inv.quantity : 0;
+            businessName = db.businesses.find(b => String(b.id) === String(selectedBusinessId))?.name || 'Sede';
+        } else {
+            const inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === 'alm');
+            stock = inv ? inv.quantity : 0;
+            businessName = "Almacén Central (Vista Global)";
+        }
+
+        const modalHtml = `
             <div id="edit-product-modal" class="modal-overlay" style="display:flex;">
-                <div class="card" style="width: 800px; max-width: 95vw; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-card); border-radius: 12px;">
+                <div class="card" style="width: 900px; max-width: 95vw; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-card); border-radius: 12px; height: 85vh;">
                     
-                    <!-- 1. Header -->
-                    <div style="background: #1e3a8a; color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="background: #1e3a8a; color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
                         <div style="display: flex; align-items: center; gap: 1rem;">
-                            <i class="ph ph-arrow-left" style="cursor: pointer;" onclick="closeModal('edit-product-modal')"></i>
+                            <i class="ph ph-arrow-left" style="cursor: pointer; font-size: 1.2rem;" onclick="closeModal('edit-product-modal')"></i>
                             <h3 style="margin: 0; font-size: 1.1rem; font-weight: 500;">Editar Producto</h3>
                         </div>
                         <div style="display: flex; gap: 1rem;">
                             <button type="button" onclick="updateProduct('${id}')" style="background: none; border: none; color: white; cursor: pointer;">
-                                <i class="ph ph-check" style="font-size: 1.5rem;"></i>
+                                <i class="ph ph-check" style="font-size: 1.8rem;"></i>
                             </button>
                         </div>
                     </div>
 
-                    <div style="padding: 2rem; overflow-y: auto; max-height: 80vh;">
-                         <form id="edit-product-form">
-                            <!-- 2. Main Fields -->
-                            <div style="margin-bottom: 2rem; background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
-                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Información Principal</h4>
+                    <div style="padding: 2rem; overflow-y: auto; flex-grow: 1;">
+                         <form id="edit-product-form" style="height: 100%;">
+                            
+                            <div style="display: grid; grid-template-columns: 300px 1fr; gap: 2rem; height: 100%;">
                                 
-                                <div style="margin-bottom: 1.5rem;">
-                                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Nombre</label>
-                                    <input type="text" name="name" value="${p.name}" class="input-minimal" style="width: 100%; font-size: 1.1rem; padding: 0.5rem 0;" required>
-                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                    <div style="flex-grow: 1; background: var(--bg-dark); border-radius: 8px; border: 2px dashed var(--border); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 300px;">
+                                        
+                                        <input type="file" id="edit-product-img-input" accept="image/*" onchange="handleImageUploadEdit(this)" style="display: none;">
+                                        <input type="hidden" name="image" id="edit-product-image-data" value="${p.image || ''}">
+                                        <input type="hidden" name="thumbnail" id="edit-product-thumb-data" value="${p.thumbnail || ''}">
 
-                                <div class="grid-2" style="gap: 2rem;">
-                                    <div>
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Costo</label>
-                                        <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" required>
+                                        <div id="edit-image-placeholder-area" style="text-align: center; color: var(--text-muted); display: ${p.image ? 'none' : 'block'}; pointer-events: none;">
+                                            <i class="ph ph-camera" style="font-size: 3rem; opacity: 0.3;"></i>
+                                            <p style="margin-top: 0.5rem; font-size: 0.8rem;">Sin Imagen</p>
+                                        </div>
+
+                                        <div id="edit-image-preview-area" style="display: ${p.image ? 'flex' : 'none'}; width: 100%; height: 100%; justify-content: center; align-items: center;">
+                                            <img id="edit-preview-img-tag" src="${p.image || ''}" style="width: 100%; height: 100%; object-fit: cover;">
+                                        </div>
+
+                                        <button type="button" class="btn-icon" onclick="document.getElementById('edit-product-img-input').click()" 
+                                                style="position: absolute; bottom: 1rem; right: 1rem; background: rgba(0,0,0,0.7); color: white; border-radius: 50%; width: 40px; height: 40px;">
+                                            <i class="ph ph-pencil-simple"></i>
+                                        </button>
                                     </div>
-                                    <div>
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Precio Venta</label>
-                                        <input type="number" step="0.01" name="price" value="${p.price}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" required>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 3. Image Area -->
-                            <div style="margin-bottom: 2rem; display: flex; justify-content: center; align-items: center; background: var(--bg-dark); padding: 2rem; border-radius: 8px; border: 2px dashed var(--border); position: relative; min-height: 250px;">
-                                
-                                <input type="file" id="edit-product-img-input" accept="image/*" onchange="handleImageUploadEdit(this)" style="display: none;">
-                                <input type="hidden" name="image" id="edit-product-image-data" value="${p.image || ''}">
-                                <input type="hidden" name="thumbnail" id="edit-product-thumb-data" value="${p.thumbnail || ''}">
-
-                                <div id="edit-image-placeholder-area" style="text-align: center; color: var(--text-muted); display: ${p.image ? 'none' : 'block'}; pointer-events: none;">
-                                    <i class="ph ph-question" style="font-size: 4rem; opacity: 0.5;"></i>
-                                    <p style="margin-top: 1rem; font-size: 0.9rem;">Sin imagen actual</p>
+                                    <p style="text-align: center; font-size: 0.8rem; color: var(--text-muted);">Toca el icono para cambiar la imagen</p>
                                 </div>
 
-                                <div id="edit-image-preview-area" style="display: ${p.image ? 'flex' : 'none'}; position: absolute; top: 0; left: 0; width: 100%; height: 100%; justify-content: center; align-items: center;">
-                                    <img id="edit-preview-img-tag" src="${p.image || ''}" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 8px;">
-                                </div>
-
-                                <div style="position: absolute; bottom: 1rem; right: 1rem; display: flex; gap: 0.5rem;">
-                                     <button type="button" class="btn-icon" onclick="document.getElementById('edit-product-image-data').value = ''; document.getElementById('edit-preview-img-tag').src = ''; document.getElementById('edit-image-preview-area').style.display='none'; document.getElementById('edit-image-placeholder-area').style.display='block';" title="Eliminar Foto" style="background: rgba(0,0,0,0.6); color: white;">
-                                        <i class="ph ph-x"></i>
-                                    </button>
-                                    <button type="button" class="btn-icon" onclick="document.getElementById('edit-product-img-input').click()" title="Cambiar Foto" style="background: rgba(0,0,0,0.6); color: white;">
-                                        <i class="ph ph-image"></i>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- 4. Contextual Fields -->
-                            <div style="background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
-                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Ajustes de Inventario</h4>
-                                <div class="grid-2" style="gap: 2rem;">
-                                    <div>
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-                                            Existencia (${selectedBusinessId ? (db.businesses.find(b => String(b.id) === String(selectedBusinessId))?.name || 'Sede') : 'Total Global'})
-                                        </label>
-                                        <input type="number" name="stock" value="${stock}" 
-                                               class="input-minimal" 
-                                               style="width: 100%; padding: 0.5rem 0; font-weight: 600; color: var(--primary);"
-                                               ${selectedBusinessId ? '' : 'readonly title="Selecciona una sede para editar el stock"'} >
-                                        ${!selectedBusinessId ? '<span style="font-size:0.7rem; color:var(--text-muted);">Solo lectura en vista global</span>' : ''}
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Cantidad Mínima</label>
-                                        <input type="number" name="min_stock" value="${p.minStock || 10}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;">
-                                    </div>
+                                <div style="display: flex; flex-direction: column; gap: 1.5rem;">
                                     
-                                    <!-- Hidden Category (preserved just in case logic needs it, default to existing) -->
+                                    <div>
+                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Nombre del Producto</label>
+                                        <input type="text" name="name" value="${p.name}" class="input-minimal" style="width: 100%; font-size: 1.2rem; padding: 0.5rem 0; border-bottom: 2px solid var(--border);" required>
+                                    </div>
+
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; background: var(--bg-hover); padding: 1.5rem; border-radius: 12px;">
+                                        
+                                        <div>
+                                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">Costo</label>
+                                            <div style="display:flex; align-items:center;">
+                                                <span style="color:var(--text-muted); margin-right:0.3rem;">$</span>
+                                                <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-minimal" style="font-weight: 500;">
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">Precio de Venta</label>
+                                            <div style="display:flex; align-items:center;">
+                                                <span style="color:var(--text-muted); margin-right:0.3rem;">$</span>
+                                                <input type="number" step="0.01" name="price" value="${p.price}" class="input-minimal" style="font-weight: bold; color: var(--success);">
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">Min. Stock (Alerta)</label>
+                                            <input type="number" name="min_stock" value="${p.minStock || 10}" class="input-minimal">
+                                        </div>
+
+                                        <div>
+                                            <label style="display: block; font-size: 0.8rem; color: var(--primary); margin-bottom: 0.3rem; font-weight: bold;">
+                                                Stock: ${businessName}
+                                            </label>
+                                            <input type="number" name="stock" value="${stock}" class="input-minimal" 
+                                                   style="font-size: 1.2rem; color: var(--primary); font-weight: bold; width: 100%;">
+                                        </div>
+
+                                    </div>
+
                                     <input type="hidden" name="category" value="${p.category || 'General'}">
+
                                 </div>
                             </div>
 
@@ -4097,292 +4111,289 @@ function showEditProductModal(id) {
                 </div>
             </div>
         `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
-
-function handleImageUploadEdit(input) {
-    if (input.files && input.files[0]) {
-        compressImage(input.files[0], (result) => {
-            const imgData = result.main || result;
-            const thumbData = result.thumb || result;
-
-            document.getElementById('edit-product-image-data').value = imgData;
-            document.getElementById('edit-product-thumb-data').value = thumbData;
-
-            const preview = document.getElementById('edit-preview-img-tag');
-            preview.src = imgData;
-
-            document.getElementById('edit-image-placeholder-area').style.display = 'none';
-            document.getElementById('edit-image-preview-area').style.display = 'flex';
-        });
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
     }
-}
 
-async function updateProduct(id) {
-    console.log("updateProduct called for ID:", id);
-    try {
-        if (currentUser.role === 'seller') {
-            alert("No tienes permisos para editar productos.");
-            return;
+    function handleImageUploadEdit(input) {
+        if (input.files && input.files[0]) {
+            compressImage(input.files[0], (result) => {
+                const imgData = result.main || result;
+                const thumbData = result.thumb || result;
+                document.getElementById('edit-product-image-data').value = imgData;
+                document.getElementById('edit-product-thumb-data').value = thumbData;
+                document.getElementById('edit-preview-img-tag').src = imgData;
+                document.getElementById('edit-image-placeholder-area').style.display = 'none';
+                document.getElementById('edit-image-preview-area').style.display = 'flex';
+            });
         }
+    }
 
-        const form = document.getElementById('edit-product-form');
-        const formData = new FormData(form);
-        const name = formData.get('name');
-        const price = formData.get('price');
-        const cost = formData.get('cost');
+    async function updateProduct(id) {
+        try {
+            if (currentUser.role === 'seller') {
+                alert("No tienes permisos para editar productos.");
+                return;
+            }
 
-        if (!name || !price || !cost) {
-            alert('Por favor completa Nombre, Costo y Precio.');
-            return;
-        }
+            const form = document.getElementById('edit-product-form');
+            const formData = new FormData(form);
+            const name = formData.get('name');
+            const price = formData.get('price');
+            const cost = formData.get('cost');
 
-        // Force string compare for safety
-        const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
-        if (pIndex === -1) {
-            alert('Error: Producto no encontrado en base de datos.');
-            return;
-        }
+            if (!name || !price || !cost) {
+                alert('Por favor completa Nombre, Costo y Precio.');
+                return;
+            }
 
-        db.products[pIndex].name = name;
-        db.products[pIndex].cost = parseFloat(cost);
-        db.products[pIndex].price = parseFloat(price);
-        db.products[pIndex].category = formData.get('category');
-        db.products[pIndex].image = formData.get('image');
-        db.products[pIndex].thumbnail = formData.get('thumbnail'); // Update thumbnail
-        db.products[pIndex].minStock = parseFloat(formData.get('min_stock')) || 10;
+            const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
+            if (pIndex === -1) {
+                alert('Error: Producto no encontrado.');
+                return;
+            }
 
-        // Update stock if applicable
-        if (selectedBusinessId) {
-            let inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(selectedBusinessId));
+            db.products[pIndex].name = name;
+            db.products[pIndex].cost = parseFloat(cost);
+            db.products[pIndex].price = parseFloat(price);
+            db.products[pIndex].category = formData.get('category');
+            db.products[pIndex].image = formData.get('image');
+            db.products[pIndex].thumbnail = formData.get('thumbnail');
+            db.products[pIndex].minStock = parseFloat(formData.get('min_stock')) || 10;
+
+            // Inventory Update Logic
             const newQty = parseFloat(formData.get('stock') || 0);
+
+            // Target: Selected Business or 'alm' (Warehouse)
+            const targetBusinessId = selectedBusinessId || 'alm';
+
+            let inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(targetBusinessId));
             const currentQty = inv ? inv.quantity : 0;
 
+            // Warning if stock changed manually
             if (newQty !== currentQty) {
-                const warningMsg = `⚠️ ¡ADVERTENCIA CRÍTICA! ⚠️\n\nEstás modificando el inventario MANUALMENTE de ${currentQty} a ${newQty}.\n\nEsta acción NO es una venta, ni entrada de mercancía, ni merma oficial.\nUse este método solo para CORRECCIONES de errores.\n\n¿Estás 100% seguro de que quieres forzar este cambio en el inventario?`;
+                const warningMsg = `⚠️ ¡ADVERTENCIA CRÍTICA! ⚠️\n\nEstás modificando el inventario MANUALMENTE de ${currentQty} a ${newQty} en: ${(selectedBusinessId ? 'SEDE ACTUAL' : 'ALMACÉN CENTRAL')}.\n\nEsta acción NO es una venta, ni entrada de mercancía, ni merma oficial.\nUse este método solo para CORRECCIONES de errores.\n\n¿Estás 100% seguro de que quieres forzar este cambio en el inventario?`;
 
                 if (!confirm(warningMsg)) {
-                    return; // Abort save
+                    return;
                 }
             }
 
             if (!inv) {
-                inv = { businessId: selectedBusinessId, productId: id, quantity: newQty };
+                inv = { businessId: targetBusinessId, productId: id, quantity: newQty };
                 db.inventory.push(inv);
             } else {
                 inv.quantity = newQty;
             }
+
+            // Fire and forget persistence
+            saveData().catch(e => console.error("Background save warning:", e));
+
+            addLog(`Producto actualizado: ${db.products[pIndex].name}`);
+            closeModal('edit-product-modal');
+
+            setTimeout(() => {
+                const container = document.getElementById('content-area');
+                if (container) renderInventory(container);
+            }, 50);
+
+        } catch (e) {
+            console.error("Error updating product:", e);
+            alert('Error inesperado al guardar: ' + e.message);
         }
-
-        // Fire and forget persistence
-        saveData().catch(e => console.error("Background save warning:", e));
-
-        addLog(`Producto actualizado: ${db.products[pIndex].name}`);
-        closeModal('edit-product-modal');
-
-        setTimeout(() => {
-            console.log("Forcing Inventory Render after edit...");
-            const container = document.getElementById('content-area');
-            if (container) renderInventory(container);
-        }, 50);
-    } catch (e) {
-        console.error("Error updating product:", e);
-        alert('Error inesperado al guardar: ' + e.message);
-    }
-}
-
-// REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
-
-function handleInventoryImageClick(id) {
-    document.getElementById(`inv - img - ${id} `).click();
-}
-
-function handleInventoryImageUpload(id, input) {
-    if (input.files && input.files[0]) {
-        compressImage(input.files[0], (base64) => {
-            const p = db.products.find(prod => prod.id === id);
-            if (p) {
-                p.image = base64;
-                saveData();
-                renderInventory(document.getElementById('content-area'));
-                addLog(`Imagen de producto ${p.name} actualizada`, 'info');
-            }
-        });
-    }
-}
-
-function showMermaModal(productId) {
-    const p = db.products.find(prod => prod.id === productId);
-    const qtyStr = prompt(`Registrar Merma para: ${p.name} \n¿Cuántas unidades se perdieron ? `, "1");
-    if (qtyStr === null) return;
-
-    const qty = parseFloat(qtyStr);
-    if (isNaN(qty) || qty <= 0) {
-        alert("Cantidad no válida");
-        return;
     }
 
-    const businessId = selectedBusinessId || 1;
-    const inv = db.inventory.find(i => i.productId === productId && i.businessId === businessId);
+    // REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
 
-    if (!inv || inv.quantity < qty) {
-        if (!confirm("El stock actual es menor a la merma indicada. ¿Continuar de todos modos y dejar stock en 0?")) return;
-        if (inv) inv.quantity = 0;
-    } else {
-        inv.quantity -= qty;
+    function handleInventoryImageClick(id) {
+        document.getElementById(`inv - img - ${id} `).click();
     }
 
-    db.waste.push({
-        id: Date.now(),
-        date: new Date().toLocaleString(),
-        businessId: businessId,
-        productId: productId,
-        quantity: qty,
-        user: currentUser.name
-    });
-
-    saveData();
-    addLog(`Merma registrada: ${qty}x ${p.name} `, 'warning');
-    renderInventory(document.getElementById('content-area'));
-}
-
-// --- CSV UTILS ---
-function exportInventoryCSV() {
-    const headers = ["ID", "Producto", "Categoria", "Stock", "Costo", "Precio Venta"];
-    let rows = db.products.map(p => {
-        const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && i.businessId === selectedBusinessId)?.quantity || 0) :
-            db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
-        return [p.id, p.name, p.category, stock, p.cost, p.price];
-    });
-
-    let csvContent = "data:text/csv;charset=utf-8,"
-        + headers.join(",") + "\n"
-        + rows.map(e => e.join(",")).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `inventario_${selectedBusinessId || 'global'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-}
-
-function importInventoryCSV(input) {
-    const file = input.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        const lines = text.split('\n');
-        // Ignorar cabecera
-        for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',');
-            if (cols.length < 6) continue;
-
-            const id = parseInt(cols[0]);
-            const name = cols[1];
-            const category = cols[2];
-            const stock = parseFloat(cols[3]);
-            const cost = parseFloat(cols[4]);
-            const price = parseFloat(cols[5]);
-
-            let p = db.products.find(prod => prod.id === id);
-            if (p) {
-                p.name = name;
-                p.category = category;
-                p.cost = cost;
-                p.price = price;
-            } else {
-                p = { id: id || Date.now() + i, name, category, cost, price, alias: '', image: '' };
-                db.products.push(p);
-            }
-
-            if (selectedBusinessId) {
-                let inv = db.inventory.find(invItem => invItem.productId === p.id && invItem.businessId === selectedBusinessId);
-                if (!inv) {
-                    inv = { businessId: selectedBusinessId, productId: p.id, quantity: 0 };
-                    db.inventory.push(inv);
+    function handleInventoryImageUpload(id, input) {
+        if (input.files && input.files[0]) {
+            compressImage(input.files[0], (base64) => {
+                const p = db.products.find(prod => prod.id === id);
+                if (p) {
+                    p.image = base64;
+                    saveData();
+                    renderInventory(document.getElementById('content-area'));
+                    addLog(`Imagen de producto ${p.name} actualizada`, 'info');
                 }
-                inv.quantity = stock;
-            }
+            });
         }
-        await saveData();
-        alert("Importación completada");
+    }
+
+    function showMermaModal(productId) {
+        const p = db.products.find(prod => prod.id === productId);
+        const qtyStr = prompt(`Registrar Merma para: ${p.name} \n¿Cuántas unidades se perdieron ? `, "1");
+        if (qtyStr === null) return;
+
+        const qty = parseFloat(qtyStr);
+        if (isNaN(qty) || qty <= 0) {
+            alert("Cantidad no válida");
+            return;
+        }
+
+        const businessId = selectedBusinessId || 1;
+        const inv = db.inventory.find(i => i.productId === productId && i.businessId === businessId);
+
+        if (!inv || inv.quantity < qty) {
+            if (!confirm("El stock actual es menor a la merma indicada. ¿Continuar de todos modos y dejar stock en 0?")) return;
+            if (inv) inv.quantity = 0;
+        } else {
+            inv.quantity -= qty;
+        }
+
+        db.waste.push({
+            id: Date.now(),
+            date: new Date().toLocaleString(),
+            businessId: businessId,
+            productId: productId,
+            quantity: qty,
+            user: currentUser.name
+        });
+
+        saveData();
+        addLog(`Merma registrada: ${qty}x ${p.name} `, 'warning');
         renderInventory(document.getElementById('content-area'));
-    };
-    reader.readAsText(file);
-}
+    }
 
-// --- PDF EXPORT ---
+    // --- CSV UTILS ---
+    function exportInventoryCSV() {
+        const headers = ["ID", "Producto", "Categoria", "Stock", "Costo", "Precio Venta"];
+        let rows = db.products.map(p => {
+            const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && i.businessId === selectedBusinessId)?.quantity || 0) :
+                db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
+            return [p.id, p.name, p.category, stock, p.cost, p.price];
+        });
 
-function exportInventoryPDFWrapper() {
-    const withImages = confirm("¿Deseas incluir las imágenes de los productos en el reporte PDF?\n\n(Nota: Esto aumentará el tamaño del archivo)");
-    exportInventoryPDF(withImages);
-}
+        let csvContent = "data:text/csv;charset=utf-8,"
+            + headers.join(",") + "\n"
+            + rows.map(e => e.join(",")).join("\n");
 
-async function exportInventoryPDF(withImages = false) {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    const businessName = selectedBusinessId ? db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name : 'Global';
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `inventario_${selectedBusinessId || 'global'}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
 
-    doc.setFontSize(18);
-    doc.text(`Inventario: ${businessName}`, 14, 20);
-    doc.setFontSize(10);
-    doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, 28);
+    function importInventoryCSV(input) {
+        const file = input.files[0];
+        if (!file) return;
 
-    const items = db.products.map(p => {
-        const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && String(i.businessId) === String(selectedBusinessId))?.quantity || 0) :
-            db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const text = e.target.result;
+            const lines = text.split('\n');
+            // Ignorar cabecera
+            for (let i = 1; i < lines.length; i++) {
+                const cols = lines[i].split(',');
+                if (cols.length < 6) continue;
 
-        if (currentUser.role === 'seller' && stock <= 0) return null; // Logic consistency
+                const id = parseInt(cols[0]);
+                const name = cols[1];
+                const category = cols[2];
+                const stock = parseFloat(cols[3]);
+                const cost = parseFloat(cols[4]);
+                const price = parseFloat(cols[5]);
 
-        const row = [p.name, p.category, stock, `$${p.cost.toFixed(2)}`, `$${p.price.toFixed(2)}`];
-        if (withImages) row.unshift(''); // Placeholder for image
-        return { row, image: p.image };
-    }).filter(i => i !== null);
+                let p = db.products.find(prod => prod.id === id);
+                if (p) {
+                    p.name = name;
+                    p.category = category;
+                    p.cost = cost;
+                    p.price = price;
+                } else {
+                    p = { id: id || Date.now() + i, name, category, cost, price, alias: '', image: '' };
+                    db.products.push(p);
+                }
 
-    const head = withImages
-        ? [['Imagen', 'Producto', 'Categoría', 'Stock', 'Costo', 'Venta']]
-        : [['Producto', 'Categoría', 'Stock', 'Costo', 'Venta']];
+                if (selectedBusinessId) {
+                    let inv = db.inventory.find(invItem => invItem.productId === p.id && invItem.businessId === selectedBusinessId);
+                    if (!inv) {
+                        inv = { businessId: selectedBusinessId, productId: p.id, quantity: 0 };
+                        db.inventory.push(inv);
+                    }
+                    inv.quantity = stock;
+                }
+            }
+            await saveData();
+            alert("Importación completada");
+            renderInventory(document.getElementById('content-area'));
+        };
+        reader.readAsText(file);
+    }
 
-    const body = items.map(i => i.row);
+    // --- PDF EXPORT ---
 
-    doc.autoTable({
-        head: head,
-        body: body,
-        startY: 35,
-        theme: 'grid',
-        headStyles: { fillColor: [63, 185, 80] },
-        styles: { valign: 'middle' },
-        columnStyles: withImages ? { 0: { cellWidth: 20, minCellHeight: 20 } } : {},
-        didDrawCell: function (data) {
-            if (withImages && data.column.index === 0 && data.cell.section === 'body') {
-                const itemIndex = data.row.index;
-                const imgBase64 = items[itemIndex].image;
-                if (imgBase64) {
-                    try {
-                        doc.addImage(imgBase64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 16, 16);
-                    } catch (e) {
-                        // Fallback or ignore invalid image
+    function exportInventoryPDFWrapper() {
+        const withImages = confirm("¿Deseas incluir las imágenes de los productos en el reporte PDF?\n\n(Nota: Esto aumentará el tamaño del archivo)");
+        exportInventoryPDF(withImages);
+    }
+
+    async function exportInventoryPDF(withImages = false) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        const businessName = selectedBusinessId ? db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name : 'Global';
+
+        doc.setFontSize(18);
+        doc.text(`Inventario: ${businessName}`, 14, 20);
+        doc.setFontSize(10);
+        doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, 28);
+
+        const items = db.products.map(p => {
+            const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && String(i.businessId) === String(selectedBusinessId))?.quantity || 0) :
+                db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
+
+            if (currentUser.role === 'seller' && stock <= 0) return null; // Logic consistency
+
+            const row = [p.name, p.category, stock, `$${p.cost.toFixed(2)}`, `$${p.price.toFixed(2)}`];
+            if (withImages) row.unshift(''); // Placeholder for image
+            return { row, image: p.image };
+        }).filter(i => i !== null);
+
+        const head = withImages
+            ? [['Imagen', 'Producto', 'Categoría', 'Stock', 'Costo', 'Venta']]
+            : [['Producto', 'Categoría', 'Stock', 'Costo', 'Venta']];
+
+        const body = items.map(i => i.row);
+
+        doc.autoTable({
+            head: head,
+            body: body,
+            startY: 35,
+            theme: 'grid',
+            headStyles: { fillColor: [63, 185, 80] },
+            styles: { valign: 'middle' },
+            columnStyles: withImages ? { 0: { cellWidth: 20, minCellHeight: 20 } } : {},
+            didDrawCell: function (data) {
+                if (withImages && data.column.index === 0 && data.cell.section === 'body') {
+                    const itemIndex = data.row.index;
+                    const imgBase64 = items[itemIndex].image;
+                    if (imgBase64) {
+                        try {
+                            doc.addImage(imgBase64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 16, 16);
+                        } catch (e) {
+                            // Fallback or ignore invalid image
+                        }
                     }
                 }
             }
-        }
-    });
+        });
 
-    doc.save(`Inventario_${businessName}.pdf`);
-}
+        doc.save(`Inventario_${businessName}.pdf`);
+    }
 
 
-// --- SALE DETAIL ---
+    // --- SALE DETAIL ---
 
-async function showSaleDetail(saleId) {
-    const s = db.sales.find(sale => sale.id === saleId);
-    if (!s) return;
+    async function showSaleDetail(saleId) {
+        const s = db.sales.find(sale => sale.id === saleId);
+        if (!s) return;
 
-    const modalHtml = `
+        const modalHtml = `
             <div id="sale-detail-modal" class="modal-overlay" style="display:flex; align-items:flex-start; padding-top:5vh;">
                 <div class="card" style="width:700px; max-height:90vh; overflow-y:auto; padding:2rem; position:relative;">
                     <button class="btn-icon" style="position:absolute; right:1.5rem; top:1.5rem;" onclick="closeModal('sale-detail-modal')"><i class="ph ph-x"></i></button>
@@ -4549,255 +4560,255 @@ async function showSaleDetail(saleId) {
                 </div>
         </div>
             `;
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-}
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
 
-async function deleteSaleAction(id, force = false) {
-    const s = db.sales.find(sale => sale.id === id);
-    if (!s) return;
+    async function deleteSaleAction(id, force = false) {
+        const s = db.sales.find(sale => sale.id === id);
+        if (!s) return;
 
-    // Se requiere aprobación a menos que sea el Dueño o se pase 'force' (desde aprobación)
-    if (!force) {
-        if (currentUser.role === 'owner') {
-            if (!confirm(`¿Eliminar venta #${id.toString().slice(-6)}? El stock se devolverá.`)) return;
-            force = true;
-        } else if (currentUser.role === 'admin') {
-            if (db.settings.allowAdminDeleteSales) {
-                if (confirm(`¿Eliminar esta venta ? `)) force = true;
-                else return;
+        // Se requiere aprobación a menos que sea el Dueño o se pase 'force' (desde aprobación)
+        if (!force) {
+            if (currentUser.role === 'owner') {
+                if (!confirm(`¿Eliminar venta #${id.toString().slice(-6)}? El stock se devolverá.`)) return;
+                force = true;
+            } else if (currentUser.role === 'admin') {
+                if (db.settings.allowAdminDeleteSales) {
+                    if (confirm(`¿Eliminar esta venta ? `)) force = true;
+                    else return;
+                } else {
+                    alert("Necesita permisos para hacer esta acción. Solicite aprobación si es necesario.");
+                    if (confirm("¿Enviar solicitud de eliminación al Dueño?")) sendDeleteRequest(s);
+                    return;
+                }
             } else {
-                alert("Necesita permisos para hacer esta acción. Solicite aprobación si es necesario.");
-                if (confirm("¿Enviar solicitud de eliminación al Dueño?")) sendDeleteRequest(s);
+                // Vendedor
+                alert("Necesita permisos para hacer esta acción en el historial general.");
+                if (confirm("¿Solicitar eliminación de esta venta antigua al Administrador?")) sendDeleteRequest(s);
                 return;
             }
-        } else {
-            // Vendedor
-            alert("Necesita permisos para hacer esta acción en el historial general.");
-            if (confirm("¿Solicitar eliminación de esta venta antigua al Administrador?")) sendDeleteRequest(s);
-            return;
+        }
+
+        if (force) {
+            // Restaurar inventario
+            if (s.items) {
+                s.items.forEach(item => {
+                    const inv = db.inventory.find(invI => invI.productId === (item.productId || item.id) && invI.businessId === s.businessId);
+                    if (inv) inv.quantity += item.qty;
+                });
+            }
+            db.sales = db.sales.filter(sale => sale.id !== id);
+            db.notifications = db.notifications.filter(n => !(n.refId === id && n.type === 'delete_request'));
+            await saveData();
+            addLog(`Venta #${id.toString().slice(-6)} eliminada.Stock restaurado.`, 'warning');
+            alert("Venta eliminada con éxito.");
+
+            closeModal('sale-detail-modal');
+
+            // Force refresh based on view
+            setTimeout(() => {
+                const container = document.getElementById('content-area');
+                if (currentView === 'ventas') renderVentas(container);
+                if (currentView === 'pos') renderPOS(container);
+                if (currentView === 'inventory') renderInventory(container); // Adding inventory support just in case
+            }, 50);
         }
     }
 
-    if (force) {
-        // Restaurar inventario
-        if (s.items) {
-            s.items.forEach(item => {
-                const inv = db.inventory.find(invI => invI.productId === (item.productId || item.id) && invI.businessId === s.businessId);
-                if (inv) inv.quantity += item.qty;
-            });
-        }
-        db.sales = db.sales.filter(sale => sale.id !== id);
-        db.notifications = db.notifications.filter(n => !(n.refId === id && n.type === 'delete_request'));
-        await saveData();
-        addLog(`Venta #${id.toString().slice(-6)} eliminada.Stock restaurado.`, 'warning');
-        alert("Venta eliminada con éxito.");
+    function sendDeleteRequest(s) {
+        db.notifications.unshift({
+            id: Date.now(),
+            type: 'delete_request',
+            refId: s.id,
+            businessId: s.businessId,
+            title: `Solicitud de Borrado: ${currentUser.name} `,
+            message: `Venta de $${s.total.toFixed(2)} por ${s.seller}."Error en el registro de hoy".`,
+            status: 'pending',
+            date: new Date().toLocaleString()
+        });
+        saveData();
+        alert("Solicitud enviada para aprobación.");
+    }
 
+    function approveSale(id) {
+        const s = db.sales.find(sale => sale.id === id);
+        if (!s) return;
+        s.status = 'closed';
+        saveData();
+        addLog(`Cierre de venta aprobado: #${id.toString().slice(-6)} `, 'success');
         closeModal('sale-detail-modal');
-
-        // Force refresh based on view
-        setTimeout(() => {
-            const container = document.getElementById('content-area');
-            if (currentView === 'ventas') renderVentas(container);
-            if (currentView === 'pos') renderPOS(container);
-            if (currentView === 'inventory') renderInventory(container); // Adding inventory support just in case
-        }, 50);
+        renderVentas(document.getElementById('content-area'));
     }
-}
 
-function sendDeleteRequest(s) {
-    db.notifications.unshift({
-        id: Date.now(),
-        type: 'delete_request',
-        refId: s.id,
-        businessId: s.businessId,
-        title: `Solicitud de Borrado: ${currentUser.name} `,
-        message: `Venta de $${s.total.toFixed(2)} por ${s.seller}."Error en el registro de hoy".`,
-        status: 'pending',
-        date: new Date().toLocaleString()
-    });
-    saveData();
-    alert("Solicitud enviada para aprobación.");
-}
+    // function editSale(id) { ... } (Redundant, moved to global bridge)
 
-function approveSale(id) {
-    const s = db.sales.find(sale => sale.id === id);
-    if (!s) return;
-    s.status = 'closed';
-    saveData();
-    addLog(`Cierre de venta aprobado: #${id.toString().slice(-6)} `, 'success');
-    closeModal('sale-detail-modal');
-    renderVentas(document.getElementById('content-area'));
-}
+    // --- UTILS ---
+    function applyTheme(theme) {
+        document.body.className = (theme === 'light') ? 'theme-light' : '';
+    }
 
-// function editSale(id) { ... } (Redundant, moved to global bridge)
+    async function exportDB() {
+        const data = JSON.stringify(db, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `bizcontrol_backup_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+    }
 
-// --- UTILS ---
-function applyTheme(theme) {
-    document.body.className = (theme === 'light') ? 'theme-light' : '';
-}
+    /* =============================================================
+       CORRECCIÓN: FLUJO DE CIERRE Y APROBACIÓN (LÓGICA EXACTA)
+       ============================================================= */
 
-async function exportDB() {
-    const data = JSON.stringify(db, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bizcontrol_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-}
+    function calculateSellerProfitAndCommission(seller, businessId) {
+        // CORRECCIÓN: Filtrar CORRECTAMENTE por fecha también, no solo status
+        const dateInput = document.getElementById('pos-date');
+        const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
 
-/* =============================================================
-   CORRECCIÓN: FLUJO DE CIERRE Y APROBACIÓN (LÓGICA EXACTA)
-   ============================================================= */
+        // 1. Obtener fecha de último pago del vendedor
+        const sellerObj = db.users.find(u => u.name === seller); // O buscar por ID si fuera necesario
+        const lastPaymentDate = sellerObj?.lastPaymentDate || '2000-01-01T00:00:00.000Z'; // Default epoch
 
-function calculateSellerProfitAndCommission(seller, businessId) {
-    // CORRECCIÓN: Filtrar CORRECTAMENTE por fecha también, no solo status
-    const dateInput = document.getElementById('pos-date');
-    const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
+        // 2. Ventas de la SESIÓN ACTUAL (Registered + Fecha objetivo) -> Para mostrar métricas del día
+        const currentSessionSales = db.sales.filter(s => {
+            const saleDate = s.date.split(' ')[0];
+            return saleDate === targetDate &&
+                s.status === 'registered' &&
+                (seller ? s.seller === seller : true) &&
+                String(s.businessId) === String(businessId);
+        });
 
-    // 1. Obtener fecha de último pago del vendedor
-    const sellerObj = db.users.find(u => u.name === seller); // O buscar por ID si fuera necesario
-    const lastPaymentDate = sellerObj?.lastPaymentDate || '2000-01-01T00:00:00.000Z'; // Default epoch
+        // 3. Ventas ACUMULADAS PARA PAGO (Closed + Post-LastPayment + Pre-CurrentSession)
+        // El usuario pidió: "no se puede incluir el último día" (el actual).
+        // Buscamos ventas CERRADAS cuya fecha sea > lastPaymentDate y NO sean del día actual (o sean anteriores a hoy)
 
-    // 2. Ventas de la SESIÓN ACTUAL (Registered + Fecha objetivo) -> Para mostrar métricas del día
-    const currentSessionSales = db.sales.filter(s => {
-        const saleDate = s.date.split(' ')[0];
-        return saleDate === targetDate &&
-            s.status === 'registered' &&
-            (seller ? s.seller === seller : true) &&
-            String(s.businessId) === String(businessId);
-    });
+        // Nota: s.timestamp es lo más fiable para comparaciones
+        const lastPayTs = new Date(lastPaymentDate).getTime();
 
-    // 3. Ventas ACUMULADAS PARA PAGO (Closed + Post-LastPayment + Pre-CurrentSession)
-    // El usuario pidió: "no se puede incluir el último día" (el actual).
-    // Buscamos ventas CERRADAS cuya fecha sea > lastPaymentDate y NO sean del día actual (o sean anteriores a hoy)
+        const payableSales = db.sales.filter(s => {
+            const saleTs = s.timestamp || new Date(s.date).getTime(); // Fallback
+            const isClosed = s.status === 'closed' || s.type === 'daily_closure_report';
+            const belongsToSeller = (seller ? s.seller === seller : true);
+            const matchesBusiness = String(s.businessId) === String(businessId);
 
-    // Nota: s.timestamp es lo más fiable para comparaciones
-    const lastPayTs = new Date(lastPaymentDate).getTime();
+            // Excluir lo que se está cerrando ahora (registered/review_pending ya están excluidos por ser 'closed' check, pero aseguramos)
+            // Y aseguramos que sea POSTERIOR al último pago
+            return isClosed && belongsToSeller && matchesBusiness && saleTs > lastPayTs;
+        });
 
-    const payableSales = db.sales.filter(s => {
-        const saleTs = s.timestamp || new Date(s.date).getTime(); // Fallback
-        const isClosed = s.status === 'closed' || s.type === 'daily_closure_report';
-        const belongsToSeller = (seller ? s.seller === seller : true);
-        const matchesBusiness = String(s.businessId) === String(businessId);
-
-        // Excluir lo que se está cerrando ahora (registered/review_pending ya están excluidos por ser 'closed' check, pero aseguramos)
-        // Y aseguramos que sea POSTERIOR al último pago
-        return isClosed && belongsToSeller && matchesBusiness && saleTs > lastPayTs;
-    });
-
-    // --- CÁLCULO SESIÓN ACTUAL ---
-    let sessionRevenue = 0, sessionCost = 0, sessionExpenses = 0;
-    currentSessionSales.forEach(s => {
-        if (s.type === 'EXPENSE') sessionExpenses += s.total;
-        else {
-            sessionRevenue += s.total;
-            if (s.items) s.items.forEach(i => {
-                const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
-                sessionCost += (p ? (p.cost || 0) * i.qty : 0);
-            });
-        }
-    });
-
-    // --- CÁLCULO ACUMULADO (PAYABLE) ---
-    let payableProfit = 0;
-    payableSales.forEach(s => {
-        // Si es reporte de cierre, ya tiene los totales sumarizados
-        if (s.type === 'daily_closure_report') {
-            // Asumimos que el reporte guarda profit o lo recalculamos?
-            // El reporte guarda totalSystem, expenses, etc.
-            // Recalcularemos profit basándonos en totales guardados si es posible, o re-iterando items si necesario.
-            // Simplificación: Usar cashReal + transferReal - expenses - cost (estimado)
-            // Mejor: Iterar items del reporte para sacar costo exacto
-            let rRev = s.totalReal || 0;
-            let rCost = 0;
-            if (s.items) s.items.forEach(i => {
-                const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
-                rCost += (p ? (p.cost || 0) * i.qty : 0);
-            });
-            // Gastos en reporte? Normalmente se deducen del cashReal... 
-            // En nuestro modelo, el 'daily_closure_report' es el resumen FINAL.
-            // Profit = (Total Real) - (Costo Mercancía) - (Gastos Registrados aparte? No, gastos están en sales individuales cerradas)
-
-            // ERROR LÓGICO: 'daily_closure_report' es un resumen, pero las ventas individuales TAMBIÉN existen y están 'closed'.
-            // SI iteramos SOBRE 'daily_closure_report', duplicaríamos si iteramos también sobre ventas 'closed'.
-            // SOLUCIÓN: Iterar SOLO sobre ventas individuales 'closed' (type != daily_closure_report).
-            // Ignoramos el reporte sumario para el cálculo detallado de comisión.
-        } else if (s.status === 'closed' && s.type !== 'daily_closure_report') {
-            if (s.type === 'EXPENSE') {
-                payableProfit -= s.total;
-            } else {
-                let sRev = s.total;
-                let sCost = 0;
+        // --- CÁLCULO SESIÓN ACTUAL ---
+        let sessionRevenue = 0, sessionCost = 0, sessionExpenses = 0;
+        currentSessionSales.forEach(s => {
+            if (s.type === 'EXPENSE') sessionExpenses += s.total;
+            else {
+                sessionRevenue += s.total;
                 if (s.items) s.items.forEach(i => {
                     const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
-                    sCost += (p ? (p.cost || 0) * i.qty : 0);
+                    sessionCost += (p ? (p.cost || 0) * i.qty : 0);
                 });
-                payableProfit += (sRev - sCost);
             }
-        }
-    });
+        });
 
-    const netProfitSession = sessionRevenue - sessionCost - sessionExpenses;
-    const commissionSession = Math.max(0, netProfitSession * 0.05);
+        // --- CÁLCULO ACUMULADO (PAYABLE) ---
+        let payableProfit = 0;
+        payableSales.forEach(s => {
+            // Si es reporte de cierre, ya tiene los totales sumarizados
+            if (s.type === 'daily_closure_report') {
+                // Asumimos que el reporte guarda profit o lo recalculamos?
+                // El reporte guarda totalSystem, expenses, etc.
+                // Recalcularemos profit basándonos en totales guardados si es posible, o re-iterando items si necesario.
+                // Simplificación: Usar cashReal + transferReal - expenses - cost (estimado)
+                // Mejor: Iterar items del reporte para sacar costo exacto
+                let rRev = s.totalReal || 0;
+                let rCost = 0;
+                if (s.items) s.items.forEach(i => {
+                    const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
+                    rCost += (p ? (p.cost || 0) * i.qty : 0);
+                });
+                // Gastos en reporte? Normalmente se deducen del cashReal... 
+                // En nuestro modelo, el 'daily_closure_report' es el resumen FINAL.
+                // Profit = (Total Real) - (Costo Mercancía) - (Gastos Registrados aparte? No, gastos están en sales individuales cerradas)
 
-    const commissionPayable = Math.max(0, payableProfit * 0.05);
+                // ERROR LÓGICO: 'daily_closure_report' es un resumen, pero las ventas individuales TAMBIÉN existen y están 'closed'.
+                // SI iteramos SOBRE 'daily_closure_report', duplicaríamos si iteramos también sobre ventas 'closed'.
+                // SOLUCIÓN: Iterar SOLO sobre ventas individuales 'closed' (type != daily_closure_report).
+                // Ignoramos el reporte sumario para el cálculo detallado de comisión.
+            } else if (s.status === 'closed' && s.type !== 'daily_closure_report') {
+                if (s.type === 'EXPENSE') {
+                    payableProfit -= s.total;
+                } else {
+                    let sRev = s.total;
+                    let sCost = 0;
+                    if (s.items) s.items.forEach(i => {
+                        const p = db.products.find(prod => String(prod.id) === String(i.productId || i.id));
+                        sCost += (p ? (p.cost || 0) * i.qty : 0);
+                    });
+                    payableProfit += (sRev - sCost);
+                }
+            }
+        });
 
-    return {
-        revenue: sessionRevenue,
-        cost: sessionCost,
-        expenses: sessionExpenses,
-        profit: netProfitSession,
-        commission: commissionSession, // De la sesión actual (visual)
-        accumulatedCommission: commissionPayable, // Lo que realmente se puede pagar
-        salesCount: currentSessionSales.length
-    };
-}
+        const netProfitSession = sessionRevenue - sessionCost - sessionExpenses;
+        const commissionSession = Math.max(0, netProfitSession * 0.05);
 
-window.openPOSClosureModal = function () {
-    const dateInput = document.getElementById('pos-date');
-    const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
-    const currentBusinessId = selectedBusinessId ? String(selectedBusinessId) : 'mch1';
+        const commissionPayable = Math.max(0, payableProfit * 0.05);
 
-    // 1. OBTENER VENTAS DEL DÍA (NO DEL CARRITO)
-    // El usuario reportó que decía "No hay ventas". Esto es porque se validaba posCart.length en versiones previas.
-    // Aquí validamos registeredSales.
-    const registeredSales = db.sales.filter(s => {
-        const saleDate = s.date.split(' ')[0];
-        const isRegistered = s.status === 'registered'; // Solo cerramos lo pendiente
-        // Si es vendedor, solo sus ventas. Si es admin/owner, cierra TODO el negocio.
-        const isSellerMatch = (currentUser.role === 'seller') ? (s.seller === currentUser.name) : true;
-        const isBusinessMatch = currentBusinessId ? String(s.businessId) === currentBusinessId : true;
-
-        return saleDate === targetDate && isRegistered && isSellerMatch && isBusinessMatch;
-    });
-
-    if (registeredSales.length === 0) {
-        alert(`ℹ️ No hay ventas registradas pendientes de cierre para hoy (${targetDate}).\n\nVerifique que:\n1. Haya realizado ventas hoy.\n2. No estén ya cerradas.`);
-        return;
+        return {
+            revenue: sessionRevenue,
+            cost: sessionCost,
+            expenses: sessionExpenses,
+            profit: netProfitSession,
+            commission: commissionSession, // De la sesión actual (visual)
+            accumulatedCommission: commissionPayable, // Lo que realmente se puede pagar
+            salesCount: currentSessionSales.length
+        };
     }
 
-    const expectedCash = registeredSales.reduce((sum, s) => sum + (s.payment?.cash || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
-    const expectedTransfer = registeredSales.reduce((sum, s) => sum + (s.payment?.transfer || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
-    const totalExpected = expectedCash + expectedTransfer;
+    window.openPOSClosureModal = function () {
+        const dateInput = document.getElementById('pos-date');
+        const targetDate = dateInput ? dateInput.value : new Date().toISOString().split('T')[0];
+        const currentBusinessId = selectedBusinessId ? String(selectedBusinessId) : 'mch1';
 
-    // Calcular stats para comisión. Si es admin cerrando, seller puede ser null o el admin mismo.
-    // Si es admin cerrando el día global, la comisión mostrada quizás no aplique o sea la suma.
-    // Para simplificar, si es admin, mostramos comisión global estimada o 0.
-    const statsUser = (currentUser.role === 'seller') ? currentUser.name : null;
-    const stats = calculateSellerProfitAndCommission(statsUser, currentBusinessId);
+        // 1. OBTENER VENTAS DEL DÍA (NO DEL CARRITO)
+        // El usuario reportó que decía "No hay ventas". Esto es porque se validaba posCart.length en versiones previas.
+        // Aquí validamos registeredSales.
+        const registeredSales = db.sales.filter(s => {
+            const saleDate = s.date.split(' ')[0];
+            const isRegistered = s.status === 'registered'; // Solo cerramos lo pendiente
+            // Si es vendedor, solo sus ventas. Si es admin/owner, cierra TODO el negocio.
+            const isSellerMatch = (currentUser.role === 'seller') ? (s.seller === currentUser.name) : true;
+            const isBusinessMatch = currentBusinessId ? String(s.businessId) === currentBusinessId : true;
 
-    const firstSale = registeredSales[registeredSales.length - 1]; // Oldest
-    const openingTime = firstSale ? (firstSale.date.split(' ')[1] || '08:00') : '08:00';
-    const closingTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+            return saleDate === targetDate && isRegistered && isSellerMatch && isBusinessMatch;
+        });
 
-    // LÓGICA DE ROLES: Título y Botón
-    const isBoss = (currentUser.role === 'owner' || currentUser.role === 'admin');
-    const modalTitle = isBoss ? 'Cierre de Jornada (Admin)' : 'Solicitud de Cierre de Caja';
-    const btnText = isBoss ? 'FINALIZAR Y CERRAR DÍA' : 'ENVIAR SOLICITUD DE CIERRE';
-    const btnIcon = isBoss ? 'ph-check-circle' : 'ph-paper-plane-right';
+        if (registeredSales.length === 0) {
+            alert(`ℹ️ No hay ventas registradas pendientes de cierre para hoy (${targetDate}).\n\nVerifique que:\n1. Haya realizado ventas hoy.\n2. No estén ya cerradas.`);
+            return;
+        }
 
-    const modalHtml = `
+        const expectedCash = registeredSales.reduce((sum, s) => sum + (s.payment?.cash || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
+        const expectedTransfer = registeredSales.reduce((sum, s) => sum + (s.payment?.transfer || 0) * (s.type === 'EXPENSE' ? -1 : 1), 0);
+        const totalExpected = expectedCash + expectedTransfer;
+
+        // Calcular stats para comisión. Si es admin cerrando, seller puede ser null o el admin mismo.
+        // Si es admin cerrando el día global, la comisión mostrada quizás no aplique o sea la suma.
+        // Para simplificar, si es admin, mostramos comisión global estimada o 0.
+        const statsUser = (currentUser.role === 'seller') ? currentUser.name : null;
+        const stats = calculateSellerProfitAndCommission(statsUser, currentBusinessId);
+
+        const firstSale = registeredSales[registeredSales.length - 1]; // Oldest
+        const openingTime = firstSale ? (firstSale.date.split(' ')[1] || '08:00') : '08:00';
+        const closingTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+        // LÓGICA DE ROLES: Título y Botón
+        const isBoss = (currentUser.role === 'owner' || currentUser.role === 'admin');
+        const modalTitle = isBoss ? 'Cierre de Jornada (Admin)' : 'Solicitud de Cierre de Caja';
+        const btnText = isBoss ? 'FINALIZAR Y CERRAR DÍA' : 'ENVIAR SOLICITUD DE CIERRE';
+        const btnIcon = isBoss ? 'ph-check-circle' : 'ph-paper-plane-right';
+
+        const modalHtml = `
             <div id="pos-closure-modal" class="modal-overlay" style="display:flex;">
                 <div class="card" style="width:700px; padding:2rem; max-height:95vh; overflow-y:auto; border-radius:32px; border:1.5px solid var(--border); background:var(--glass-bg); backdrop-filter:var(--backdrop-blur); -webkit-backdrop-filter:var(--backdrop-blur);">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.5rem; border-bottom:1px solid var(--border); padding-bottom:1rem;">
@@ -4920,674 +4931,674 @@ window.openPOSClosureModal = function () {
                 </div>
             </div>`;
 
-    showModal('pos-closure-modal', modalHtml);
-};
-
-window.updateAuditUI = function () {
-    // Solo estético si fuera necesario, los valores se envían al form
-};
-
-
-// 2. ENVIAR NOTIFICACIÓN (Finalizar paso del Vendedor)
-window.finalizePOSSale = async function () {
-    const form = document.getElementById('pos-closure-form');
-    if (!form) return;
-    const formData = new FormData(form);
-    const d = Object.fromEntries(formData.entries());
-
-    ['totalExpected', 'expectedCash', 'expectedTransfer', 'surplusCash', 'shortageCash', 'surplusTransfer', 'shortageTransfer', 'commissionAmount'].forEach(k => {
-        d[k] = parseFloat(d[k] || 0);
-    });
-
-    const requestSalary = d.requestSalary === 'true';
-
-    const businessId = String(selectedBusinessId || 'mch1');
-    const closureId = Date.now();
-
-    // 1. CAPTURAR VENTAS Y CAMBIAR ESTADO A 'review_pending'
-    const sellerSales = db.sales.filter(s =>
-        s.status === 'registered' &&
-        s.seller === currentUser.name &&
-        String(s.businessId) === businessId
-    );
-
-    const saleIds = sellerSales.map(s => s.id);
-    sellerSales.forEach(s => s.status = 'review_pending');
-
-    const cashReal = (d.expectedCash + d.surplusCash - d.shortageCash);
-    const transferReal = (d.expectedTransfer + d.surplusTransfer - d.shortageTransfer);
-    const totalReal = cashReal + transferReal;
-
-    const notification = {
-        id: closureId,
-        type: 'closure_request',
-        businessId: businessId,
-        title: `🔐 Solicitud de Cierre: ${currentUser.name}`,
-        message: `Total Sistema: $${d.totalExpected.toFixed(2)} | Real: $${totalReal.toFixed(2)}`,
-        status: 'pending',
-        date: new Date().toLocaleString(),
-        data: {
-            ...d,
-            cashReal: cashReal,
-            transferReal: transferReal,
-            businessId: businessId,
-            seller: currentUser.name,
-            targetDate: d.targetDate,
-            saleIds: saleIds,
-            requestSalary: requestSalary,
-            commission: d.commissionAmount
-        }
+        showModal('pos-closure-modal', modalHtml);
     };
 
-    if (!db.notifications) db.notifications = [];
-    db.notifications.unshift(notification);
-
-    await saveData();
-
-    closeModal('pos-closure-modal');
-
-    // LIMPIEZA TOTAL PARA EL VENDEDOR
-    posCart = [];
-    editingSaleId = null;
-    isReviewingClosure = false;
-    reviewingNotificationId = null;
-
-    // Navegación Consistente
-    navigateTo('ventas');
-};
-
-/* =============================================================
-   SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA)
-   ============================================================= */
-/* =============================================================
-   SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA) -> REDIRIGE AL POS EDITABLE
-   ============================================================= */
-window.openSuperReviewModal = async function (id, isNotification = false) {
-    let source = isNotification ? db.notifications.find(n => n.id === id) : db.sales.find(s => s.id === id);
-    if (!source) return alert("Origen de datos no encontrado.");
-
-    const d = isNotification ? source.data : source;
-
-    // Configurar estado de revisión
-    isReviewingClosure = true;
-    reviewingClosureId = d.id || id;
-    reviewingNotificationId = isNotification ? id : null;
-    selectedBusinessId = d.businessId;
-
-    // Consolidar productos en el carrito del POS
-    posCart = [];
-    const sessionSaleIds = d.saleIds || d.salesIds || [d.id];
-    sessionSaleIds.forEach(sid => {
-        const s = db.sales.find(sale => String(sale.id) === String(sid));
-        if (s && s.items) {
-            s.items.forEach(i => {
-                const existing = posCart.find(ci => String(ci.productId || ci.id) === String(i.productId || i.id));
-                if (existing) {
-                    existing.qty += i.qty;
-                } else {
-                    posCart.push({ ...i, id: (i.productId || i.id) });
-                }
-            });
-        }
-    });
-
-    // Guardar metadata del arqueo original para los inputs
-    window.auditTempData = {
-        cashReal: d.cashReal || 0,
-        transferReal: d.transferReal || 0,
-        surplusCash: d.surplusCash || d.surplus || 0,
-        shortageCash: d.shortageCash || d.shortage || 0,
-        surplusTransfer: d.surplusTransfer || 0,
-        shortageTransfer: d.shortageTransfer || 0,
-        openingTime: d.openingTime || '08:00',
-        closingTime: d.closingTime || '22:00',
-        targetDate: d.targetDate || d.date?.split(' ')[0] || new Date().toISOString().split('T')[0],
-        seller: d.seller || 'Sistema' // Validar vendedor para filtro de cierre
+    window.updateAuditUI = function () {
+        // Solo estético si fuera necesario, los valores se envían al form
     };
 
-    // Navegar al POS
-    navigateTo('pos');
-};
 
-window.updateAuditItemQty = async function (seller, businessId, productId, newVal, isNotification, sourceId) {
-    const newQty = parseInt(newVal);
-    if (isNaN(newQty) || newQty < 0) return;
+    // 2. ENVIAR NOTIFICACIÓN (Finalizar paso del Vendedor)
+    window.finalizePOSSale = async function () {
+        const form = document.getElementById('pos-closure-form');
+        if (!form) return;
+        const formData = new FormData(form);
+        const d = Object.fromEntries(formData.entries());
 
-    // Buscar todas las ventas candidatas de esta sesión (mismo vendedor, mismo negocio, estado pendiente)
-    const candidates = db.sales.filter(s =>
-        s.seller === seller &&
-        String(s.businessId) === String(businessId) &&
-        (s.status === 'registered' || s.status === 'review_pending' || s.status === 'closed')
-    );
+        ['totalExpected', 'expectedCash', 'expectedTransfer', 'surplusCash', 'shortageCash', 'surplusTransfer', 'shortageTransfer', 'commissionAmount'].forEach(k => {
+            d[k] = parseFloat(d[k] || 0);
+        });
 
-    // Encontrar el item en alguna de estas ventas
-    let itemFound = false;
-    candidates.forEach(s => {
-        if (!s.items) return;
-        const item = s.items.find(i => String(i.productId || i.id) === String(productId));
-        if (item) {
-            const oldQty = item.qty;
-            const diff = newQty - oldQty;
-            if (diff === 0) return; // No change needed
+        const requestSalary = d.requestSalary === 'true';
 
-            item.qty = newQty;
-            itemFound = true;
+        const businessId = String(selectedBusinessId || 'mch1');
+        const closureId = Date.now();
 
-            // Ajustar Inventario (reversión e impacto en tiempo real)
-            const inv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === String(businessId));
-            if (inv) {
-                inv.quantity -= diff; // Si sumamos al ticket, restamos del stock
-            } else {
-                // Crear entrada si no existe (vulnerabilidad de lógica pero previene crash)
-                db.inventory.push({ businessId: businessId, productId: productId, quantity: -diff });
-            }
-
-            // Recalcular total de la venta
-            const oldTotal = s.total;
-            s.total = s.items.reduce((acc, current) => acc + (current.price * current.qty), 0);
-            const totalDiff = s.total - oldTotal;
-
-            // Ajustar Pago (asumimos efectivo para la corrección)
-            if (!s.payment) s.payment = { cash: 0, transfer: 0 };
-            s.payment.cash = (s.payment.cash || 0) + totalDiff;
-        }
-    });
-
-    if (itemFound) {
-        // ACTUALIZAR REPORTE SI EXISTE (Consistencia de datos)
-        // Buscamos el reporte que contenga esta venta
-        const report = db.sales.find(r =>
-            r.type === 'daily_closure_report' &&
-            (r.salesIds || r.saleIds || []).some(sid => String(sid) === String(sourceId) || (Array.isArray(sourceId) && sourceId.includes(sid)))
+        // 1. CAPTURAR VENTAS Y CAMBIAR ESTADO A 'review_pending'
+        const sellerSales = db.sales.filter(s =>
+            s.status === 'registered' &&
+            s.seller === currentUser.name &&
+            String(s.businessId) === businessId
         );
 
-        if (report) {
-            // Recalcular report totals
-            let expCash = 0;
-            let expTrans = 0;
-            const sIds = report.salesIds || report.saleIds || [];
-            sIds.forEach(sid => {
-                const rs = db.sales.find(sale => String(sale.id) === String(sid));
-                if (rs) {
-                    if (rs.type !== 'EXPENSE') {
-                        expCash += (rs.payment?.cash || 0);
-                        expTrans += (rs.payment?.transfer || 0);
-                    } else {
-                        expCash += (rs.total || 0);
-                    }
-                }
-            });
-            report.expectedCash = expCash;
-            report.expectedTransfer = expTrans;
-            report.surplus = Math.max(0, (report.cashReal || 0) - expCash) + Math.max(0, (report.transferReal || 0) - expTrans);
-            report.shortage = Math.max(0, expCash - (report.cashReal || 0)) + Math.max(0, expTrans - (report.transferReal || 0));
-        }
+        const saleIds = sellerSales.map(s => s.id);
+        sellerSales.forEach(s => s.status = 'review_pending');
+
+        const cashReal = (d.expectedCash + d.surplusCash - d.shortageCash);
+        const transferReal = (d.expectedTransfer + d.surplusTransfer - d.shortageTransfer);
+        const totalReal = cashReal + transferReal;
+
+        const notification = {
+            id: closureId,
+            type: 'closure_request',
+            businessId: businessId,
+            title: `🔐 Solicitud de Cierre: ${currentUser.name}`,
+            message: `Total Sistema: $${d.totalExpected.toFixed(2)} | Real: $${totalReal.toFixed(2)}`,
+            status: 'pending',
+            date: new Date().toLocaleString(),
+            data: {
+                ...d,
+                cashReal: cashReal,
+                transferReal: transferReal,
+                businessId: businessId,
+                seller: currentUser.name,
+                targetDate: d.targetDate,
+                saleIds: saleIds,
+                requestSalary: requestSalary,
+                commission: d.commissionAmount
+            }
+        };
+
+        if (!db.notifications) db.notifications = [];
+        db.notifications.unshift(notification);
 
         await saveData();
-        // Recargar el modal para refrescar los cálculos de Sistema y Diferencias
-        openSuperReviewModal(sourceId, isNotification);
-    } else {
-        alert("No se encontró el producto en las ventas de esta sesión.");
-    }
-}
 
-window.finalApproveClosure = async function (id, isNotification) {
-    try {
-        const paySalary = document.getElementById('pay-salary-now')?.checked || false;
+        closeModal('pos-closure-modal');
 
-        let source = isNotification ?
-            db.notifications.find(n => String(n.id) === String(id)) :
-            db.sales.find(s => String(s.id) === String(id));
+        // LIMPIEZA TOTAL PARA EL VENDEDOR
+        posCart = [];
+        editingSaleId = null;
+        isReviewingClosure = false;
+        reviewingNotificationId = null;
 
-        if (!source) {
-            console.error("Source not found for closure:", id, isNotification);
-            return alert("Error: No se pudo localizar la sesión para cerrar.");
-        }
+        // Navegación Consistente
+        navigateTo('ventas');
+    };
+
+    /* =============================================================
+       SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA)
+       ============================================================= */
+    /* =============================================================
+       SUPER MODAL DE REVISIÓN (AUDITORÍA MAESTRA) -> REDIRIGE AL POS EDITABLE
+       ============================================================= */
+    window.openSuperReviewModal = async function (id, isNotification = false) {
+        let source = isNotification ? db.notifications.find(n => n.id === id) : db.sales.find(s => s.id === id);
+        if (!source) return alert("Origen de datos no encontrado.");
 
         const d = isNotification ? source.data : source;
 
-        if (!confirm(`¿Confirmar cierre definitivo ?\n\n - Vendedor: ${d.seller} \n - Pago Salario: ${paySalary ? 'SÍ' : 'NO'} `)) return;
+        // Configurar estado de revisión
+        isReviewingClosure = true;
+        reviewingClosureId = d.id || id;
+        reviewingNotificationId = isNotification ? id : null;
+        selectedBusinessId = d.businessId;
 
-        // 1. Cambiar estado de todas las ventas relacionadas
-        let count = 0;
-        (d.saleIds || [d.id]).forEach(sid => {
+        // Consolidar productos en el carrito del POS
+        posCart = [];
+        const sessionSaleIds = d.saleIds || d.salesIds || [d.id];
+        sessionSaleIds.forEach(sid => {
             const s = db.sales.find(sale => String(sale.id) === String(sid));
-            if (s) {
+            if (s && s.items) {
+                s.items.forEach(i => {
+                    const existing = posCart.find(ci => String(ci.productId || ci.id) === String(i.productId || i.id));
+                    if (existing) {
+                        existing.qty += i.qty;
+                    } else {
+                        posCart.push({ ...i, id: (i.productId || i.id) });
+                    }
+                });
+            }
+        });
+
+        // Guardar metadata del arqueo original para los inputs
+        window.auditTempData = {
+            cashReal: d.cashReal || 0,
+            transferReal: d.transferReal || 0,
+            surplusCash: d.surplusCash || d.surplus || 0,
+            shortageCash: d.shortageCash || d.shortage || 0,
+            surplusTransfer: d.surplusTransfer || 0,
+            shortageTransfer: d.shortageTransfer || 0,
+            openingTime: d.openingTime || '08:00',
+            closingTime: d.closingTime || '22:00',
+            targetDate: d.targetDate || d.date?.split(' ')[0] || new Date().toISOString().split('T')[0],
+            seller: d.seller || 'Sistema' // Validar vendedor para filtro de cierre
+        };
+
+        // Navegar al POS
+        navigateTo('pos');
+    };
+
+    window.updateAuditItemQty = async function (seller, businessId, productId, newVal, isNotification, sourceId) {
+        const newQty = parseInt(newVal);
+        if (isNaN(newQty) || newQty < 0) return;
+
+        // Buscar todas las ventas candidatas de esta sesión (mismo vendedor, mismo negocio, estado pendiente)
+        const candidates = db.sales.filter(s =>
+            s.seller === seller &&
+            String(s.businessId) === String(businessId) &&
+            (s.status === 'registered' || s.status === 'review_pending' || s.status === 'closed')
+        );
+
+        // Encontrar el item en alguna de estas ventas
+        let itemFound = false;
+        candidates.forEach(s => {
+            if (!s.items) return;
+            const item = s.items.find(i => String(i.productId || i.id) === String(productId));
+            if (item) {
+                const oldQty = item.qty;
+                const diff = newQty - oldQty;
+                if (diff === 0) return; // No change needed
+
+                item.qty = newQty;
+                itemFound = true;
+
+                // Ajustar Inventario (reversión e impacto en tiempo real)
+                const inv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === String(businessId));
+                if (inv) {
+                    inv.quantity -= diff; // Si sumamos al ticket, restamos del stock
+                } else {
+                    // Crear entrada si no existe (vulnerabilidad de lógica pero previene crash)
+                    db.inventory.push({ businessId: businessId, productId: productId, quantity: -diff });
+                }
+
+                // Recalcular total de la venta
+                const oldTotal = s.total;
+                s.total = s.items.reduce((acc, current) => acc + (current.price * current.qty), 0);
+                const totalDiff = s.total - oldTotal;
+
+                // Ajustar Pago (asumimos efectivo para la corrección)
+                if (!s.payment) s.payment = { cash: 0, transfer: 0 };
+                s.payment.cash = (s.payment.cash || 0) + totalDiff;
+            }
+        });
+
+        if (itemFound) {
+            // ACTUALIZAR REPORTE SI EXISTE (Consistencia de datos)
+            // Buscamos el reporte que contenga esta venta
+            const report = db.sales.find(r =>
+                r.type === 'daily_closure_report' &&
+                (r.salesIds || r.saleIds || []).some(sid => String(sid) === String(sourceId) || (Array.isArray(sourceId) && sourceId.includes(sid)))
+            );
+
+            if (report) {
+                // Recalcular report totals
+                let expCash = 0;
+                let expTrans = 0;
+                const sIds = report.salesIds || report.saleIds || [];
+                sIds.forEach(sid => {
+                    const rs = db.sales.find(sale => String(sale.id) === String(sid));
+                    if (rs) {
+                        if (rs.type !== 'EXPENSE') {
+                            expCash += (rs.payment?.cash || 0);
+                            expTrans += (rs.payment?.transfer || 0);
+                        } else {
+                            expCash += (rs.total || 0);
+                        }
+                    }
+                });
+                report.expectedCash = expCash;
+                report.expectedTransfer = expTrans;
+                report.surplus = Math.max(0, (report.cashReal || 0) - expCash) + Math.max(0, (report.transferReal || 0) - expTrans);
+                report.shortage = Math.max(0, expCash - (report.cashReal || 0)) + Math.max(0, expTrans - (report.transferReal || 0));
+            }
+
+            await saveData();
+            // Recargar el modal para refrescar los cálculos de Sistema y Diferencias
+            openSuperReviewModal(sourceId, isNotification);
+        } else {
+            alert("No se encontró el producto en las ventas de esta sesión.");
+        }
+    }
+
+    window.finalApproveClosure = async function (id, isNotification) {
+        try {
+            const paySalary = document.getElementById('pay-salary-now')?.checked || false;
+
+            let source = isNotification ?
+                db.notifications.find(n => String(n.id) === String(id)) :
+                db.sales.find(s => String(s.id) === String(id));
+
+            if (!source) {
+                console.error("Source not found for closure:", id, isNotification);
+                return alert("Error: No se pudo localizar la sesión para cerrar.");
+            }
+
+            const d = isNotification ? source.data : source;
+
+            if (!confirm(`¿Confirmar cierre definitivo ?\n\n - Vendedor: ${d.seller} \n - Pago Salario: ${paySalary ? 'SÍ' : 'NO'} `)) return;
+
+            // 1. Cambiar estado de todas las ventas relacionadas
+            let count = 0;
+            (d.saleIds || [d.id]).forEach(sid => {
+                const s = db.sales.find(sale => String(sale.id) === String(sid));
+                if (s) {
+                    s.status = 'closed';
+                    s.auditedBy = currentUser.name || 'Admin';
+                    s.auditTimestamp = Date.now();
+                    count++;
+                }
+            });
+
+            // 2. Procesar Salario si se marcó
+            let salaryPaid = 0;
+            let salarySource = '';
+
+            if (paySalary) {
+                const stats = calculateSellerProfitAndCommission(d.seller, d.businessId);
+                salaryPaid = stats.commission;
+                const cashReal = (d.cashReal || 0);
+
+                if (cashReal >= salaryPaid) {
+                    salarySource = 'Caja Diaria';
+                } else {
+                    salarySource = 'Fondo del Negocio';
+                    db.businessFund.cash -= salaryPaid;
+                }
+            }
+
+            // 3. Recalcular balance final para el reporte (por si hubo ediciones en la revisión)
+            let expectedCash = 0;
+            let expectedTransfer = 0;
+            (d.saleIds || [d.id]).forEach(sid => {
+                const s = db.sales.find(sale => String(sale.id) === String(sid));
+                if (s) {
+                    if (s.type !== 'EXPENSE') {
+                        expectedCash += (s.payment?.cash || 0);
+                        expectedTransfer += (s.payment?.transfer || 0);
+                    } else {
+                        expectedCash += (s.total || 0);
+                    }
+                }
+            });
+
+            const cashReal = (d.cashReal || 0);
+            const transferReal = (d.transferReal || 0);
+            const surplus = Math.max(0, cashReal - expectedCash) + Math.max(0, transferReal - expectedTransfer);
+            const shortage = Math.max(0, expectedCash - cashReal) + Math.max(0, expectedTransfer - transferReal);
+
+            const closureReport = {
+                id: Date.now(),
+                type: 'daily_closure_report',
+                businessId: d.businessId,
+                seller: d.seller,
+                date: d.targetDate || new Date().toISOString().split('T')[0],
+                timestamp: Date.now(),
+                // Auditoría
+                expectedCash: expectedCash,
+                expectedTransfer: expectedTransfer,
+                cashReal: cashReal,
+                transferReal: transferReal,
+                totalReal: cashReal + transferReal,
+                surplus: surplus,
+                shortage: shortage,
+                salaryPaid: salaryPaid,
+                salarySource: salarySource,
+                notes: d.notes || d.additionalInfo || '',
+                salesIds: d.salesIds || d.saleIds || [d.id],
+                auditedBy: currentUser.name,
+                status: 'closed'
+            };
+
+            db.sales.unshift(closureReport);
+
+            // 4. Marcar notificación como procesada si aplica
+            if (isNotification) {
+                source.status = 'approved';
+                source.seen = true;
+            }
+
+            await saveData();
+            closeModal('super-review-modal');
+            closeModal('sale-detail-modal');
+
+            alert(`✅ CIERRE PROCESADO CORRECTAMENTE.\n\n - Auditado por: ${currentUser.name} \n - Ventas cerradas: ${count} \n - Salario: $${salaryPaid.toFixed(2)} (${salarySource})`);
+
+            // Refrescar vista
+            if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
+            else navigateTo('ventas');
+
+        } catch (err) {
+            console.error("Error in finalApproveClosure:", err);
+            alert("Ocurrió un error crítico al cerrar la venta. Revisa la consola.");
+        }
+    };
+
+    // 4. APROBAR FINALMENTE (Lógica Contable desde POS)
+    /* =============================================================
+       NUEVO: REVISIÓN DE SESIÓN COMPLETA (VENTAS + GASTOS + MERMAS)
+       ============================================================= */
+    window.openSaleForRevision = function (idOrSessionId, sessionIdOpt) {
+        // Si pasamos sessionIdOpt, es la nueva lógica. Si no, tratamos de deducirlo.
+        const saleId = idOrSessionId;
+        const sessionId = sessionIdOpt || null;
+
+        // Buscar la venta/sesión origen
+        const sourceSale = db.sales.find(s => String(s.id) === String(saleId));
+        if (!sourceSale) {
+            alert("No se encontró el registro origen.");
+            return;
+        }
+
+        // Definir el criterio de grupo
+        let relatedItems = [];
+        if (sessionId && sessionId !== 'null' && sessionId !== 'undefined') {
+            relatedItems = db.sales.filter(s => String(s.sessionId) === String(sessionId));
+        } else {
+            // Fallback Legacy: Mismo día, vendedor y negocio
+            const day = (sourceSale.date || '').split(',')[0].trim();
+            relatedItems = db.sales.filter(s => {
+                const sDay = (s.date || '').split(',')[0].trim();
+                return sDay === day && s.seller === sourceSale.seller && String(s.businessId) === String(sourceSale.businessId);
+            });
+        }
+
+        // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
+        const isSeller = (currentUser && currentUser.role === 'seller');
+        const isPendingOrClosed = relatedItems.some(s =>
+            s.status === 'review_pending' ||
+            s.status === 'closed' ||
+            s.status === 'approved' ||
+            s.type === 'closure_request' ||
+            s.type === 'daily_closure_report'
+        );
+
+        console.log("STONE RULE #1 DEBUG:", {
+            userName: currentUser?.name,
+            userRole: currentUser?.role,
+            isSeller,
+            isPendingOrClosed,
+            itemsCount: relatedItems.length,
+            itemStatuses: relatedItems.map(s => s.status),
+            itemTypes: relatedItems.map(s => s.type)
+        });
+
+        if (isSeller && isPendingOrClosed) {
+            alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta sesión ya fue enviada a revisión o está cerrada. No puedes editarla.\nContacta con un Administrador para realizar cambios.");
+            return;
+        }
+
+        // Configurar estado de revisión
+        isReviewingClosure = true;
+        reviewingClosureId = sessionId || saleId;
+        reviewingNotificationId = null;
+        selectedBusinessId = sourceSale.businessId;
+
+        // Verificar si la sesión está CERRADA
+        const isClosed = relatedItems.every(s => s.status === 'closed' || s.status === 'approved');
+        if (isClosed) {
+            if (!confirm("⚠️ ESTA SESIÓN ESTÁ CERRADA.\n\n¿Estás seguro que deseas re-abrirla para editar?\nCualquier cambio requerirá un nuevo cierre.")) {
+                isReviewingClosure = false;
+                return;
+            }
+        }
+
+        // Cargar Carrito (Solo Ventas y Gastos visualizables)
+        posCart = [];
+        relatedItems.forEach(s => {
+            if (s.items) {
+                s.items.forEach(i => {
+                    // Add item to cart, preserving origin ID for updates
+                    posCart.push({
+                        ...i,
+                        id: i.productId || i.id,
+                        _originSaleId: s.id, // Track source for specific updates
+                        _type: s.type // Track if expense
+                    });
+                });
+            }
+        });
+
+        // Guardar metadata para el POS
+        window.auditTempData = {
+            targetDate: relatedItems[0].date.split(',')[0].trim(),
+            seller: relatedItems[0].seller,
+            openingTime: relatedItems[0].openingTime || '08:00',
+            closingTime: '22:00', // Default
+            sessionId: sessionId || null
+        };
+
+        navigateTo('pos');
+        alert(`Revisando Sesión de ${relatedItems[0].seller}\n${relatedItems.length} movimientos cargados.`);
+    };
+
+    // ... (existing openSuperReviewModal below can be deprecated or kept for compat)
+    /* =============================================================
+       NUEVO: ELIMINAR SESIÓN COMPLETA
+       ============================================================= */
+    window.deleteSession = async function (sessionId, date, seller, businessId) {
+        if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
+            alert("No tienes permisos para eliminar sesiones.");
+            return;
+        }
+
+        if (!confirm(`⚠️ PELIGRO: ESTÁS A PUNTO DE ELIMINAR UNA SESIÓN COMPLETA.\n\nFecha: ${date}\nVendedor: ${seller}\n\nEsto borrará TODAS las ventas, gastos y registros de esa sesión permanentemente.\n\n¿Estás seguro?`)) return;
+
+        // Filter criteria
+        const targetSessionId = (sessionId && sessionId !== 'null' && sessionId !== 'undefined') ? sessionId : null;
+
+        // Filter out the sales
+        const initialCount = db.sales.length;
+        db.sales = db.sales.filter(s => {
+            if (targetSessionId) {
+                return String(s.sessionId) !== String(targetSessionId);
+            } else {
+                // Legacy fallback
+                const sDay = (s.date || '').split(',')[0].trim();
+                const matches = sDay === date && s.seller === seller && String(s.businessId) === String(businessId);
+                return !matches;
+            }
+        });
+
+        const deletedCount = initialCount - db.sales.length;
+        addLog(`Sesión eliminada por ${currentUser.name}: ${deletedCount} registros borrados.`, 'critical');
+
+        await saveData();
+        renderVentas(document.getElementById('content-area'));
+        alert("Sesión eliminada correctamente.");
+    };
+    window.approveClosureFromPOS = async function () {
+        if (!isReviewingClosure) return;
+
+        const totalSystem = posCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+        const audit = window.auditTempData;
+
+        // Calcular reales y diferencias
+        const cashReal = audit.cashReal;
+        const transferReal = audit.transferReal;
+        const totalReal = cashReal + transferReal;
+
+        const cashDiff = cashReal - totalSystem;
+
+        if (!confirm(`¿Confirmar aprobación del cierre?\n\nTotal Sistema: $${totalSystem.toFixed(2)}\nTotal Real: $${totalReal.toFixed(2)}\nUnidades: ${posCart.reduce((sum, i) => sum + i.qty, 0)}`)) return;
+
+        // 1. Obtener la notificación o venta origen de forma robusta
+        const sourceId = reviewingClosureId;
+
+        // Intentar buscar notificación por ID directo, o por data.id, O por si contiene el saleId en su lista
+        const notif = db.notifications.find(n =>
+            n.id == reviewingNotificationId ||
+            (n.data && n.data.id == sourceId) ||
+            (n.data && n.data.saleIds && n.data.saleIds.includes(sourceId))
+        );
+
+        // 2. Marcar ventas individuales como CERRADAS
+        // IMPORTANTE: Filtrar por FECHA y VENDEDOR para no cerrar cosas de otros días/usuarios
+        const targetDate = audit.targetDate;
+        const targetSeller = audit.seller;
+
+        let count = 0;
+
+        // Filtro estricto: Status + Negocio + Vendedor + Fecha
+        const sellerSales = db.sales.filter(s =>
+            (s.status === 'review_pending' || s.status === 'registered') &&
+            String(s.businessId) === String(selectedBusinessId) &&
+            (!targetSeller || s.seller === targetSeller) &&
+            (s.date.startsWith(targetDate))
+        );
+
+        // Si no encontramos por estado, usamos los IDs vinculados si existen
+        const linkedIds = notif?.data?.saleIds || [];
+
+        db.sales.forEach(s => {
+            // La condición es: o está en la lista explícita de la notificación, O cumple los criterios de filtro (misma sesión)
+            if (linkedIds.includes(s.id) || (sellerSales.includes(s))) {
                 s.status = 'closed';
-                s.auditedBy = currentUser.name || 'Admin';
-                s.auditTimestamp = Date.now();
+                s.closureId = sourceId;
+                s.locker = null; // Liberar candado
                 count++;
             }
         });
 
-        // 2. Procesar Salario si se marcó
-        let salaryPaid = 0;
-        let salarySource = '';
-
-        if (paySalary) {
-            const stats = calculateSellerProfitAndCommission(d.seller, d.businessId);
-            salaryPaid = stats.commission;
-            const cashReal = (d.cashReal || 0);
-
-            if (cashReal >= salaryPaid) {
-                salarySource = 'Caja Diaria';
-            } else {
-                salarySource = 'Fondo del Negocio';
-                db.businessFund.cash -= salaryPaid;
-            }
-        }
-
-        // 3. Recalcular balance final para el reporte (por si hubo ediciones en la revisión)
-        let expectedCash = 0;
-        let expectedTransfer = 0;
-        (d.saleIds || [d.id]).forEach(sid => {
-            const s = db.sales.find(sale => String(sale.id) === String(sid));
-            if (s) {
-                if (s.type !== 'EXPENSE') {
-                    expectedCash += (s.payment?.cash || 0);
-                    expectedTransfer += (s.payment?.transfer || 0);
-                } else {
-                    expectedCash += (s.total || 0);
-                }
-            }
-        });
-
-        const cashReal = (d.cashReal || 0);
-        const transferReal = (d.transferReal || 0);
-        const surplus = Math.max(0, cashReal - expectedCash) + Math.max(0, transferReal - expectedTransfer);
-        const shortage = Math.max(0, expectedCash - cashReal) + Math.max(0, expectedTransfer - transferReal);
-
-        const closureReport = {
-            id: Date.now(),
+        // 3. Crear el Reporte Maestro de Cierre
+        const masterClosure = {
+            id: sourceId || Date.now(),
             type: 'daily_closure_report',
-            businessId: d.businessId,
-            seller: d.seller,
-            date: d.targetDate || new Date().toISOString().split('T')[0],
+            businessId: selectedBusinessId,
+            seller: targetSeller || notif?.data?.seller || 'Vendedor',
+            date: audit.targetDate + ' ' + new Date().toLocaleTimeString(),
             timestamp: Date.now(),
-            // Auditoría
-            expectedCash: expectedCash,
-            expectedTransfer: expectedTransfer,
+            totalSystem: totalSystem,
+            totalReal: totalReal,
+            cashSystem: totalSystem, // Simplificación
             cashReal: cashReal,
+            transferSystem: 0,
             transferReal: transferReal,
-            totalReal: cashReal + transferReal,
-            surplus: surplus,
-            shortage: shortage,
-            salaryPaid: salaryPaid,
-            salarySource: salarySource,
-            notes: d.notes || d.additionalInfo || '',
-            salesIds: d.salesIds || d.saleIds || [d.id],
-            auditedBy: currentUser.name,
+            surplus: audit.surplusCash + audit.surplusTransfer,
+            shortage: audit.shortageCash + audit.shortageTransfer,
+            surplusCash: audit.surplusCash,
+            shortageCash: audit.shortageCash,
+            surplusTransfer: audit.surplusTransfer,
+            shortageTransfer: audit.shortageTransfer,
+            openingTime: audit.openingTime,
+            closingTime: audit.closingTime,
+            items: posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
+            salesIds: linkedIds.length > 0 ? linkedIds : sellerSales.map(s => s.id),
+            salesCount: count,
+            approvedBy: currentUser.name,
             status: 'closed'
         };
 
-        db.sales.unshift(closureReport);
+        // Reemplazar si ya existe un reporte con ese ID o agregar nuevo
+        // Usamos un ID único si es nuevo
+        const existingIndex = db.sales.findIndex(s => s.id == masterClosure.id && s.type === 'daily_closure_report');
+        if (existingIndex !== -1) {
+            db.sales[existingIndex] = masterClosure;
+        } else {
+            db.sales.unshift(masterClosure);
+        }
 
-        // 4. Marcar notificación como procesada si aplica
-        if (isNotification) {
-            source.status = 'approved';
-            source.seen = true;
+        if (notif) {
+            notif.status = 'approved';
+            notif.seen = true;
+            notif.locker = null; // Liberar candado
+
+            // PAGAR SALARIO SI SE SOLICITÓ
+            if (notif.data && notif.data.requestSalary) {
+                const sellerUser = db.users.find(u => u.name === notif.data.seller);
+                if (sellerUser) {
+                    sellerUser.lastPaymentDate = new Date().toISOString();
+                    // Log del pago
+                    addLog(`Pago de salario/comisiones aprobado para ${sellerUser.name}: $${notif.data.commission}`, 'success');
+                }
+            }
         }
 
         await saveData();
-        closeModal('super-review-modal');
-        closeModal('sale-detail-modal');
 
-        alert(`✅ CIERRE PROCESADO CORRECTAMENTE.\n\n - Auditado por: ${currentUser.name} \n - Ventas cerradas: ${count} \n - Salario: $${salaryPaid.toFixed(2)} (${salarySource})`);
+        // 4. Limpiar estado y volver
+        isReviewingClosure = false;
+        reviewingNotificationId = null;
+        reviewingClosureId = null;
+        isSessionActive = false; // <--- NUEVO: Cerrar sesión POS
+        posCart = [];
+        window.auditTempData = {}; // Clear
 
-        // Refrescar vista
-        if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
-        else navigateTo('ventas');
+        alert("✅ Cierre Aprobado.\nLas ventas han sido marcadas como CERRADAS y se generó el reporte definitivo.");
+        navigateTo('ventas');
+    };
 
-    } catch (err) {
-        console.error("Error in finalApproveClosure:", err);
-        alert("Ocurrió un error crítico al cerrar la venta. Revisa la consola.");
-    }
-};
+    // Mantener approveClosure original para compatibilidad con el modal si se llegara a usar
+    window.approveClosure = async function (notifId) {
+        const notif = db.notifications.find(n => n.id == notifId);
+        if (!notif) return;
+        const d = notif.data;
+        const adminNoteInput = document.getElementById('admin-approval-note');
+        const adminNote = adminNoteInput ? adminNoteInput.value : '';
 
-// 4. APROBAR FINALMENTE (Lógica Contable desde POS)
-/* =============================================================
-   NUEVO: REVISIÓN DE SESIÓN COMPLETA (VENTAS + GASTOS + MERMAS)
-   ============================================================= */
-window.openSaleForRevision = function (idOrSessionId, sessionIdOpt) {
-    // Si pasamos sessionIdOpt, es la nueva lógica. Si no, tratamos de deducirlo.
-    const saleId = idOrSessionId;
-    const sessionId = sessionIdOpt || null;
+        let count = 0;
+        const salesIds = [];
+        db.sales.forEach(s => {
+            const isPending = s.status === 'review_pending' || s.status === 'registered';
+            const isSellerMatch = String(s.seller).trim() === String(d.seller).trim();
+            const isBusinessMatch = String(s.businessId).trim() === String(d.businessId).trim();
 
-    // Buscar la venta/sesión origen
-    const sourceSale = db.sales.find(s => String(s.id) === String(saleId));
-    if (!sourceSale) {
-        alert("No se encontró el registro origen.");
-        return;
-    }
-
-    // Definir el criterio de grupo
-    let relatedItems = [];
-    if (sessionId && sessionId !== 'null' && sessionId !== 'undefined') {
-        relatedItems = db.sales.filter(s => String(s.sessionId) === String(sessionId));
-    } else {
-        // Fallback Legacy: Mismo día, vendedor y negocio
-        const day = (sourceSale.date || '').split(',')[0].trim();
-        relatedItems = db.sales.filter(s => {
-            const sDay = (s.date || '').split(',')[0].trim();
-            return sDay === day && s.seller === sourceSale.seller && String(s.businessId) === String(sourceSale.businessId);
+            if (isPending && isSellerMatch && isBusinessMatch) {
+                s.status = 'closed';
+                s.closureId = notif.id;
+                salesIds.push(s.id);
+                count++;
+            }
         });
-    }
 
-    // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
-    const isSeller = (currentUser && currentUser.role === 'seller');
-    const isPendingOrClosed = relatedItems.some(s =>
-        s.status === 'review_pending' ||
-        s.status === 'closed' ||
-        s.status === 'approved' ||
-        s.type === 'closure_request' ||
-        s.type === 'daily_closure_report'
-    );
+        const masterClosure = {
+            id: Date.now(),
+            type: 'daily_closure_report',
+            date: new Date().toLocaleString(),
+            businessId: d.businessId,
+            seller: d.seller,
+            totalExpected: d.totalExpected,
+            totalReal: d.cashReal + d.transferReal,
+            cashReal: d.cashReal,
+            transferReal: d.transferReal,
+            cashDiff: d.cashReal - d.expectedCash,
+            transferDiff: d.transferReal - d.expectedTransfer,
+            sellerNotes: d.additionalInfo,
+            adminNotes: adminNote,
+            salesIds: salesIds,
+            salesCount: count,
+            approvedBy: currentUser.name
+        };
 
-    console.log("STONE RULE #1 DEBUG:", {
-        userName: currentUser?.name,
-        userRole: currentUser?.role,
-        isSeller,
-        isPendingOrClosed,
-        itemsCount: relatedItems.length,
-        itemStatuses: relatedItems.map(s => s.status),
-        itemTypes: relatedItems.map(s => s.type)
-    });
-
-    if (isSeller && isPendingOrClosed) {
-        alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta sesión ya fue enviada a revisión o está cerrada. No puedes editarla.\nContacta con un Administrador para realizar cambios.");
-        return;
-    }
-
-    // Configurar estado de revisión
-    isReviewingClosure = true;
-    reviewingClosureId = sessionId || saleId;
-    reviewingNotificationId = null;
-    selectedBusinessId = sourceSale.businessId;
-
-    // Verificar si la sesión está CERRADA
-    const isClosed = relatedItems.every(s => s.status === 'closed' || s.status === 'approved');
-    if (isClosed) {
-        if (!confirm("⚠️ ESTA SESIÓN ESTÁ CERRADA.\n\n¿Estás seguro que deseas re-abrirla para editar?\nCualquier cambio requerirá un nuevo cierre.")) {
-            isReviewingClosure = false;
-            return;
-        }
-    }
-
-    // Cargar Carrito (Solo Ventas y Gastos visualizables)
-    posCart = [];
-    relatedItems.forEach(s => {
-        if (s.items) {
-            s.items.forEach(i => {
-                // Add item to cart, preserving origin ID for updates
-                posCart.push({
-                    ...i,
-                    id: i.productId || i.id,
-                    _originSaleId: s.id, // Track source for specific updates
-                    _type: s.type // Track if expense
-                });
-            });
-        }
-    });
-
-    // Guardar metadata para el POS
-    window.auditTempData = {
-        targetDate: relatedItems[0].date.split(',')[0].trim(),
-        seller: relatedItems[0].seller,
-        openingTime: relatedItems[0].openingTime || '08:00',
-        closingTime: '22:00', // Default
-        sessionId: sessionId || null
-    };
-
-    navigateTo('pos');
-    alert(`Revisando Sesión de ${relatedItems[0].seller}\n${relatedItems.length} movimientos cargados.`);
-};
-
-// ... (existing openSuperReviewModal below can be deprecated or kept for compat)
-/* =============================================================
-   NUEVO: ELIMINAR SESIÓN COMPLETA
-   ============================================================= */
-window.deleteSession = async function (sessionId, date, seller, businessId) {
-    if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
-        alert("No tienes permisos para eliminar sesiones.");
-        return;
-    }
-
-    if (!confirm(`⚠️ PELIGRO: ESTÁS A PUNTO DE ELIMINAR UNA SESIÓN COMPLETA.\n\nFecha: ${date}\nVendedor: ${seller}\n\nEsto borrará TODAS las ventas, gastos y registros de esa sesión permanentemente.\n\n¿Estás seguro?`)) return;
-
-    // Filter criteria
-    const targetSessionId = (sessionId && sessionId !== 'null' && sessionId !== 'undefined') ? sessionId : null;
-
-    // Filter out the sales
-    const initialCount = db.sales.length;
-    db.sales = db.sales.filter(s => {
-        if (targetSessionId) {
-            return String(s.sessionId) !== String(targetSessionId);
-        } else {
-            // Legacy fallback
-            const sDay = (s.date || '').split(',')[0].trim();
-            const matches = sDay === date && s.seller === seller && String(s.businessId) === String(businessId);
-            return !matches;
-        }
-    });
-
-    const deletedCount = initialCount - db.sales.length;
-    addLog(`Sesión eliminada por ${currentUser.name}: ${deletedCount} registros borrados.`, 'critical');
-
-    await saveData();
-    renderVentas(document.getElementById('content-area'));
-    alert("Sesión eliminada correctamente.");
-};
-window.approveClosureFromPOS = async function () {
-    if (!isReviewingClosure) return;
-
-    const totalSystem = posCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
-    const audit = window.auditTempData;
-
-    // Calcular reales y diferencias
-    const cashReal = audit.cashReal;
-    const transferReal = audit.transferReal;
-    const totalReal = cashReal + transferReal;
-
-    const cashDiff = cashReal - totalSystem;
-
-    if (!confirm(`¿Confirmar aprobación del cierre?\n\nTotal Sistema: $${totalSystem.toFixed(2)}\nTotal Real: $${totalReal.toFixed(2)}\nUnidades: ${posCart.reduce((sum, i) => sum + i.qty, 0)}`)) return;
-
-    // 1. Obtener la notificación o venta origen de forma robusta
-    const sourceId = reviewingClosureId;
-
-    // Intentar buscar notificación por ID directo, o por data.id, O por si contiene el saleId en su lista
-    const notif = db.notifications.find(n =>
-        n.id == reviewingNotificationId ||
-        (n.data && n.data.id == sourceId) ||
-        (n.data && n.data.saleIds && n.data.saleIds.includes(sourceId))
-    );
-
-    // 2. Marcar ventas individuales como CERRADAS
-    // IMPORTANTE: Filtrar por FECHA y VENDEDOR para no cerrar cosas de otros días/usuarios
-    const targetDate = audit.targetDate;
-    const targetSeller = audit.seller;
-
-    let count = 0;
-
-    // Filtro estricto: Status + Negocio + Vendedor + Fecha
-    const sellerSales = db.sales.filter(s =>
-        (s.status === 'review_pending' || s.status === 'registered') &&
-        String(s.businessId) === String(selectedBusinessId) &&
-        (!targetSeller || s.seller === targetSeller) &&
-        (s.date.startsWith(targetDate))
-    );
-
-    // Si no encontramos por estado, usamos los IDs vinculados si existen
-    const linkedIds = notif?.data?.saleIds || [];
-
-    db.sales.forEach(s => {
-        // La condición es: o está en la lista explícita de la notificación, O cumple los criterios de filtro (misma sesión)
-        if (linkedIds.includes(s.id) || (sellerSales.includes(s))) {
-            s.status = 'closed';
-            s.closureId = sourceId;
-            s.locker = null; // Liberar candado
-            count++;
-        }
-    });
-
-    // 3. Crear el Reporte Maestro de Cierre
-    const masterClosure = {
-        id: sourceId || Date.now(),
-        type: 'daily_closure_report',
-        businessId: selectedBusinessId,
-        seller: targetSeller || notif?.data?.seller || 'Vendedor',
-        date: audit.targetDate + ' ' + new Date().toLocaleTimeString(),
-        timestamp: Date.now(),
-        totalSystem: totalSystem,
-        totalReal: totalReal,
-        cashSystem: totalSystem, // Simplificación
-        cashReal: cashReal,
-        transferSystem: 0,
-        transferReal: transferReal,
-        surplus: audit.surplusCash + audit.surplusTransfer,
-        shortage: audit.shortageCash + audit.shortageTransfer,
-        surplusCash: audit.surplusCash,
-        shortageCash: audit.shortageCash,
-        surplusTransfer: audit.surplusTransfer,
-        shortageTransfer: audit.shortageTransfer,
-        openingTime: audit.openingTime,
-        closingTime: audit.closingTime,
-        items: posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
-        salesIds: linkedIds.length > 0 ? linkedIds : sellerSales.map(s => s.id),
-        salesCount: count,
-        approvedBy: currentUser.name,
-        status: 'closed'
-    };
-
-    // Reemplazar si ya existe un reporte con ese ID o agregar nuevo
-    // Usamos un ID único si es nuevo
-    const existingIndex = db.sales.findIndex(s => s.id == masterClosure.id && s.type === 'daily_closure_report');
-    if (existingIndex !== -1) {
-        db.sales[existingIndex] = masterClosure;
-    } else {
         db.sales.unshift(masterClosure);
-    }
-
-    if (notif) {
         notif.status = 'approved';
         notif.seen = true;
-        notif.locker = null; // Liberar candado
 
-        // PAGAR SALARIO SI SE SOLICITÓ
-        if (notif.data && notif.data.requestSalary) {
-            const sellerUser = db.users.find(u => u.name === notif.data.seller);
-            if (sellerUser) {
-                sellerUser.lastPaymentDate = new Date().toISOString();
-                // Log del pago
-                addLog(`Pago de salario/comisiones aprobado para ${sellerUser.name}: $${notif.data.commission}`, 'success');
-            }
-        }
-    }
-
-    await saveData();
-
-    // 4. Limpiar estado y volver
-    isReviewingClosure = false;
-    reviewingNotificationId = null;
-    reviewingClosureId = null;
-    isSessionActive = false; // <--- NUEVO: Cerrar sesión POS
-    posCart = [];
-    window.auditTempData = {}; // Clear
-
-    alert("✅ Cierre Aprobado.\nLas ventas han sido marcadas como CERRADAS y se generó el reporte definitivo.");
-    navigateTo('ventas');
-};
-
-// Mantener approveClosure original para compatibilidad con el modal si se llegara a usar
-window.approveClosure = async function (notifId) {
-    const notif = db.notifications.find(n => n.id == notifId);
-    if (!notif) return;
-    const d = notif.data;
-    const adminNoteInput = document.getElementById('admin-approval-note');
-    const adminNote = adminNoteInput ? adminNoteInput.value : '';
-
-    let count = 0;
-    const salesIds = [];
-    db.sales.forEach(s => {
-        const isPending = s.status === 'review_pending' || s.status === 'registered';
-        const isSellerMatch = String(s.seller).trim() === String(d.seller).trim();
-        const isBusinessMatch = String(s.businessId).trim() === String(d.businessId).trim();
-
-        if (isPending && isSellerMatch && isBusinessMatch) {
-            s.status = 'closed';
-            s.closureId = notif.id;
-            salesIds.push(s.id);
-            count++;
-        }
-    });
-
-    const masterClosure = {
-        id: Date.now(),
-        type: 'daily_closure_report',
-        date: new Date().toLocaleString(),
-        businessId: d.businessId,
-        seller: d.seller,
-        totalExpected: d.totalExpected,
-        totalReal: d.cashReal + d.transferReal,
-        cashReal: d.cashReal,
-        transferReal: d.transferReal,
-        cashDiff: d.cashReal - d.expectedCash,
-        transferDiff: d.transferReal - d.expectedTransfer,
-        sellerNotes: d.additionalInfo,
-        adminNotes: adminNote,
-        salesIds: salesIds,
-        salesCount: count,
-        approvedBy: currentUser.name
+        await saveData();
+        closeModal('review-closure-modal');
+        closeModal('notifications-modal');
+        alert(`✅ DÍA CERRADO CORRECTAMENTE.`);
+        renderDashboard(null);
     };
 
-    db.sales.unshift(masterClosure);
-    notif.status = 'approved';
-    notif.seen = true;
-
-    await saveData();
-    closeModal('review-closure-modal');
-    closeModal('notifications-modal');
-    alert(`✅ DÍA CERRADO CORRECTAMENTE.`);
-    renderDashboard(null);
-};
-
-window.updateAuditDiff = function (type, expected, val) {
-    const real = parseFloat(val || 0);
-    const diff = real - expected;
-    const el = document.getElementById(type + '-diff-label');
-    if (el) {
-        if (Math.abs(diff) < 0.05) el.innerHTML = '<span style="color:var(--success);">✅ Cuadre Exacto</span>';
-        else if (diff > 0) el.innerHTML = `< span style = "color:var(--primary);" > + Sobran $${diff.toFixed(2)}</span > `;
-        else el.innerHTML = `< span style = "color:var(--danger);" > - Faltan $${Math.abs(diff).toFixed(2)}</span > `;
-    }
-};
+    window.updateAuditDiff = function (type, expected, val) {
+        const real = parseFloat(val || 0);
+        const diff = real - expected;
+        const el = document.getElementById(type + '-diff-label');
+        if (el) {
+            if (Math.abs(diff) < 0.05) el.innerHTML = '<span style="color:var(--success);">✅ Cuadre Exacto</span>';
+            else if (diff > 0) el.innerHTML = `< span style = "color:var(--primary);" > + Sobran $${diff.toFixed(2)}</span > `;
+            else el.innerHTML = `< span style = "color:var(--danger);" > - Faltan $${Math.abs(diff).toFixed(2)}</span > `;
+        }
+    };
 
 
 
-/* =============================================================
-   PARCHE DE EMERGENCIA - FUNCIONES GLOBALES (POWERED BY ANTIGRAVITY)
-   Garantiza que los botones del HTML siempre tengan acceso a la lógica.
-   ============================================================= */
+    /* =============================================================
+       PARCHE DE EMERGENCIA - FUNCIONES GLOBALES (POWERED BY ANTIGRAVITY)
+       Garantiza que los botones del HTML siempre tengan acceso a la lógica.
+       ============================================================= */
 
-// Helper para abrir modales si el sistema lo requiere
-window.openModal = function (id) {
-    const m = document.getElementById(id);
-    if (m) m.classList.remove('hidden');
-    else console.warn("Modal no encontrado:", id);
-};
+    // Helper para abrir modales si el sistema lo requiere
+    window.openModal = function (id) {
+        const m = document.getElementById(id);
+        if (m) m.classList.remove('hidden');
+        else console.warn("Modal no encontrado:", id);
+    };
 
 
-/* =============================================================
-   NUEVO: PANTALLA DE APERTURA DE SESIÓN
-   ============================================================= */
-let currentSessionStartTime = 0; // New Global
+    /* =============================================================
+       NUEVO: PANTALLA DE APERTURA DE SESIÓN
+       ============================================================= */
+    let currentSessionStartTime = 0; // New Global
 
-function renderOpenSessionScreen(container) {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    function renderOpenSessionScreen(container) {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="fade-in" style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
             <div class="card" style="padding: 3rem; max-width: 500px; width: 100%; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.2);">
                 <div style="font-size: 4rem; font-weight: 900; background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.5rem;">
@@ -5615,530 +5626,530 @@ function renderOpenSessionScreen(container) {
         </div>
     `;
 
-    // Live clock update
-    if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
-    window.sessionClockInternal = setInterval(() => {
-        const n = new Date();
-        const t = n.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-        const el = container.firstElementChild?.querySelector('div[style*="font-size: 4rem"]');
-        if (el) el.textContent = t;
-    }, 1000);
-}
-
-window.startSession = function () {
-    isSessionActive = true;
-    currentSessionStartTime = Date.now(); // Mark start time
-    posOpeningTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-    if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
-    navigateTo('pos');
-};
-
-/* =============================================================
-   PUENTE GLOBAL UNIFICADO (RESTAURACIÓN FINAL)
-   ============================================================= */
-
-// Helper para cerrar modales
-window.closeModal = function (id) {
-    const m = document.getElementById(id);
-    if (!m) return;
-    if (m.classList.contains('static-modal') || id === 'incidentModal') {
-        m.classList.add('hidden');
-    } else {
-        m.classList.add('fade-out');
-        setTimeout(() => { if (m.parentNode) m.parentNode.removeChild(m); }, 200);
-    }
-};
-
-// REMOVED REDUNDANT GLOBAL BRIDGES (Definitive versions are in the COMBO MAESTRO section)
-
-/* =============================================================
-   PUENTE DE EMERGENCIA - LÓGICA DE BOTONES (VERSIÓN FUNCIONAL)
-   (Pegar al final de app.js para revivir Editar/Borrar)
-   ============================================================= */
-
-/* =============================================================
-   COMBO MAESTRO: LÓGICA CORREGIDA Y OPTIMIZADA
-   ============================================================= */
-
-// Seguridad por Roles (Mapa Maestro Global)
-const rolePermissions = {
-    'owner': ['dashboard', 'pos', 'ventas', 'inventory', 'settings', 'reportes', 'transfer', 'daily-records', 'cash-control', 'mermas', 'logs', 'compras', 'employees', 'financials', 'product-detail'],
-    'admin': ['dashboard', 'pos', 'ventas', 'inventory', 'reportes', 'transfer', 'mermas', 'settings', 'product-detail', 'cash-control'],
-    'seller': ['pos', 'ventas', 'inventory', 'mermas', 'product-detail', 'transfer']
-};
-
-function getPermissions(role) {
-    return rolePermissions[role] || [];
-}
-
-// --- 1. NAVEGACIÓN INTELIGENTE (Hash + Seguridad) ---
-function navigateTo(viewName) {
-    if (!currentUser && viewName !== 'login') {
-        navigateTo('login');
-        return;
+        // Live clock update
+        if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
+        window.sessionClockInternal = setInterval(() => {
+            const n = new Date();
+            const t = n.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+            const el = container.firstElementChild?.querySelector('div[style*="font-size: 4rem"]');
+            if (el) el.textContent = t;
+        }, 1000);
     }
 
-    if (currentUser && viewName !== 'login') {
-        const allowed = getPermissions(currentUser.role);
-        if (!allowed.includes(viewName)) {
-            // Silently redirect to safe view (POS) to avoid annoying popups with only "Accept"
-            if (viewName !== 'pos') navigateTo('pos');
+    window.startSession = function () {
+        isSessionActive = true;
+        currentSessionStartTime = Date.now(); // Mark start time
+        posOpeningTime = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        if (window.sessionClockInternal) clearInterval(window.sessionClockInternal);
+        navigateTo('pos');
+    };
+
+    /* =============================================================
+       PUENTE GLOBAL UNIFICADO (RESTAURACIÓN FINAL)
+       ============================================================= */
+
+    // Helper para cerrar modales
+    window.closeModal = function (id) {
+        const m = document.getElementById(id);
+        if (!m) return;
+        if (m.classList.contains('static-modal') || id === 'incidentModal') {
+            m.classList.add('hidden');
+        } else {
+            m.classList.add('fade-out');
+            setTimeout(() => { if (m.parentNode) m.parentNode.removeChild(m); }, 200);
+        }
+    };
+
+    // REMOVED REDUNDANT GLOBAL BRIDGES (Definitive versions are in the COMBO MAESTRO section)
+
+    /* =============================================================
+       PUENTE DE EMERGENCIA - LÓGICA DE BOTONES (VERSIÓN FUNCIONAL)
+       (Pegar al final de app.js para revivir Editar/Borrar)
+       ============================================================= */
+
+    /* =============================================================
+       COMBO MAESTRO: LÓGICA CORREGIDA Y OPTIMIZADA
+       ============================================================= */
+
+    // Seguridad por Roles (Mapa Maestro Global)
+    const rolePermissions = {
+        'owner': ['dashboard', 'pos', 'ventas', 'inventory', 'settings', 'reportes', 'transfer', 'daily-records', 'cash-control', 'mermas', 'logs', 'compras', 'employees', 'financials', 'product-detail'],
+        'admin': ['dashboard', 'pos', 'ventas', 'inventory', 'reportes', 'transfer', 'mermas', 'settings', 'product-detail', 'cash-control'],
+        'seller': ['pos', 'ventas', 'inventory', 'mermas', 'product-detail', 'transfer']
+    };
+
+    function getPermissions(role) {
+        return rolePermissions[role] || [];
+    }
+
+    // --- 1. NAVEGACIÓN INTELIGENTE (Hash + Seguridad) ---
+    function navigateTo(viewName) {
+        if (!currentUser && viewName !== 'login') {
+            navigateTo('login');
             return;
         }
+
+        if (currentUser && viewName !== 'login') {
+            const allowed = getPermissions(currentUser.role);
+            if (!allowed.includes(viewName)) {
+                // Silently redirect to safe view (POS) to avoid annoying popups with only "Accept"
+                if (viewName !== 'pos') navigateTo('pos');
+                return;
+            }
+        }
+
+        // Actualizar URL (Persistencia)
+        if (window.location.hash !== '#' + viewName) window.location.hash = viewName;
+
+        currentView = viewName;
+        renderSidebar(viewName);
+        updateFabState(viewName);
+
+        const content = document.getElementById('content-area');
+
+        // Animación GPU
+        content.classList.remove('fade-in-up');
+        void content.offsetWidth; // Force reflow
+        content.classList.add('fade-in-up');
+
+        content.innerHTML = '';
+
+        // Switch Maestro de Vistas
+        switch (viewName) {
+            case 'login': renderLogin(content); break;
+            case 'dashboard': renderDashboard(content); break;
+            case 'ventas': renderVentas(content); break;
+            case 'pos': renderPOS(content); break;
+            case 'inventory': renderInventory(content); break;
+            case 'product-detail': renderProductDetail(content); break;
+            case 'transfer': renderTransfer(content); break;
+            case 'mermas': renderMermas(content); break;
+            case 'reportes': renderReportes(content); break;
+            case 'settings': renderSettings(content); break;
+            case 'logs': renderLogs(content); break;
+            case 'daily-records': renderVentas(content); break;
+            case 'cash-control': renderCashControl(content); break;
+            case 'compras': renderCompras(content); break;
+            case 'employees': renderEmployees(content); break;
+            case 'financials': renderFinancials(content); break;
+            default: renderDashboard(content);
+        }
+    }
+    window.navigateTo = navigateTo;
+
+    // --- 2. GESTIÓN DEL FAB (Botón Flotante) ---
+    function updateFabState(view) {
+        const fab = document.getElementById('main-fab');
+        if (!fab) return;
+        fab.classList.add('hidden');
+        fab.onclick = null;
+
+        if (!currentUser) return;
+
+        if (view === 'inventory' && currentUser.role !== 'seller') {
+            fab.innerHTML = '<i class="ph ph-plus"></i>';
+            fab.onclick = () => { if (typeof showAddProductModal === 'function') showAddProductModal(); };
+            fab.classList.remove('hidden');
+            fab.style.background = 'var(--primary)';
+        }
+        else if (view === 'ventas' && currentUser.role === 'seller') {
+            fab.innerHTML = '<i class="ph ph-lock-key"></i>';
+            fab.onclick = () => { if (typeof openPOSClosureModal === 'function') openPOSClosureModal(); };
+            fab.classList.remove('hidden');
+            fab.style.background = 'var(--warning)';
+        }
+    }
+    window.handleFabAction = function () { const f = document.getElementById('main-fab'); if (f && f.onclick) f.onclick(); };
+
+    // --- 3. PUENTE GLOBAL: EDITAR/BORRAR ARQUITECTURA REAL ---
+    window.editSale = async function (id) {
+        const sale = db.sales.find(s => String(s.id) === String(id));
+        if (!sale) return alert("Venta no encontrada.");
+
+        // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
+        const isSeller = currentUser.role === 'seller';
+        const isLocked = sale.status === 'review_pending' || sale.status === 'closed' || sale.status === 'approved';
+
+        if (isSeller && isLocked) {
+            alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta venta no puede ser editada porque ya fue enviada a revisión o está cerrada.");
+            return;
+        }
+
+        if (!confirm("⚠️ ¿Estás COMPLETAMENTE seguro de que deseas EDITAR esta venta?\n\nEsta acción cargará los productos en el carrito actual y desactivará otros modos.")) return;
+
+        // Cerrar cualquier modal abierto (historial, revisión, etc.)
+        ['sales-history-modal', 'review-closure-modal', 'notifications-modal'].forEach(id => closeModal(id));
+
+        // Desactivar modo revisión si estaba activo
+        isReviewingClosure = false;
+        reviewingNotificationId = null;
+
+        editingSaleId = sale.id;
+        posCart = (sale.items || []).map(i => ({
+            id: i.productId || i.id,
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            image: db.products.find(p => String(p.id) === String(i.productId || i.id))?.image || ''
+        }));
+
+        if (currentView !== 'pos') {
+            navigateTo('pos');
+        } else {
+            renderPOS(document.getElementById('content-area'));
+        }
+        alert("Venta cargada en el carrito. Modifica lo necesario y presiona COBRAR.");
+    };
+
+    window.deleteSale = async function (id) {
+        // 1. Encontrar la venta o sesión representativa
+        let sale = db.sales.find(s => String(s.id) === String(id));
+        if (!sale) return alert("Operación no encontrada.");
+
+        // Detectar si es un grupo (sesión individual no cerrada pero agrupada en la UI)
+        // Para simplificar, si el ID viene de una fila agrupada, operaremos sobre el grupo real.
+        // Buscamos si hay otras ventas con el mismo (Día, Vendedor, Negocio) y estado no cerrado.
+        const isClosed = (sale.status === 'closed' || sale.status === 'approved');
+        let targets = [sale];
+
+        if (!isClosed && sale.type !== 'daily_closure_report') {
+            const day = sale.date.split(',')[0].trim();
+            targets = db.sales.filter(s =>
+                s.date.startsWith(day) &&
+                String(s.businessId) === String(sale.businessId) &&
+                s.seller === sale.seller &&
+                s.status !== 'closed' && s.status !== 'approved'
+            );
+        }
+
+        // 2. Seguridad: Lockers
+        const hasLocker = targets.some(t => t.locker && (Date.now() - t.locker.timestamp < 300000));
+        if (hasLocker) {
+            return alert("⛔ No se puede eliminar: Esta sesión está siendo revisada activamente por otro usuario.");
+        }
+
+        // 3. Confirmaciones
+        if (isClosed) {
+            if (!confirm("⚠️ ¡ADVERTENCIA! Esta operación ya ha sido CERRADA y auditada.\n\n¿Estás seguro de que deseas eliminarla?")) return;
+            if (!confirm("🚨 CONFIRMACIÓN FINAL: Se revertirán todos los movimientos financieros y el inventario. ¿Proceder?")) return;
+        } else {
+            if (!confirm(`¿Estás seguro de eliminar esta sesión ? (${targets.length} registros)`)) return;
+        }
+
+        // 4. Procesar Eliminación de cada registro en el grupo
+        for (const s of targets) {
+            const type = s.type || 'SALE';
+
+            // --- Revertir Inventario ---
+            if (s.items) {
+                s.items.forEach(item => {
+                    const inv = db.inventory.find(i =>
+                        String(i.productId) === String(item.productId || item.id) &&
+                        String(i.businessId) === String(s.businessId)
+                    );
+                    if (inv) {
+                        if (type === 'DEVOLUCION_STOCK') inv.quantity -= item.qty;
+                        else if (type === 'ROTURA_DETERIORO' || type === 'SALE' || type === 'daily_closure_report') {
+                            if (type !== 'daily_closure_report') inv.quantity += item.qty;
+                        }
+                    }
+                });
+            }
+
+            // --- Revertir Finanzas ---
+            if (isClosed) {
+                const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
+                if (type === 'SALE') {
+                    if (s.payment?.cash) fund.cash -= s.payment.cash;
+                    if (s.payment?.transfer) fund.transfer -= s.payment.transfer;
+                } else if (type === 'EXPENSE') {
+                    fund.cash += (s.total || 0);
+                } else if (type === 'daily_closure_report') {
+                    fund.cash -= (s.cashReal || 0);
+                    fund.transfer -= (s.transferReal || 0);
+                    if (s.salaryPaid && s.salarySource === 'Fondo del Negocio') {
+                        fund.cash += s.salaryPaid;
+                    }
+                }
+                db.businessFund = fund;
+            }
+
+            // Eliminar del DB
+            const idx = db.sales.findIndex(x => x.id === s.id);
+            if (idx > -1) db.sales.splice(idx, 1);
+        }
+
+        await saveData();
+        addLog(`Sesión eliminada: ${sale.seller} (${sale.date})`, 'danger');
+
+        // Refrescar UI
+        if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
+        else navigateTo(currentView);
+
+        alert("✅ Operación eliminada con éxito. Inventario y finanzas restaurados.");
+    };
+
+    window.removeFromCart = function (index) { posCart.splice(index, 1); renderCart(); };
+    window.toggleNotif = function () { const d = document.getElementById('notifDropdown'); if (d) d.classList.toggle('show'); };
+
+    // --- 4. INICIALIZACIÓN (Hash Router) ---
+    window.addEventListener('DOMContentLoaded', async () => {
+        console.log("🚀 Iniciando Sistema con Combo Maestro...");
+        await loadData();
+        if (typeof setupNotifications === 'function') setupNotifications();
+
+        const initialView = window.location.hash.replace('#', '') || 'dashboard';
+        if (!currentUser) navigateTo('login');
+        else navigateTo(initialView);
+
+        window.addEventListener('hashchange', () => {
+            const v = window.location.hash.replace('#', '');
+            if (currentUser && v) navigateTo(v);
+        });
+    });
+
+    // --- TRANSFER FUNCTIONS BRIDGE ---
+    window.handleTransferSearch = handleTransferSearch;
+    window.addToTransferCart = addToTransferCart;
+    window.removeFromTransferCart = removeFromTransferCart;
+    window.adjustTransferQty = adjustTransferQty;
+    window.executeTransfer = executeTransfer;
+
+
+
+    window.seedDatabaseWithHistory = async function () {
+        if (!confirm("⚠️ REINICIO DE FACTORÍA\n\nEsto borrará todas las ventas actuales y generará un historial simulado de 60 días.\n\n¿Seguro que deseas continuar?")) return;
+
+        // Reset Sales and Movements
+        db.sales = [];
+        db.waste = [];
+        db.extraMovements = []; // Assuming this exists or needed for expenses
+
+        // Reset Funds to a base amount (as if starting 60 days ago)
+        db.businessFund = { cash: 50000, transfer: 100000, usd: 1000, eur: 500 };
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - 60);
+
+        const sellers = db.users.filter(u => u.role === 'seller');
+        const products = db.products;
+
+        // Generate 60 days of activity
+        for (let i = 0; i <= 60; i++) {
+            const currentDate = new Date(startDate);
+            currentDate.setDate(currentDate.getDate() + i);
+            const dateStr = currentDate.toISOString().split('T')[0];
+            const isToday = i === 60;
+
+            // 1. Sales (Income)
+            const dailySalesCount = Math.floor(Math.random() * 8) + 3; // 3-10 sales per day
+            for (let j = 0; j < dailySalesCount; j++) {
+                const product = products[Math.floor(Math.random() * products.length)];
+                const seller = sellers[Math.floor(Math.random() * sellers.length)] || db.users[0];
+                const qty = Math.floor(Math.random() * 5) + 1;
+                const total = product.price * qty;
+
+                // Payment Method Randomizer
+                const isTransfer = Math.random() > 0.7; // 30% Transfer
+                const payment = {
+                    cash: isTransfer ? 0 : total,
+                    transfer: isTransfer ? total : 0
+                };
+
+                const sale = {
+                    id: Date.now() + i * 10000 + j,
+                    date: new Date(currentDate.getTime() + Math.random() * 40000000).toLocaleString(), // Spread over day
+                    businessId: 'mch1',
+                    seller: seller.name,
+                    total: total,
+                    items: [{ productId: product.id, name: product.name, qty, price: product.price }],
+                    payment
+                };
+
+                db.sales.push(sale);
+
+                // Update Fund (Simulating accumulation)
+                db.businessFund.cash += payment.cash;
+                db.businessFund.transfer += payment.transfer;
+            }
+
+            // 2. Expenses (Egresos) - Every 3 days approx
+            if (Math.random() > 0.6) {
+                const amount = Math.floor(Math.random() * 5000) + 1000;
+                const isUSD = Math.random() > 0.9;
+
+                const expense = {
+                    id: Date.now() + i * 10000 + 999,
+                    date: new Date(currentDate.getTime() + 43200000).toLocaleString(),
+                    type: 'expense',
+                    category: 'Servicios',
+                    amount: amount,
+                    currency: isUSD ? 'USD' : 'CUP',
+                    description: 'Pago Servicios/Mantenimiento'
+                };
+
+                if (!db.extraMovements) db.extraMovements = [];
+                db.extraMovements.push(expense);
+
+                // Update Fund
+                if (expense.currency === 'CUP') db.businessFund.cash -= amount;
+                if (expense.currency === 'USD') db.businessFund.usd -= amount;
+            }
+        }
+
+        await saveData();
+        alert("✅ Historial Generado.\n\nSe han creado 60 días de transacciones. El fondo actual refleja toda esa actividad.");
+        location.reload(); // Refresh to catch all changes
     }
 
-    // Actualizar URL (Persistencia)
-    if (window.location.hash !== '#' + viewName) window.location.hash = viewName;
+    window.renderCashControl = function (container) {
+        if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
+            container.innerHTML = '<div style="padding:2rem; text-align:center; color:var(--danger);"><h2>Acceso Denegado</h2></div>';
+            return;
+        }
 
-    currentView = viewName;
-    renderSidebar(viewName);
-    updateFabState(viewName);
+        // Default Dates: Today
+        // But we want to allow selection. We need state for selection.
+        // If we re-render, we lose state unless stored.
+        // Let's use window.cashControlState or similar, or read from DOM if exists, else default.
 
-    const content = document.getElementById('content-area');
+        // Get stored dates or defaults
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
 
-    // Animación GPU
-    content.classList.remove('fade-in-up');
-    void content.offsetWidth; // Force reflow
-    content.classList.add('fade-in-up');
+        // Default Start: First day of current month? Or today? 
+        // User asked "put a date to see what was there that day".
+        // Let's default Start = Today, End = Today.
 
-    content.innerHTML = '';
+        if (!window.ccState) {
+            window.ccState = { start: todayStr, end: todayStr };
+        }
 
-    // Switch Maestro de Vistas
-    switch (viewName) {
-        case 'login': renderLogin(content); break;
-        case 'dashboard': renderDashboard(content); break;
-        case 'ventas': renderVentas(content); break;
-        case 'pos': renderPOS(content); break;
-        case 'inventory': renderInventory(content); break;
-        case 'product-detail': renderProductDetail(content); break;
-        case 'transfer': renderTransfer(content); break;
-        case 'mermas': renderMermas(content); break;
-        case 'reportes': renderReportes(content); break;
-        case 'settings': renderSettings(content); break;
-        case 'logs': renderLogs(content); break;
-        case 'daily-records': renderVentas(content); break;
-        case 'cash-control': renderCashControl(content); break;
-        case 'compras': renderCompras(content); break;
-        case 'employees': renderEmployees(content); break;
-        case 'financials': renderFinancials(content); break;
-        default: renderDashboard(content);
-    }
-}
-window.navigateTo = navigateTo;
+        const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
 
-// --- 2. GESTIÓN DEL FAB (Botón Flotante) ---
-function updateFabState(view) {
-    const fab = document.getElementById('main-fab');
-    if (!fab) return;
-    fab.classList.add('hidden');
-    fab.onclick = null;
+        // --- LOGIC: Reverse Calculation for "Initial Balance at StartDate" ---
+        // 1. Get Global Current Balance (Right Now) -> This is our Anchor.
+        // 2. To get Balance at Start of StartDate:
+        //    Balance_Start = Current_Global - (NetChange from Start_of_StartDate to NOW)
+        // 
+        // 3. To get Balance at End of EndDate:
+        //    Balance_End = Current_Global - (NetChange from End_of_EndDate to NOW)
 
-    if (!currentUser) return;
+        // We need a helper to Calculate Net Change between two timestamps.
+        const getNetChange = (fromDate, toDate) => {
+            let change = { cash: 0, transfer: 0, usd: 0, eur: 0 };
 
-    if (view === 'inventory' && currentUser.role !== 'seller') {
-        fab.innerHTML = '<i class="ph ph-plus"></i>';
-        fab.onclick = () => { if (typeof showAddProductModal === 'function') showAddProductModal(); };
-        fab.classList.remove('hidden');
-        fab.style.background = 'var(--primary)';
-    }
-    else if (view === 'ventas' && currentUser.role === 'seller') {
-        fab.innerHTML = '<i class="ph ph-lock-key"></i>';
-        fab.onclick = () => { if (typeof openPOSClosureModal === 'function') openPOSClosureModal(); };
-        fab.classList.remove('hidden');
-        fab.style.background = 'var(--warning)';
-    }
-}
-window.handleFabAction = function () { const f = document.getElementById('main-fab'); if (f && f.onclick) f.onclick(); };
+            // Sales
+            db.sales.forEach(s => {
+                const d = new Date(s.date);
+                if (d >= fromDate && d <= toDate) {
+                    if (s.status === 'cancelled') return;
+                    change.cash += s.payment?.cash || 0;
+                    change.transfer += s.payment?.transfer || 0;
+                }
+            });
 
-// --- 3. PUENTE GLOBAL: EDITAR/BORRAR ARQUITECTURA REAL ---
-window.editSale = async function (id) {
-    const sale = db.sales.find(s => String(s.id) === String(id));
-    if (!sale) return alert("Venta no encontrada.");
-
-    // --- LEY EN PIEDRA #1: El vendedor no puede editar después de enviar revisión ---
-    const isSeller = currentUser.role === 'seller';
-    const isLocked = sale.status === 'review_pending' || sale.status === 'closed' || sale.status === 'approved';
-
-    if (isSeller && isLocked) {
-        alert("🔒 ACCESO RESTRINGIDO (LEY EN PIEDRA #1)\n\nEsta venta no puede ser editada porque ya fue enviada a revisión o está cerrada.");
-        return;
-    }
-
-    if (!confirm("⚠️ ¿Estás COMPLETAMENTE seguro de que deseas EDITAR esta venta?\n\nEsta acción cargará los productos en el carrito actual y desactivará otros modos.")) return;
-
-    // Cerrar cualquier modal abierto (historial, revisión, etc.)
-    ['sales-history-modal', 'review-closure-modal', 'notifications-modal'].forEach(id => closeModal(id));
-
-    // Desactivar modo revisión si estaba activo
-    isReviewingClosure = false;
-    reviewingNotificationId = null;
-
-    editingSaleId = sale.id;
-    posCart = (sale.items || []).map(i => ({
-        id: i.productId || i.id,
-        name: i.name,
-        price: i.price,
-        qty: i.qty,
-        image: db.products.find(p => String(p.id) === String(i.productId || i.id))?.image || ''
-    }));
-
-    if (currentView !== 'pos') {
-        navigateTo('pos');
-    } else {
-        renderPOS(document.getElementById('content-area'));
-    }
-    alert("Venta cargada en el carrito. Modifica lo necesario y presiona COBRAR.");
-};
-
-window.deleteSale = async function (id) {
-    // 1. Encontrar la venta o sesión representativa
-    let sale = db.sales.find(s => String(s.id) === String(id));
-    if (!sale) return alert("Operación no encontrada.");
-
-    // Detectar si es un grupo (sesión individual no cerrada pero agrupada en la UI)
-    // Para simplificar, si el ID viene de una fila agrupada, operaremos sobre el grupo real.
-    // Buscamos si hay otras ventas con el mismo (Día, Vendedor, Negocio) y estado no cerrado.
-    const isClosed = (sale.status === 'closed' || sale.status === 'approved');
-    let targets = [sale];
-
-    if (!isClosed && sale.type !== 'daily_closure_report') {
-        const day = sale.date.split(',')[0].trim();
-        targets = db.sales.filter(s =>
-            s.date.startsWith(day) &&
-            String(s.businessId) === String(sale.businessId) &&
-            s.seller === sale.seller &&
-            s.status !== 'closed' && s.status !== 'approved'
-        );
-    }
-
-    // 2. Seguridad: Lockers
-    const hasLocker = targets.some(t => t.locker && (Date.now() - t.locker.timestamp < 300000));
-    if (hasLocker) {
-        return alert("⛔ No se puede eliminar: Esta sesión está siendo revisada activamente por otro usuario.");
-    }
-
-    // 3. Confirmaciones
-    if (isClosed) {
-        if (!confirm("⚠️ ¡ADVERTENCIA! Esta operación ya ha sido CERRADA y auditada.\n\n¿Estás seguro de que deseas eliminarla?")) return;
-        if (!confirm("🚨 CONFIRMACIÓN FINAL: Se revertirán todos los movimientos financieros y el inventario. ¿Proceder?")) return;
-    } else {
-        if (!confirm(`¿Estás seguro de eliminar esta sesión ? (${targets.length} registros)`)) return;
-    }
-
-    // 4. Procesar Eliminación de cada registro en el grupo
-    for (const s of targets) {
-        const type = s.type || 'SALE';
-
-        // --- Revertir Inventario ---
-        if (s.items) {
-            s.items.forEach(item => {
-                const inv = db.inventory.find(i =>
-                    String(i.productId) === String(item.productId || item.id) &&
-                    String(i.businessId) === String(s.businessId)
-                );
-                if (inv) {
-                    if (type === 'DEVOLUCION_STOCK') inv.quantity -= item.qty;
-                    else if (type === 'ROTURA_DETERIORO' || type === 'SALE' || type === 'daily_closure_report') {
-                        if (type !== 'daily_closure_report') inv.quantity += item.qty;
+            // Movements (Expenses/Income)
+            (db.extraMovements || []).forEach(m => {
+                const d = new Date(m.date);
+                if (d >= fromDate && d <= toDate) {
+                    const am = m.amount || 0;
+                    if (m.type === 'expense') {
+                        if (m.currency === 'CUP') change.cash -= am;
+                        if (m.currency === 'Transfer') change.transfer -= am;
+                        if (m.currency === 'USD') change.usd -= am;
+                        if (m.currency === 'EUR') change.eur -= am;
+                    } else if (m.type === 'income') {
+                        if (m.currency === 'CUP') change.cash += am;
+                        if (m.currency === 'Transfer') change.transfer += am;
+                        // ...
                     }
                 }
             });
-        }
 
-        // --- Revertir Finanzas ---
-        if (isClosed) {
-            const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
-            if (type === 'SALE') {
-                if (s.payment?.cash) fund.cash -= s.payment.cash;
-                if (s.payment?.transfer) fund.transfer -= s.payment.transfer;
-            } else if (type === 'EXPENSE') {
-                fund.cash += (s.total || 0);
-            } else if (type === 'daily_closure_report') {
-                fund.cash -= (s.cashReal || 0);
-                fund.transfer -= (s.transferReal || 0);
-                if (s.salaryPaid && s.salarySource === 'Fondo del Negocio') {
-                    fund.cash += s.salaryPaid;
-                }
-            }
-            db.businessFund = fund;
-        }
+            return change;
+        };
 
-        // Eliminar del DB
-        const idx = db.sales.findIndex(x => x.id === s.id);
-        if (idx > -1) db.sales.splice(idx, 1);
-    }
+        // Define Time Boundaries
+        const sDate = new Date(window.ccState.start);
+        sDate.setHours(0, 0, 0, 0); // Start of StartDate
 
-    await saveData();
-    addLog(`Sesión eliminada: ${sale.seller} (${sale.date})`, 'danger');
+        const eDate = new Date(window.ccState.end);
+        eDate.setHours(23, 59, 59, 999); // End of EndDate
 
-    // Refrescar UI
-    if (currentView === 'ventas') renderVentas(document.getElementById('content-area'));
-    else navigateTo(currentView);
+        const nowTime = new Date(); // Right now
 
-    alert("✅ Operación eliminada con éxito. Inventario y finanzas restaurados.");
-};
+        // Changes from SELECTED RANGE (Start to End) -> For the Table Columns (Income/Expense)
+        // This is what happens WITHIN the period.
+        // Income = Sales + IncomeMoves
+        // Expense = ExpenseMoves
 
-window.removeFromCart = function (index) { posCart.splice(index, 1); renderCart(); };
-window.toggleNotif = function () { const d = document.getElementById('notifDropdown'); if (d) d.classList.toggle('show'); };
+        let rangeStats = {
+            mn: { income: 0, expense: 0 },
+            transfer: { income: 0, expense: 0 },
+            usd: { income: 0, expense: 0 },
+            eur: { income: 0, expense: 0 }
+        };
 
-// --- 4. INICIALIZACIÓN (Hash Router) ---
-window.addEventListener('DOMContentLoaded', async () => {
-    console.log("🚀 Iniciando Sistema con Combo Maestro...");
-    await loadData();
-    if (typeof setupNotifications === 'function') setupNotifications();
-
-    const initialView = window.location.hash.replace('#', '') || 'dashboard';
-    if (!currentUser) navigateTo('login');
-    else navigateTo(initialView);
-
-    window.addEventListener('hashchange', () => {
-        const v = window.location.hash.replace('#', '');
-        if (currentUser && v) navigateTo(v);
-    });
-});
-
-// --- TRANSFER FUNCTIONS BRIDGE ---
-window.handleTransferSearch = handleTransferSearch;
-window.addToTransferCart = addToTransferCart;
-window.removeFromTransferCart = removeFromTransferCart;
-window.adjustTransferQty = adjustTransferQty;
-window.executeTransfer = executeTransfer;
-
-
-
-window.seedDatabaseWithHistory = async function () {
-    if (!confirm("⚠️ REINICIO DE FACTORÍA\n\nEsto borrará todas las ventas actuales y generará un historial simulado de 60 días.\n\n¿Seguro que deseas continuar?")) return;
-
-    // Reset Sales and Movements
-    db.sales = [];
-    db.waste = [];
-    db.extraMovements = []; // Assuming this exists or needed for expenses
-
-    // Reset Funds to a base amount (as if starting 60 days ago)
-    db.businessFund = { cash: 50000, transfer: 100000, usd: 1000, eur: 500 };
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 60);
-
-    const sellers = db.users.filter(u => u.role === 'seller');
-    const products = db.products;
-
-    // Generate 60 days of activity
-    for (let i = 0; i <= 60; i++) {
-        const currentDate = new Date(startDate);
-        currentDate.setDate(currentDate.getDate() + i);
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const isToday = i === 60;
-
-        // 1. Sales (Income)
-        const dailySalesCount = Math.floor(Math.random() * 8) + 3; // 3-10 sales per day
-        for (let j = 0; j < dailySalesCount; j++) {
-            const product = products[Math.floor(Math.random() * products.length)];
-            const seller = sellers[Math.floor(Math.random() * sellers.length)] || db.users[0];
-            const qty = Math.floor(Math.random() * 5) + 1;
-            const total = product.price * qty;
-
-            // Payment Method Randomizer
-            const isTransfer = Math.random() > 0.7; // 30% Transfer
-            const payment = {
-                cash: isTransfer ? 0 : total,
-                transfer: isTransfer ? total : 0
-            };
-
-            const sale = {
-                id: Date.now() + i * 10000 + j,
-                date: new Date(currentDate.getTime() + Math.random() * 40000000).toLocaleString(), // Spread over day
-                businessId: 'mch1',
-                seller: seller.name,
-                total: total,
-                items: [{ productId: product.id, name: product.name, qty, price: product.price }],
-                payment
-            };
-
-            db.sales.push(sale);
-
-            // Update Fund (Simulating accumulation)
-            db.businessFund.cash += payment.cash;
-            db.businessFund.transfer += payment.transfer;
-        }
-
-        // 2. Expenses (Egresos) - Every 3 days approx
-        if (Math.random() > 0.6) {
-            const amount = Math.floor(Math.random() * 5000) + 1000;
-            const isUSD = Math.random() > 0.9;
-
-            const expense = {
-                id: Date.now() + i * 10000 + 999,
-                date: new Date(currentDate.getTime() + 43200000).toLocaleString(),
-                type: 'expense',
-                category: 'Servicios',
-                amount: amount,
-                currency: isUSD ? 'USD' : 'CUP',
-                description: 'Pago Servicios/Mantenimiento'
-            };
-
-            if (!db.extraMovements) db.extraMovements = [];
-            db.extraMovements.push(expense);
-
-            // Update Fund
-            if (expense.currency === 'CUP') db.businessFund.cash -= amount;
-            if (expense.currency === 'USD') db.businessFund.usd -= amount;
-        }
-    }
-
-    await saveData();
-    alert("✅ Historial Generado.\n\nSe han creado 60 días de transacciones. El fondo actual refleja toda esa actividad.");
-    location.reload(); // Refresh to catch all changes
-}
-
-window.renderCashControl = function (container) {
-    if (currentUser.role !== 'owner' && currentUser.role !== 'admin') {
-        container.innerHTML = '<div style="padding:2rem; text-align:center; color:var(--danger);"><h2>Acceso Denegado</h2></div>';
-        return;
-    }
-
-    // Default Dates: Today
-    // But we want to allow selection. We need state for selection.
-    // If we re-render, we lose state unless stored.
-    // Let's use window.cashControlState or similar, or read from DOM if exists, else default.
-
-    // Get stored dates or defaults
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-
-    // Default Start: First day of current month? Or today? 
-    // User asked "put a date to see what was there that day".
-    // Let's default Start = Today, End = Today.
-
-    if (!window.ccState) {
-        window.ccState = { start: todayStr, end: todayStr };
-    }
-
-    const fund = db.businessFund || { cash: 0, transfer: 0, usd: 0, eur: 0 };
-
-    // --- LOGIC: Reverse Calculation for "Initial Balance at StartDate" ---
-    // 1. Get Global Current Balance (Right Now) -> This is our Anchor.
-    // 2. To get Balance at Start of StartDate:
-    //    Balance_Start = Current_Global - (NetChange from Start_of_StartDate to NOW)
-    // 
-    // 3. To get Balance at End of EndDate:
-    //    Balance_End = Current_Global - (NetChange from End_of_EndDate to NOW)
-
-    // We need a helper to Calculate Net Change between two timestamps.
-    const getNetChange = (fromDate, toDate) => {
-        let change = { cash: 0, transfer: 0, usd: 0, eur: 0 };
-
-        // Sales
+        // Filter for Range Stats
         db.sales.forEach(s => {
             const d = new Date(s.date);
-            if (d >= fromDate && d <= toDate) {
-                if (s.status === 'cancelled') return;
-                change.cash += s.payment?.cash || 0;
-                change.transfer += s.payment?.transfer || 0;
+            if (d >= sDate && d <= eDate && s.status !== 'cancelled') {
+                rangeStats.mn.income += s.payment?.cash || 0;
+                rangeStats.transfer.income += s.payment?.transfer || 0;
             }
         });
 
-        // Movements (Expenses/Income)
         (db.extraMovements || []).forEach(m => {
             const d = new Date(m.date);
-            if (d >= fromDate && d <= toDate) {
-                const am = m.amount || 0;
+            if (d >= sDate && d <= eDate) {
                 if (m.type === 'expense') {
-                    if (m.currency === 'CUP') change.cash -= am;
-                    if (m.currency === 'Transfer') change.transfer -= am;
-                    if (m.currency === 'USD') change.usd -= am;
-                    if (m.currency === 'EUR') change.eur -= am;
-                } else if (m.type === 'income') {
-                    if (m.currency === 'CUP') change.cash += am;
-                    if (m.currency === 'Transfer') change.transfer += am;
+                    if (m.currency === 'CUP') rangeStats.mn.expense += m.amount;
+                    if (m.currency === 'USD') rangeStats.usd.expense += m.amount;
+                    // ...
+                } else {
+                    if (m.currency === 'CUP') rangeStats.mn.income += m.amount;
                     // ...
                 }
             }
         });
 
-        return change;
-    };
+        // --- REVERSE CALC ---
+        // Start Balance = Current Fund - (Everything from StartDate to Now)
+        // Wait, simpler:
+        // Start Balance = Current Fund - (Change from StartDate to Now) -> This gives Balance BEFORE StartDate?
+        // Let's trace:
+        // Fund_Now = Fund_Start + Change(Start->Now)
+        // => Fund_Start = Fund_Now - Change(Start->Now)
+        // Correct. This gives "Initial Balance" (morning of StartDate).
 
-    // Define Time Boundaries
-    const sDate = new Date(window.ccState.start);
-    sDate.setHours(0, 0, 0, 0); // Start of StartDate
+        const changeStartToNow = getNetChange(sDate, nowTime);
 
-    const eDate = new Date(window.ccState.end);
-    eDate.setHours(23, 59, 59, 999); // End of EndDate
+        const initialBalances = {
+            mn: fund.cash - changeStartToNow.cash,
+            transfer: fund.transfer - changeStartToNow.transfer,
+            usd: fund.usd - changeStartToNow.usd,
+            eur: fund.eur - changeStartToNow.eur
+        };
 
-    const nowTime = new Date(); // Right now
+        // Final Balance (at EndDate)
+        // Balance_End = Initial_Balance + NetChange(Range)
+        // This is what the user wants to check against.
 
-    // Changes from SELECTED RANGE (Start to End) -> For the Table Columns (Income/Expense)
-    // This is what happens WITHIN the period.
-    // Income = Sales + IncomeMoves
-    // Expense = ExpenseMoves
+        const finalBalances = {
+            mn: initialBalances.mn + (rangeStats.mn.income - rangeStats.mn.expense),
+            transfer: initialBalances.transfer + (rangeStats.transfer.income - rangeStats.transfer.expense),
+            usd: initialBalances.usd + (rangeStats.usd.income - rangeStats.usd.expense),
+            eur: initialBalances.eur + (rangeStats.eur.income - rangeStats.eur.expense)
+        };
 
-    let rangeStats = {
-        mn: { income: 0, expense: 0 },
-        transfer: { income: 0, expense: 0 },
-        usd: { income: 0, expense: 0 },
-        eur: { income: 0, expense: 0 }
-    };
+        const rows = [
+            { label: 'MN (CUP)', key: 'mn', init: initialBalances.mn, ...rangeStats.mn, final: finalBalances.mn },
+            { label: 'USD', key: 'usd', init: initialBalances.usd, ...rangeStats.usd, final: finalBalances.usd },
+            { label: 'EUR', key: 'eur', init: initialBalances.eur, ...rangeStats.eur, final: finalBalances.eur },
+            { label: 'Transferencias', key: 'transfer', init: initialBalances.transfer, ...rangeStats.transfer, final: finalBalances.transfer }
+        ];
 
-    // Filter for Range Stats
-    db.sales.forEach(s => {
-        const d = new Date(s.date);
-        if (d >= sDate && d <= eDate && s.status !== 'cancelled') {
-            rangeStats.mn.income += s.payment?.cash || 0;
-            rangeStats.transfer.income += s.payment?.transfer || 0;
-        }
-    });
-
-    (db.extraMovements || []).forEach(m => {
-        const d = new Date(m.date);
-        if (d >= sDate && d <= eDate) {
-            if (m.type === 'expense') {
-                if (m.currency === 'CUP') rangeStats.mn.expense += m.amount;
-                if (m.currency === 'USD') rangeStats.usd.expense += m.amount;
-                // ...
-            } else {
-                if (m.currency === 'CUP') rangeStats.mn.income += m.amount;
-                // ...
-            }
-        }
-    });
-
-    // --- REVERSE CALC ---
-    // Start Balance = Current Fund - (Everything from StartDate to Now)
-    // Wait, simpler:
-    // Start Balance = Current Fund - (Change from StartDate to Now) -> This gives Balance BEFORE StartDate?
-    // Let's trace:
-    // Fund_Now = Fund_Start + Change(Start->Now)
-    // => Fund_Start = Fund_Now - Change(Start->Now)
-    // Correct. This gives "Initial Balance" (morning of StartDate).
-
-    const changeStartToNow = getNetChange(sDate, nowTime);
-
-    const initialBalances = {
-        mn: fund.cash - changeStartToNow.cash,
-        transfer: fund.transfer - changeStartToNow.transfer,
-        usd: fund.usd - changeStartToNow.usd,
-        eur: fund.eur - changeStartToNow.eur
-    };
-
-    // Final Balance (at EndDate)
-    // Balance_End = Initial_Balance + NetChange(Range)
-    // This is what the user wants to check against.
-
-    const finalBalances = {
-        mn: initialBalances.mn + (rangeStats.mn.income - rangeStats.mn.expense),
-        transfer: initialBalances.transfer + (rangeStats.transfer.income - rangeStats.transfer.expense),
-        usd: initialBalances.usd + (rangeStats.usd.income - rangeStats.usd.expense),
-        eur: initialBalances.eur + (rangeStats.eur.income - rangeStats.eur.expense)
-    };
-
-    const rows = [
-        { label: 'MN (CUP)', key: 'mn', init: initialBalances.mn, ...rangeStats.mn, final: finalBalances.mn },
-        { label: 'USD', key: 'usd', init: initialBalances.usd, ...rangeStats.usd, final: finalBalances.usd },
-        { label: 'EUR', key: 'eur', init: initialBalances.eur, ...rangeStats.eur, final: finalBalances.eur },
-        { label: 'Transferencias', key: 'transfer', init: initialBalances.transfer, ...rangeStats.transfer, final: finalBalances.transfer }
-    ];
-
-    container.innerHTML = `
+        container.innerHTML = `
         <div class="fade-in">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
                 <h2 style="margin:0;"><i class="ph ph-money"></i> Control de Efectivo</h2>
@@ -6193,105 +6204,105 @@ window.renderCashControl = function (container) {
             </div>
         </div>
     `;
-    updateTitle('Control de Efectivo');
-    rows.forEach(r => calculateDifference(r.key, r.final));
-}
-
-window.updateCCDates = function () {
-    const s = document.getElementById('cc-start').value;
-    const e = document.getElementById('cc-end').value;
-    if (s > e) {
-        alert("La fecha de inicio no puede ser mayor que la de fin.");
-        return;
-    }
-    window.ccState = { start: s, end: e };
-    renderCashControl(document.getElementById('content-area'));
-}
-
-window.calculateDifference = function (key, systemVal) {
-    const input = document.getElementById(`real-${key}`);
-    const diffEl = document.getElementById(`diff-${key}`);
-    if (!input || !diffEl) return;
-
-    const real = parseFloat(input.value) || 0;
-    const diff = real - systemVal;
-
-    diffEl.innerText = `$${diff.toFixed(2)}`;
-    diffEl.style.color = diff === 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--warning)');
-};
-
-// --- RESPONSIVE UI HELPERS ---
-
-function setupResponsiveUI() {
-    console.log("📱 Setting up Responsive UI...");
-
-    // 1. Inject Hamburger Button if missing
-    const topBar = document.querySelector('.top-bar');
-    if (topBar && !document.getElementById('mobile-menu-btn')) {
-        const btn = document.createElement('button');
-        btn.id = 'mobile-menu-btn';
-        btn.innerHTML = '<i class="ph ph-list"></i>';
-        btn.onclick = toggleSidebar;
-        topBar.prepend(btn); // Add to left of Title
+        updateTitle('Control de Efectivo');
+        rows.forEach(r => calculateDifference(r.key, r.final));
     }
 
-    // 2. Create Sidebar Overlay if missing
-    if (!document.querySelector('.sidebar-overlay')) {
-        const overlay = document.createElement('div');
-        overlay.classList.add('sidebar-overlay');
-        overlay.onclick = closeSidebar; // Click outside closes
-        document.body.appendChild(overlay);
+    window.updateCCDates = function () {
+        const s = document.getElementById('cc-start').value;
+        const e = document.getElementById('cc-end').value;
+        if (s > e) {
+            alert("La fecha de inicio no puede ser mayor que la de fin.");
+            return;
+        }
+        window.ccState = { start: s, end: e };
+        renderCashControl(document.getElementById('content-area'));
     }
 
-    // 3. Add Close Listeners to Sidebar Links (Mobile UX)
-    // When a link is clicked on mobile, sidebar should close
-    const sidebar = document.querySelector('.sidebar');
-    if (sidebar) {
-        sidebar.addEventListener('click', (e) => {
-            if (e.target.closest('li')) {
-                closeSidebar();
-            }
-        });
+    window.calculateDifference = function (key, systemVal) {
+        const input = document.getElementById(`real-${key}`);
+        const diffEl = document.getElementById(`diff-${key}`);
+        if (!input || !diffEl) return;
+
+        const real = parseFloat(input.value) || 0;
+        const diff = real - systemVal;
+
+        diffEl.innerText = `$${diff.toFixed(2)}`;
+        diffEl.style.color = diff === 0 ? 'var(--success)' : (diff < 0 ? 'var(--danger)' : 'var(--warning)');
+    };
+
+    // --- RESPONSIVE UI HELPERS ---
+
+    function setupResponsiveUI() {
+        console.log("📱 Setting up Responsive UI...");
+
+        // 1. Inject Hamburger Button if missing
+        const topBar = document.querySelector('.top-bar');
+        if (topBar && !document.getElementById('mobile-menu-btn')) {
+            const btn = document.createElement('button');
+            btn.id = 'mobile-menu-btn';
+            btn.innerHTML = '<i class="ph ph-list"></i>';
+            btn.onclick = toggleSidebar;
+            topBar.prepend(btn); // Add to left of Title
+        }
+
+        // 2. Create Sidebar Overlay if missing
+        if (!document.querySelector('.sidebar-overlay')) {
+            const overlay = document.createElement('div');
+            overlay.classList.add('sidebar-overlay');
+            overlay.onclick = closeSidebar; // Click outside closes
+            document.body.appendChild(overlay);
+        }
+
+        // 3. Add Close Listeners to Sidebar Links (Mobile UX)
+        // When a link is clicked on mobile, sidebar should close
+        const sidebar = document.querySelector('.sidebar');
+        if (sidebar) {
+            sidebar.addEventListener('click', (e) => {
+                if (e.target.closest('li')) {
+                    closeSidebar();
+                }
+            });
+        }
     }
-}
 
-window.toggleSidebar = function () {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
-    if (sidebar) sidebar.classList.toggle('show-sidebar');
-    if (overlay) overlay.classList.toggle('active');
-}
-
-window.closeSidebar = function () {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.querySelector('.sidebar-overlay');
-    if (sidebar) sidebar.classList.remove('show-sidebar');
-    if (overlay) overlay.classList.remove('active');
-}
-
-// Ensure theme toggle is robust
-const originalToggleTheme = window.toggleTheme;
-window.toggleTheme = function () {
-    // 1. Update State
-    db.settings.theme = db.settings.theme === 'light' ? 'dark' : 'light';
-
-    // 2. Apply Immediately (Visual Feedback)
-    if (db.settings.theme === 'light') {
-        document.body.classList.add('theme-light');
-    } else {
-        document.body.classList.remove('theme-light');
+    window.toggleSidebar = function () {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (sidebar) sidebar.classList.toggle('show-sidebar');
+        if (overlay) overlay.classList.toggle('active');
     }
 
-    // 3. Save (Background)
-    saveData();
+    window.closeSidebar = function () {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.querySelector('.sidebar-overlay');
+        if (sidebar) sidebar.classList.remove('show-sidebar');
+        if (overlay) overlay.classList.remove('active');
+    }
 
-    // 4. Re-render Sidebar (to update Icon)
-    // We pass currentView to maintain active state
-    renderSidebar(currentView);
-};
+    // Ensure theme toggle is robust
+    const originalToggleTheme = window.toggleTheme;
+    window.toggleTheme = function () {
+        // 1. Update State
+        db.settings.theme = db.settings.theme === 'light' ? 'dark' : 'light';
 
-// Hook into Initialization
-const originalLoad = window.onload; // or duplicate listener approach
-window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(setupResponsiveUI, 100); // Slight delay to ensure DOM readiness
-});
+        // 2. Apply Immediately (Visual Feedback)
+        if (db.settings.theme === 'light') {
+            document.body.classList.add('theme-light');
+        } else {
+            document.body.classList.remove('theme-light');
+        }
+
+        // 3. Save (Background)
+        saveData();
+
+        // 4. Re-render Sidebar (to update Icon)
+        // We pass currentView to maintain active state
+        renderSidebar(currentView);
+    };
+
+    // Hook into Initialization
+    const originalLoad = window.onload; // or duplicate listener approach
+    window.addEventListener('DOMContentLoaded', () => {
+        setTimeout(setupResponsiveUI, 100); // Slight delay to ensure DOM readiness
+    });
