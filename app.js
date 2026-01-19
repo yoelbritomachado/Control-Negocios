@@ -3958,65 +3958,119 @@ async function saveNewProduct() {
 }
 
 
+
 function showEditProductModal(id) {
     const p = db.products.find(prod => prod.id === id);
     if (!p) return;
 
-    const inv = selectedBusinessId ? db.inventory.find(i => i.productId === id && i.businessId === selectedBusinessId) : null;
+    // Determine current stock if in a business context
+    const inv = selectedBusinessId ? db.inventory.find(i => i.productId === id && String(i.businessId) === String(selectedBusinessId)) : null;
     const stock = inv ? inv.quantity : 0;
 
     const modalHtml = `
             <div id="edit-product-modal" class="modal-overlay" style="display:flex;">
-                <div class="card" style="width:500px; padding:2rem;">
-                    <h3>Editar Producto</h3>
-                    <form id="edit-product-form" onsubmit="event.preventDefault(); updateProduct(${id});">
-                        <div class="form-group">
-                            <label>Nombre del Producto</label>
-                            <input type="text" name="name" value="${p.name}" class="input-field" required>
+                <div class="card" style="width: 800px; max-width: 95vw; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-card); border-radius: 12px;">
+                    
+                    <!-- 1. Header -->
+                    <div style="background: #1e3a8a; color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <i class="ph ph-arrow-left" style="cursor: pointer;" onclick="closeModal('edit-product-modal')"></i>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 500;">Editar Producto</h3>
                         </div>
-                        <div class="form-group grid-2">
-                            <div>
-                                <label>Precio Costo</label>
-                                <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-field" required>
-                            </div>
-                            <div>
-                                <label>Precio Venta</label>
-                                <input type="number" step="0.01" name="price" value="${p.price}" class="input-field" required>
-                            </div>
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" onclick="updateProduct(${id})" style="background: none; border: none; color: white; cursor: pointer;">
+                                <i class="ph ph-check" style="font-size: 1.5rem;"></i>
+                            </button>
                         </div>
-                        ${selectedBusinessId ? `
-                    <div class="form-group">
-                        <label>Existencia en ${db.businesses.find(b => b.id === selectedBusinessId).name}</label>
-                        <input type="number" name="stock" value="${stock}" class="input-field" required>
-                    </div>` : ''}
-                        <div class="form-group">
-                            <label>Categoría</label>
-                            <input type="text" name="category" value="${p.category || ''}" class="input-field">
-                        </div>
-                        <div class="form-group">
-                            <label>Cambiar Imagen</label>
-                            <input type="file" accept="image/*" onchange="handleImageUploadEdit(this)" class="input-field">
-                                <input type="hidden" name="image" id="product-image-data-edit" value="${p.image || ''}">
-                                    <div id="image-preview-edit" style="margin-top:1rem; text-align:center;">
-                                        ${p.image ? `<img src="${p.image}" style="width:100px; height:100px; border-radius:8px; object-fit:cover;">` : ''}
+                    </div>
+
+                    <div style="padding: 2rem; overflow-y: auto; max-height: 80vh;">
+                         <form id="edit-product-form">
+                            <!-- 2. Main Fields -->
+                            <div style="margin-bottom: 2rem; background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
+                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Información Principal</h4>
+                                
+                                <div style="margin-bottom: 1.5rem;">
+                                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Nombre</label>
+                                    <input type="text" name="name" value="${p.name}" class="input-minimal" style="width: 100%; font-size: 1.1rem; padding: 0.5rem 0;" required>
+                                </div>
+
+                                <div class="grid-2" style="gap: 2rem;">
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Costo</label>
+                                        <input type="number" step="0.01" name="cost" value="${p.cost}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" required>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Precio Venta</label>
+                                        <input type="number" step="0.01" name="price" value="${p.price}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" required>
                                     </div>
                                 </div>
-                                <div style="display:flex; gap:1rem; margin-top:2rem;">
-                                    <button type="submit" class="btn-primary" style="flex:1;">Actualizar</button>
-                                    <button type="button" class="btn-ghost" onclick="closeModal('edit-product-modal')">Cancelar</button>
+                            </div>
+
+                            <!-- 3. Image Area -->
+                            <div style="margin-bottom: 2rem; display: flex; justify-content: center; align-items: center; background: var(--bg-dark); padding: 2rem; border-radius: 8px; border: 2px dashed var(--border); position: relative; min-height: 250px;">
+                                
+                                <input type="file" id="edit-product-img-input" accept="image/*" onchange="handleImageUploadEdit(this)" style="display: none;">
+                                <input type="hidden" name="image" id="edit-product-image-data" value="${p.image || ''}">
+                                <input type="hidden" name="thumbnail" id="edit-product-thumb-data" value="${p.thumbnail || ''}">
+
+                                <div id="edit-image-placeholder-area" style="text-align: center; color: var(--text-muted); display: ${p.image ? 'none' : 'block'}; pointer-events: none;">
+                                    <i class="ph ph-question" style="font-size: 4rem; opacity: 0.5;"></i>
+                                    <p style="margin-top: 1rem; font-size: 0.9rem;">Sin imagen actual</p>
                                 </div>
-                            </form>
-                        </div>
+
+                                <div id="edit-image-preview-area" style="display: ${p.image ? 'flex' : 'none'}; position: absolute; top: 0; left: 0; width: 100%; height: 100%; justify-content: center; align-items: center;">
+                                    <img id="edit-preview-img-tag" src="${p.image || ''}" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 8px;">
+                                </div>
+
+                                <div style="position: absolute; bottom: 1rem; right: 1rem; display: flex; gap: 0.5rem;">
+                                     <button type="button" class="btn-icon" onclick="document.getElementById('edit-product-image-data').value = ''; document.getElementById('edit-preview-img-tag').src = ''; document.getElementById('edit-image-preview-area').style.display='none'; document.getElementById('edit-image-placeholder-area').style.display='block';" title="Eliminar Foto" style="background: rgba(0,0,0,0.6); color: white;">
+                                        <i class="ph ph-x"></i>
+                                    </button>
+                                    <button type="button" class="btn-icon" onclick="document.getElementById('edit-product-img-input').click()" title="Cambiar Foto" style="background: rgba(0,0,0,0.6); color: white;">
+                                        <i class="ph ph-image"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 4. Contextual Fields -->
+                            <div style="background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
+                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Ajustes</h4>
+                                <div class="grid-2" style="gap: 2rem;">
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Categoría</label>
+                                        <input type="text" name="category" value="${p.category || ''}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" list="categories-list">
+                                    </div>
+                                    ${selectedBusinessId ? `
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Existencia Actual (${db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name})</label>
+                                        <input type="number" name="stock" value="${stock}" class="input-minimal" style="width: 100%; padding: 0.5rem 0;">
+                                    </div>` : ''}
+                                </div>
+                            </div>
+
+                         </form>
+                    </div>
                 </div>
+            </div>
         `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 function handleImageUploadEdit(input) {
     if (input.files && input.files[0]) {
-        compressImage(input.files[0], (base64) => {
-            document.getElementById('product-image-data-edit').value = base64;
-            document.getElementById('image-preview-edit').innerHTML = `<img src="${base64}" style="width:100px; height:100px; border-radius:8px; object-fit:cover;">`;
+        compressImage(input.files[0], (result) => {
+            const imgData = result.main || result;
+            const thumbData = result.thumb || result;
+
+            document.getElementById('edit-product-image-data').value = imgData;
+            document.getElementById('edit-product-thumb-data').value = thumbData;
+
+            const preview = document.getElementById('edit-preview-img-tag');
+            preview.src = imgData;
+
+            document.getElementById('edit-image-placeholder-area').style.display = 'none';
+            document.getElementById('edit-image-preview-area').style.display = 'flex';
         });
     }
 }
@@ -4027,30 +4081,43 @@ async function updateProduct(id) {
         return;
     }
     const form = document.getElementById('edit-product-form');
+    // Basic validation
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
     const formData = new FormData(form);
     const pIndex = db.products.findIndex(prod => prod.id === id);
     if (pIndex === -1) return;
 
+    // Update core fields
     db.products[pIndex].name = formData.get('name');
     db.products[pIndex].cost = parseFloat(formData.get('cost'));
     db.products[pIndex].price = parseFloat(formData.get('price'));
     db.products[pIndex].category = formData.get('category');
     db.products[pIndex].image = formData.get('image');
+    db.products[pIndex].thumbnail = formData.get('thumbnail'); // Update thumbnail
 
+    // Update stock if applicable
     if (selectedBusinessId) {
-        let inv = db.inventory.find(i => i.productId === id && i.businessId === selectedBusinessId);
+        let inv = db.inventory.find(i => i.productId === id && String(i.businessId) === String(selectedBusinessId));
+        const newQty = parseFloat(formData.get('stock'));
+
         if (!inv) {
-            inv = { businessId: selectedBusinessId, productId: id, quantity: 0 };
+            inv = { businessId: selectedBusinessId, productId: id, quantity: newQty };
             db.inventory.push(inv);
+        } else {
+            inv.quantity = newQty;
         }
-        inv.quantity = parseFloat(formData.get('stock'));
     }
 
     await saveData();
-    addLog(`Producto actualizado: ${db.products[pIndex].name} `);
+    addLog(`Producto actualizado: ${db.products[pIndex].name}`);
     closeModal('edit-product-modal');
     renderInventory(document.getElementById('content-area'));
 }
+
 // REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
 
 function handleInventoryImageClick(id) {
