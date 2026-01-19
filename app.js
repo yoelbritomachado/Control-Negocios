@@ -857,7 +857,7 @@ function renderVentas(container) {
                 ? `SESSION_${s.sessionId}`
                 : `${day}_${s.businessId}_${s.seller}`;
 
-            if (!db.expenseCategories) {
+            if (!db.expenseCategories || db.expenseCategories.length === 0) {
                 db.expenseCategories = [
                     { id: 1, name: 'Limpieza', allowedRoles: 'all' },
                     { id: 2, name: 'Gastos comunes', allowedRoles: 'admin' },
@@ -1088,8 +1088,8 @@ function renderInventory(container) {
                 </div>
 
                 <div class="pc-image-container">
-                    ${i.image
-                ? `<img src="${i.image}" class="pc-image" alt="${i.name}">`
+                    ${(i.thumbnail || i.image)
+                ? `<img src="${i.thumbnail || i.image}" class="pc-image" alt="${i.name}">`
                 : `<div style="color:var(--text-muted); font-size:3rem;"><i class="ph ph-image"></i></div>`
             }
                     <div class="pc-actions">
@@ -3761,6 +3761,7 @@ function zoomImage(src, name) {
     document.body.appendChild(overlay);
 }
 
+
 function compressImage(file, callback) {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -3768,80 +3769,150 @@ function compressImage(file, callback) {
         const img = new Image();
         img.src = event.target.result;
         img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const MAX_SIZE = 512;
-            let width = img.width;
-            let height = img.height;
+            // 1. Calculate Crop (Square Center)
+            const side = Math.min(img.width, img.height);
+            const sx = (img.width - side) / 2;
+            const sy = (img.height - side) / 2;
 
-            if (width > height) {
-                if (width > MAX_SIZE) {
-                    height *= MAX_SIZE / width;
-                    width = MAX_SIZE;
-                }
-            } else {
-                if (height > MAX_SIZE) {
-                    width *= MAX_SIZE / height;
-                    height = MAX_SIZE;
-                }
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            callback(canvas.toDataURL('image/jpeg', 0.8));
+            // 2. Generate Main Image (512x512)
+            const canvasMain = document.createElement('canvas');
+            canvasMain.width = 512;
+            canvasMain.height = 512;
+            const ctxMain = canvasMain.getContext('2d');
+            ctxMain.drawImage(img, sx, sy, side, side, 0, 0, 512, 512);
+            const mainBase64 = canvasMain.toDataURL('image/jpeg', 0.85);
+
+            // 3. Generate Thumbnail (64x64) for icons/list views
+            const canvasThumb = document.createElement('canvas');
+            canvasThumb.width = 64;
+            canvasThumb.height = 64;
+            const ctxThumb = canvasThumb.getContext('2d');
+            ctxThumb.drawImage(img, sx, sy, side, side, 0, 0, 64, 64);
+            const thumbBase64 = canvasThumb.toDataURL('image/jpeg', 0.70);
+
+            // Return both
+            callback({ main: mainBase64, thumb: thumbBase64 });
         };
     };
 }
 
+
+
 function showAddProductModal() {
+    // Clean specific styles for this modal to match the user's sketch
     const modalHtml = `
             <div id="product-modal" class="modal-overlay" style="display:flex;">
-                <div class="card" style="width:500px; padding:2rem;">
-                    <h3>Nuevo Producto</h3>
-                    <form id="add-product-form" onsubmit="event.preventDefault(); saveNewProduct();">
-                        <div class="form-group">
-                            <label>Nombre del Producto</label>
-                            <input type="text" name="name" class="input-field" required>
+                <div class="card" style="width: 800px; max-width: 95vw; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--bg-card); border-radius: 12px;">
+                    
+                    <!-- 1. Header (Blue/Dark Bar) -->
+                    <div style="background: #1e3a8a; color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <i class="ph ph-arrow-left" style="cursor: pointer;" onclick="closeModal('product-modal')"></i>
+                            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 500;">Agregar Producto</h3>
                         </div>
-                        <div class="form-group grid-2">
-                            <div>
-                                <label>Precio Costo</label>
-                                <input type="number" step="0.01" name="cost" class="input-field" required>
+                        <div style="display: flex; gap: 1rem;">
+                            <button type="button" onclick="saveNewProduct()" style="background: none; border: none; color: white; cursor: pointer;">
+                                <i class="ph ph-check" style="font-size: 1.5rem;"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div style="padding: 2rem; overflow-y: auto; max-height: 80vh;">
+                        <form id="add-product-form">
+                            
+                            <!-- 2. Mandatory Fields Row -->
+                            <div style="margin-bottom: 2rem; background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
+                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Campos Obligatorios</h4>
+                                
+                                <div style="margin-bottom: 1.5rem;">
+                                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;"><i class="ph ph-package"></i> Nombre</label>
+                                    <input type="text" name="name" class="input-minimal" style="width: 100%; font-size: 1.1rem; padding: 0.5rem 0;" placeholder="Nombre del producto" required>
+                                </div>
+
+                                <div class="grid-2" style="gap: 2rem;">
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Costo</label>
+                                        <input type="number" step="0.01" name="cost" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" placeholder="0.00" required>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Precio de Venta</label>
+                                        <input type="number" step="0.01" name="price" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" placeholder="0.00" required>
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <label>Precio Venta</label>
-                                <input type="number" step="0.01" name="price" class="input-field" required>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Categoría</label>
-                            <input type="text" name="category" class="input-field" list="categories-list">
-                                <datalist id="categories-list">
-                                    ${[...new Set(db.products.map(p => p.category))].map(c => `<option value="${c}">`).join('')}
-                                </datalist>
-                        </div>
-                        <div class="form-group">
-                            <label>Imagen del Producto</label>
-                            <input type="file" accept="image/*" onchange="handleImageUpload(this)" class="input-field">
+
+                            <!-- 3. Central Image Area -->
+                            <div style="margin-bottom: 2rem; display: flex; justify-content: center; align-items: center; background: var(--bg-dark); padding: 2rem; border-radius: 8px; border: 2px dashed var(--border); position: relative; min-height: 250px;">
+                                
+                                <input type="file" id="product-img-input" accept="image/*" onchange="handleImageUpload(this)" style="display: none;">
                                 <input type="hidden" name="image" id="product-image-data">
-                                    <div id="image-preview" style="margin-top:1rem; text-align:center;"></div>
+                                <input type="hidden" name="thumbnail" id="product-thumb-data">
+
+                                <div id="image-placeholder-area" style="text-align: center; color: var(--text-muted); pointer-events: none;">
+                                    <i class="ph ph-question" style="font-size: 4rem; opacity: 0.5;"></i>
+                                    <p style="margin-top: 1rem; font-size: 0.9rem;">Sin imagen seleccionada</p>
                                 </div>
-                                <div style="display:flex; gap:1rem; margin-top:2rem;">
-                                    <button type="submit" class="btn-primary" style="flex:1;">Guardar</button>
-                                    <button type="button" class="btn-ghost" onclick="closeModal('product-modal')">Cancelar</button>
+
+                                <div id="image-preview-area" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; justify-content: center; align-items: center;">
+                                    <img id="preview-img-tag" src="" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 8px;">
                                 </div>
-                            </form>
-                        </div>
+
+                                <!-- Image Actions Floating Bottom Right -->
+                                <div style="position: absolute; bottom: 1rem; right: 1rem; display: flex; gap: 0.5rem;">
+                                    <button type="button" class="btn-icon" onclick="document.getElementById('product-image-data').value = ''; document.getElementById('preview-img-tag').src = ''; document.getElementById('image-preview-area').style.display='none'; document.getElementById('image-placeholder-area').style.display='block';" title="Eliminar Foto" style="background: rgba(0,0,0,0.6); color: white;">
+                                        <i class="ph ph-x"></i>
+                                    </button>
+                                    <button type="button" class="btn-icon" onclick="document.getElementById('product-img-input').click()" title="Galería" style="background: rgba(0,0,0,0.6); color: white;">
+                                        <i class="ph ph-image"></i>
+                                    </button>
+                                    <button type="button" class="btn-icon" onclick="alert('Funcionalidad de cámara directa disponible en móviles.')" title="Cámara" style="background: rgba(0,0,0,0.6); color: white;">
+                                        <i class="ph ph-camera"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 4. Optional Fields -->
+                             <div style="background: var(--bg-hover); padding: 1.5rem; border-radius: 8px;">
+                                <h4 style="margin-top: 0; margin-bottom: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">*Campos Opcionales</h4>
+                                <div class="grid-2" style="gap: 2rem;">
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Cantidad Inicial</label>
+                                        <input type="number" name="initial_stock" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" placeholder="0">
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">Categoría</label>
+                                        <input type="text" name="category" class="input-minimal" style="width: 100%; padding: 0.5rem 0;" list="categories-list" placeholder="General">
+                                    </div>
+                                </div>
+                             </div>
+
+                             <datalist id="categories-list">
+                                ${[...new Set(db.products.map(p => p.category))].map(c => `<option value="${c}">`).join('')}
+                             </datalist>
+
+                        </form>
+                    </div>
                 </div>
+            </div>
         `;
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 }
 
 function handleImageUpload(input) {
     if (input.files && input.files[0]) {
-        compressImage(input.files[0], (base64) => {
-            document.getElementById('product-image-data').value = base64;
-            document.getElementById('image-preview').innerHTML = `<img src="${base64}" style="width:100px; height:100px; border-radius:8px; object-fit:cover;">`;
+        compressImage(input.files[0], (result) => {
+            // Updated to handle object return {main, thumb}
+            const imgData = result.main || result; // Fallback if old function
+            const thumbData = result.thumb || result;
+
+            document.getElementById('product-image-data').value = imgData;
+            document.getElementById('product-thumb-data').value = thumbData;
+
+            const preview = document.getElementById('preview-img-tag');
+            preview.src = imgData;
+
+            document.getElementById('image-placeholder-area').style.display = 'none';
+            document.getElementById('image-preview-area').style.display = 'flex';
         });
     }
 }
@@ -3852,6 +3923,11 @@ async function saveNewProduct() {
         return;
     }
     const form = document.getElementById('add-product-form');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
     const formData = new FormData(form);
     const newProduct = {
         id: Date.now(),
@@ -3860,23 +3936,27 @@ async function saveNewProduct() {
         price: parseFloat(formData.get('price')),
         category: formData.get('category') || 'General',
         image: formData.get('image'),
+        thumbnail: formData.get('thumbnail'), // New Field
         alias: ''
     };
     db.products.push(newProduct);
 
-    // Si estamos en un contexto de negocio, inicializar stock en 0
+    // Initial Stock Handling
+    const initialQty = parseFloat(formData.get('initial_stock') || 0);
+
     if (selectedBusinessId) {
-        db.inventory.push({ businessId: selectedBusinessId, productId: newProduct.id, quantity: 0 });
+        db.inventory.push({ businessId: selectedBusinessId, productId: newProduct.id, quantity: initialQty });
     } else {
         // En vista global, inicializar en Almacén por defecto
-        db.inventory.push({ businessId: 'alm', productId: newProduct.id, quantity: 0 });
+        db.inventory.push({ businessId: 'alm', productId: newProduct.id, quantity: initialQty });
     }
 
     await saveData();
-    addLog(`Producto añadido: ${newProduct.name} `, 'success');
+    addLog(`Producto añadido: ${newProduct.name}`, 'success');
     closeModal('product-modal');
     renderInventory(document.getElementById('content-area'));
 }
+
 
 function showEditProductModal(id) {
     const p = db.products.find(prod => prod.id === id);
