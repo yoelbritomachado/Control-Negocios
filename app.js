@@ -857,6 +857,29 @@ function renderVentas(container) {
                 ? `SESSION_${s.sessionId}`
                 : `${day}_${s.businessId}_${s.seller}`;
 
+            if (!db.expenseCategories) {
+                db.expenseCategories = [
+                    { id: 1, name: 'Limpieza', allowedRoles: 'all' },
+                    { id: 2, name: 'Gastos comunes', allowedRoles: 'admin' },
+                    { id: 3, name: 'Área', allowedRoles: 'all' },
+                    { id: 4, name: 'Licencia', allowedRoles: 'admin' },
+                    { id: 5, name: 'Custodios', allowedRoles: 'admin' },
+                    { id: 6, name: 'Mantenimiento', allowedRoles: 'admin' },
+                    { id: 7, name: 'Inspectores', allowedRoles: 'admin' },
+                    { id: 8, name: 'Multas', allowedRoles: 'admin' },
+                    { id: 9, name: 'Javitas chicas', allowedRoles: 'admin' },
+                    { id: 10, name: 'Javas grandes', allowedRoles: 'admin' }
+                ];
+            } else {
+                // Migration: Check for legacy 'enabledForSeller' and convert to 'allowedRoles'
+                db.expenseCategories.forEach(c => {
+                    if (c.allowedRoles === undefined) {
+                        c.allowedRoles = c.enabledForSeller ? 'all' : 'admin';
+                        delete c.enabledForSeller;
+                    }
+                });
+            }
+
             if (!sessions[groupKey]) {
                 sessions[groupKey] = {
                     id: s.sessionId || s.id, // ID representativo del grupo
@@ -1000,7 +1023,13 @@ function renderVentas(container) {
     }
 }
 
+
+let inventorySortBy = 'name'; // Global state for sorting
+
 function renderInventory(container) {
+    if (!container) return; // Guard clause
+
+    // 1. Prepare Items
     let items = [];
     if (selectedBusinessId) {
         items = db.products.map(p => {
@@ -1018,76 +1047,185 @@ function renderInventory(container) {
         items = items.filter(i => i.stock > 0);
     }
 
+    // 2. Sort Items
+    if (inventorySortBy === 'name') {
+        items.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (inventorySortBy === 'date') {
+        items.sort((a, b) => b.id - a.id); // Newer ID = Newer Date
+    } else if (inventorySortBy === 'stock') {
+        items.sort((a, b) => a.stock - b.stock);
+    } else if (inventorySortBy === 'stock_desc') {
+        items.sort((a, b) => b.stock - a.stock);
+    } else if (inventorySortBy === 'sales') {
+        // Calculate sales on the fly (expensive but fine for small DB)
+        const salesMap = {};
+        db.sales.forEach(s => {
+            if (s.status === 'closed' || s.status === 'approved') {
+                if (!selectedBusinessId || String(s.businessId) === String(selectedBusinessId)) {
+                    s.items.forEach(i => {
+                        const pid = i.productId || i.id;
+                        salesMap[pid] = (salesMap[pid] || 0) + i.qty;
+                    });
+                }
+            }
+        });
+        items.sort((a, b) => (salesMap[b.id] || 0) - (salesMap[a.id] || 0));
+    }
+
+    // 3. Render
     const cards = items.map(i => {
-        const isSelected = selectedProducts.has(i.id);
-        const stockStatus = i.stock <= 0 ? 'out' : i.stock < 10 ? 'low' : 'ok';
-        const stockLabel = i.stock <= 0 ? 'Agotado' : i.stock < 10 ? 'Stock Bajo' : 'En Stock';
+        // Semaphore Logic
+        let semClass = 'green';
+        if (i.stock <= 0) semClass = 'red';
+        else if (i.stock < 10) semClass = 'yellow';
 
         return `
-            <div class="product-card ${isSelected ? 'selected' : ''}" onclick="event.stopPropagation(); toggleProductSelection(${i.id})">
-                <div class="product-card-image">
-                    <span class="product-card-badge badge-${stockStatus}">${stockLabel}</span>
-                    ${i.image ? `<img src="${i.image}" alt="${i.name}">` : `<i class="ph ph-package"></i>`}
+            <div class="product-card-v2" onclick="showEditProductModal(${i.id})">
+                <div class="pc-semaphore ${semClass}" title="Estado: ${semClass}"></div>
+                
+                <div class="pc-header">
+                    <div class="pc-title" title="${i.name}">${i.name}</div>
                 </div>
-                <div class="product-card-content">
-                    <h3 class="product-card-title">${i.name}</h3>
-                    <div class="product-card-footer">
-                        <div class="product-card-price">$${i.price.toFixed(2)}</div>
-                        <div class="product-card-stock">${i.stock}</div>
+
+                <div class="pc-image-container">
+                    ${i.image
+                ? `<img src="${i.image}" class="pc-image" alt="${i.name}">`
+                : `<div style="color:var(--text-muted); font-size:3rem;"><i class="ph ph-image"></i></div>`
+            }
+                    <div class="pc-actions">
+                         <div class="pc-action-btn" onclick="event.stopPropagation(); showEditProductModal(${i.id})">
+                            <i class="ph ph-pencil-simple"></i>
+                         </div>
+                         ${selectedBusinessId ? `
+                         <div class="pc-action-btn" onclick="event.stopPropagation(); showMermaModal(${i.id})">
+                             <i class="ph ph-trash"></i>
+                         </div>
+                         ` : ''}
                     </div>
-                    ${currentUser.role !== 'seller' ? `
-                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                            <button class="btn btn-ghost btn-sm" style="flex: 1;" onclick="event.stopPropagation(); navigateTo('product-detail'); renderProductDetailById(${i.id})">
-                                <i class="ph ph-eye"></i> Detalles
-                            </button>
-                            ${selectedBusinessId ? `
-                                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); showWasteModal(${i.id})">
-                                    <i class="ph ph-warning-circle"></i>
-                                </button>
-                            ` : ''}
-                        </div>
-                    ` : ''}
+                </div>
+
+                <div class="pc-footer">
+                    <div class="pc-col">
+                        <span class="pc-qty-label">Cant</span>
+                        <span class="pc-qty-value" style="color: ${i.stock <= 0 ? 'var(--danger)' : 'var(--primary)'}">${i.stock}</span>
+                    </div>
+                    <div class="pc-col" style="align-items: flex-end;">
+                        <span class="pc-price-label">Precio</span>
+                        <span class="pc-price-value">$${i.price.toFixed(2)}</span>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
 
+    const businessName = selectedBusinessId ? db.businesses.find(b => String(b.id) === String(selectedBusinessId))?.name : 'Consolidado';
+
     container.innerHTML = `
         <div class="fade-in">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                <p style="color: var(--text-muted); margin: 0;">Gestiona tus productos, stock y precios de forma visual.</p>
-                <div style="display: flex; gap: 1rem;">
+            <!-- Toolbar from Sketch -->
+            <div class="inventory-toolbar">
+                <div class="inventory-actions">
                     ${currentUser.role !== 'seller' ? `
-                        <button class="btn-secondary" onclick="exportInventoryPDF()"><i class="ph ph-file-pdf"></i> PDF</button>
-                        <button class="btn-secondary" onclick="exportInventoryCSV()"><i class="ph ph-file-csv"></i></button>
+                        <button class="btn-merma" style="padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onclick="showWasteModal()">
+                            <i class="ph ph-warning-circle"></i> Merma
+                        </button>
+                        
+                        <div style="position: relative; display: inline-block;">
+                            <button class="btn-secondary" onclick="document.getElementById('csv-import-input').click()">
+                                <i class="ph ph-upload-simple"></i> Importar
+                            </button>
+                            <input type="file" id="csv-import-input" accept=".csv" style="display: none;" onchange="importInventoryCSV(this)">
+                        </div>
+
+                        <div style="position: relative; display: inline-block;">
+                            <button class="btn-secondary" onclick="toggleExportMenu()">
+                                <i class="ph ph-download-simple"></i> Exportar
+                            </button>
+                            <div id="export-dropdown" style="display: none; position: absolute; top: 110%; left: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; z-index: 100; min-width: 150px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                                <div class="dropdown-item" onclick="exportInventoryCSV()">
+                                    <i class="ph ph-file-csv"></i> CSV (.csv)
+                                </div>
+                                <div class="dropdown-item" onclick="exportInventoryPDFWrapper()">
+                                    <i class="ph ph-file-pdf"></i> PDF (Lista)
+                                </div>
+                            </div>
+                        </div>
                     ` : ''}
                 </div>
+
+                <div class="search-container">
+                    <i class="ph ph-magnifying-glass search-icon"></i>
+                    <input type="text" class="search-input" placeholder="Buscar producto..." onkeyup="filterInventoryRender(this.value)">
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Ordenar por:</span>
+                    <select onchange="updateInventorySort(this.value)" class="biz-input" style="padding: 0.5rem; border-radius: 8px;">
+                        <option value="name" ${inventorySortBy === 'name' ? 'selected' : ''}>Nombre (A-Z)</option>
+                        <option value="date" ${inventorySortBy === 'date' ? 'selected' : ''}>Fecha Entrada</option>
+                        <option value="sales" ${inventorySortBy === 'sales' ? 'selected' : ''}>Más Vendidos</option>
+                        <option value="stock" ${inventorySortBy === 'stock' ? 'selected' : ''}>Menor Stock</option>
+                        <option value="stock_desc" ${inventorySortBy === 'stock_desc' ? 'selected' : ''}>Mayor Stock</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="inventory-grid">
-                ${cards || '<div style="grid-column: 1/-1; padding: 4rem; text-align: center; color: var(--text-muted); background: var(--bg-dark); border-radius: 16px; border: 1px dashed var(--border);">No hay productos registrados</div>'}
+            <h2 style="margin-bottom: 1.5rem; padding-left: 0.5rem;">${businessName} (${items.length} productos)</h2>
+
+            <div class="inventory-grid" id="inventory-grid-container">
+                ${cards.length > 0 ? cards : '<div style="grid-column: 1/-1; padding: 3rem; text-align: center; color: var(--text-muted);">No se encontraron productos.</div>'}
             </div>
 
-            ${currentUser.role !== 'seller' ? `
-                <button class="fab" onclick="showAddProductModal()" title="Nuevo Producto">
+             ${currentUser.role !== 'seller' ? `
+            <div id="fab-container" class="fab-container">
+                <button class="fab-main" onclick="showAddProductModal()">
                     <i class="ph ph-plus"></i>
                 </button>
-                
-                <div class="selection-bar ${selectedProducts.size > 0 ? 'active' : ''}">
-                    <div class="selection-count">
-                        <i class="ph ph-check-square"></i> ${selectedProducts.size} seleccionados
-                    </div>
-                    <div class="selection-actions">
-                        <button class="selection-btn" onclick="clearProductSelection()">Cancelar</button>
-                        <button class="selection-btn" onclick="adjustSelectedStock()"><i class="ph ph-arrows-down-up"></i> Ajustar Stock</button>
-                        <button class="selection-btn danger" onclick="deleteSelectedProducts()"><i class="ph ph-trash"></i> Eliminar</button>
-                    </div>
-                </div>
+            </div>
             ` : ''}
         </div>
     `;
-    updateTitle(selectedBusinessId ? `Existencias: ${db.businesses.find(b => b.id === selectedBusinessId).name}` : 'Inventario Consolidado');
+    updateTitle('Gestión de Inventario');
 }
+
+// Helper for filtering without full re-render logic duplication (simplified for now)
+function filterInventoryRender(query) {
+    const grid = document.getElementById('inventory-grid-container');
+    const cards = grid.getElementsByClassName('product-card-v2');
+    const q = query.toLowerCase();
+
+    Array.from(cards).forEach(card => {
+        const title = card.querySelector('.pc-title').innerText.toLowerCase();
+        if (title.includes(q)) {
+            card.style.display = 'flex';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+function updateInventorySort(val) {
+    inventorySortBy = val;
+    renderInventory(document.getElementById('content-area'));
+}
+
+function toggleExportMenu() {
+    const el = document.getElementById('export-dropdown');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+
+    // Auto close
+    if (el.style.display === 'block') {
+        setTimeout(() => {
+            document.addEventListener('click', function close(e) {
+                if (!e.target.closest('#export-dropdown') && !e.target.closest('button')) {
+                    el.style.display = 'none';
+                    document.removeEventListener('click', close);
+                }
+            });
+        }, 0);
+    }
+}
+
 
 function toggleProductSelection(productId) {
     if (selectedProducts.has(productId)) {
@@ -1419,6 +1557,13 @@ function renderPOS(container) {
                                 <i class="ph ${isWarehouseContext() ? 'ph-package' : 'ph-hand-coins'}"></i> 
                                 ${isWarehouseContext() ? 'TRANSFERIR MERCANCÍA' : 'COBRAR'}
                             </button>
+                            
+                            <!-- Expense Button in POS -->
+                            ${!isWarehouseContext() ? `
+                                <button class="btn-secondary" style="width: 100%; border-color: var(--danger); color: var(--danger);" onclick="showExpenseModal()">
+                                    <i class="ph ph-money-wavy"></i> REGISTRAR GASTO
+                                </button>
+                            ` : ''}
                         `}
                         
                         ${(!isReviewingClosure && currentUser.role === 'seller' && !isWarehouseContext()) ? `
@@ -1636,10 +1781,120 @@ async function registerIndividualSale() {
     if (!cashInput || !transferInput || !currencySelect) {
         // If modal not open (e.g. called from elsewhere), default to currentPaymentMethod
         showPaymentModal();
-        return;
+        // --- EXPENSE REGISTRATION LOGIC ---
+        function showExpenseModal() {
+            // 1. Filter categories based on role
+            let categories = db.expenseCategories || [];
+            const role = currentUser.role;
+
+            // Visibility Logic
+            if (role === 'owner') {
+                // Owner sees everything
+            } else if (role === 'admin') {
+                categories = categories.filter(c => c.allowedRoles === 'admin' || c.allowedRoles === 'all');
+            } else if (role === 'seller') {
+                categories = categories.filter(c => c.allowedRoles === 'seller' || c.allowedRoles === 'all');
+            }
+
+            if (categories.length === 0) {
+                alert("No hay categorías de gastos habilitadas para tu perfil.");
+                return;
+            }
+        }
+
+        const categoriesOptions = categories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+        const modalHtml = `
+        <div class="card" style="width: 400px; padding: 2rem; border-radius: 20px;">
+            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--danger);">
+                <i class="ph ph-money-wavy"></i> Registrar Gasto
+            </h2>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Concepto / Categoría</label>
+                <div style="position: relative;">
+                    <i class="ph ph-tag" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);"></i>
+                    <select id="expense-category" class="input-field" style="padding-left: 3rem;">
+                        ${categoriesOptions}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Monto</label>
+                <div style="position: relative;">
+                    <i class="ph ph-money" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--danger);"></i>
+                    <input type="number" id="expense-amount" step="0.01" class="input-field" style="padding-left: 3rem;" placeholder="0.00">
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Detalles Adicionales (Opcional)</label>
+                <textarea id="expense-details" class="input-field" rows="2" placeholder="Ej: Compra de detergente..."></textarea>
+            </div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn-ghost" style="flex: 1;" onclick="closeModal('expense-modal')">Cancelar</button>
+                <button class="btn-primary" style="flex: 2; background: var(--danger);" onclick="registerExpense()">
+                    REGISTRAR
+                </button>
+            </div>
+        </div>
+    `;
+        showModal('expense-modal', modalHtml);
     }
 
-    const cash = parseFloat(cashInput.value || 0);
+    async function registerExpense() {
+        const category = document.getElementById('expense-category').value;
+        const amountVal = document.getElementById('expense-amount').value;
+        const details = document.getElementById('expense-details').value;
+
+        if (!amountVal || parseFloat(amountVal) <= 0) {
+            alert("Ingresa un monto válido.");
+            return;
+        }
+
+        const amount = parseFloat(amountVal);
+        const businessId = selectedBusinessId || 'mch1';
+
+        // Check Funds (Simple check against cash for now, can be expanded)
+        // if (db.businessFund.cash < amount) { if(!confirm("Advertencia: El monto excede el efectivo en caja central. ¿Continuar?")) return; }
+
+        const expense = {
+            id: Date.now(),
+            type: 'EXPENSE',
+            date: new Date().toLocaleString(),
+            timestamp: Date.now(),
+            businessId: businessId,
+            seller: currentUser.name,
+            sellerId: currentUser.id,
+            items: [{ name: category, qty: 1, price: amount }], // Formatting as item for consistency
+            total: amount,
+            payment: { cash: amount, transfer: 0, currency: 'mn' }, // Expenses usually paid in cash
+            details: `${category} - ${details}`,
+            status: 'registered',
+            sessionId: currentSessionStartTime || Date.now()
+        };
+
+        db.sales.unshift(expense);
+
+        // Update Funds (If linked to central fund logic, otherwise it's just a negative sale in the session)
+        // db.businessFund.cash -= amount; 
+
+        addLog(`Gasto registrado: ${category} - $${amount.toFixed(2)}`, 'warning');
+        await saveData();
+
+        closeModal('expense-modal');
+        alert("Gasto registrado correctamente.");
+
+        if (currentView === 'pos') {
+            renderTodaySalesList();
+            renderPOS(document.getElementById('content-area')); // Refresh dashboard stats
+        } else if (currentView === 'ventas') {
+            renderVentas(document.getElementById('content-area'));
+        }
+    }
+
     const transfer = parseFloat(transferInput.value || 0);
     const currencyCode = currencySelect.value || 'mn';
     const totalValue = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
@@ -2593,6 +2848,7 @@ function renderFinancials(container) {
             </div>
         </div>
     `;
+    updateTitle('Reportes y Estadísticas');
 }
 function renderReportes(container) {
     const totalSales = db.sales.reduce((sum, s) => sum + (s.total || 0), 0);
@@ -2702,32 +2958,51 @@ function renderSettings(container) {
                 </div>
             </div>
 
-            <!-- Expense Categories Management (Owner Only) -->
+            <!-- Expense Categories Management (Owner Only) - SKETCH IMPLEMENTATION -->
             ${currentUser.role === 'owner' ? `
-            <div class="card" style="margin-top: 2rem;">
-                <h3><i class="ph ph-list-checks"></i> Categorías de Gastos</h3>
-                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-                    Define qué conceptos de gasto pueden registrarse. Marca "Visible Vendedor" para que aparezcan en el POS.
-                </p>
+            <div class="card" style="margin-top: 2rem; padding: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;"><i class="ph ph-list-checks"></i> Categorías de Gastos</h3>
                 
-                <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
-                    <input type="text" id="new-expense-cat" placeholder="Nueva categoría..." class="input-field">
-                    <button class="btn-primary" onclick="addExpenseCategory()">Agregar</button>
-                </div>
-
-                <div id="expense-cat-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
-                    ${(db.expenseCategories || []).map(cat => `
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--bg-hover); border-radius: 8px;">
-                            <span style="font-weight: 500;">${cat.name}</span>
-                            <div style="display: flex; align-items: center; gap: 1rem;">
-                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem;">
-                                    <input type="checkbox" ${cat.enabledForSeller ? 'checked' : ''} onchange="toggleExpenseCatVisibility(${cat.id})">
-                                    Visible Vendedor
-                                </label>
-                                <button class="btn-icon" onclick="deleteExpenseCategory(${cat.id})" style="color: var(--danger);"><i class="ph ph-trash"></i></button>
-                            </div>
-                        </div>
-                    `).join('')}
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: var(--bg-dark); border-bottom: 2px solid var(--border);">
+                                <th style="text-align: left; padding: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">Categoría</th>
+                                <th style="text-align: left; padding: 1rem; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; width: 40%;">Permisos</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${(db.expenseCategories || []).map(cat => `
+                                <tr style="border-bottom: 1px solid var(--border);">
+                                    <td style="padding: 0.75rem 1rem;">
+                                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                                            <span style="font-weight: 600; font-size: 1rem;">${cat.name}</span>
+                                            <button onclick="deleteExpenseCategory(${cat.id})" style="background: none; border: none; cursor: pointer; color: var(--danger); display: flex; align-items: center; justify-content: center; padding: 0.2rem; border-radius: 50%;">
+                                                 <i class="ph ph-minus-circle" style="font-size: 1.5rem;"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td style="padding: 0.75rem 1rem;">
+                                        <div style="position: relative;">
+                                            <select class="input-field" style="width: 100%; padding: 0.5rem; font-size: 0.9rem; border-radius: 8px; appearance: none; -webkit-appearance: none; background: var(--bg-hover);" 
+                                                    onchange="updateExpenseCategoryRole(${cat.id}, this.value)">
+                                                <option value="all" ${cat.allowedRoles === 'all' ? 'selected' : ''}>Todos (Público)</option>
+                                                <option value="admin" ${cat.allowedRoles === 'admin' ? 'selected' : ''}>Admin (Privado)</option>
+                                                <option value="seller" ${cat.allowedRoles === 'seller' ? 'selected' : ''}>Vendedor (Exclusivo)</option>
+                                            </select>
+                                            <i class="ph ph-caret-down" style="position: absolute; right: 0.8rem; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted);"></i>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    
+                    <div style="padding: 1rem; text-align: center; border-top: 1px solid var(--border); background: var(--bg-hover);">
+                        <button onclick="showAddExpenseCategoryPopup()" style="background: none; border: none; cursor: pointer; color: var(--primary);">
+                            <i class="ph ph-plus-circle" style="font-size: 3rem; transition: transform 0.2s;"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             ` : ''}
@@ -2736,11 +3011,35 @@ function renderSettings(container) {
     updateTitle('Configuración');
 }
 
-// --- EXPENSE CATEGORY LOGIC ---
-window.addExpenseCategory = async function () {
-    const input = document.getElementById('new-expense-cat');
+// --- EXPENSE CATEGORY LOGIC REFACTORED ---
+window.showAddExpenseCategoryPopup = function () {
+    const modalHtml = `
+        <div class="card" style="width: 320px; padding: 2rem; border-radius: 20px; text-align: center;">
+            <div style="width: 60px; height: 60px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); color: var(--primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                <i class="ph ph-tag" style="font-size: 2rem;"></i>
+            </div>
+            <h3 style="margin-bottom: 0.5rem;">Nueva Categoría</h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Ingresa el nombre del gasto</p>
+            
+            <input type="text" id="new-cat-name-popup" class="input-field" placeholder="Ej: Transporte, Comida..." style="margin-bottom: 1.5rem; text-align: center;">
+            
+            <div style="display: flex; gap: 0.75rem;">
+                <button class="btn-ghost" style="flex: 1;" onclick="closeModal('cat-popup')">Cancelar</button>
+                <button class="btn-primary" style="flex: 1;" onclick="confirmAddExpenseCategory()">Crear</button>
+            </div>
+        </div>
+    `;
+    showModal('cat-popup', modalHtml);
+    setTimeout(() => document.getElementById('new-cat-name-popup').focus(), 100);
+};
+
+window.confirmAddExpenseCategory = async function () {
+    const input = document.getElementById('new-cat-name-popup');
     const name = input.value.trim();
-    if (!name) return;
+    if (!name) {
+        alert("El nombre no puede estar vacío");
+        return;
+    }
 
     if (!db.expenseCategories) db.expenseCategories = [];
     const newId = (db.expenseCategories.length > 0 ? Math.max(...db.expenseCategories.map(c => c.id)) : 0) + 1;
@@ -2748,26 +3047,32 @@ window.addExpenseCategory = async function () {
     db.expenseCategories.push({
         id: newId,
         name: name,
-        enabledForSeller: false // Default to hidden
+        allowedRoles: 'all' // Default to All
     });
 
     await saveData();
+    closeModal('cat-popup');
     renderSettings(document.getElementById('content-area'));
 };
 
+window.updateExpenseCategoryRole = async function (id, role) {
+    const cat = db.expenseCategories.find(c => c.id === id);
+    if (cat) {
+        cat.allowedRoles = role;
+        await saveData();
+    }
+};
+
 window.deleteExpenseCategory = async function (id) {
-    if (!confirm("¿Eliminar esta categoría?")) return;
+    if (!confirm("¿Eliminar esta categoría permanentemente?")) return;
     db.expenseCategories = db.expenseCategories.filter(c => c.id !== id);
     await saveData();
     renderSettings(document.getElementById('content-area'));
 };
 
 window.toggleExpenseCatVisibility = async function (id) {
-    const cat = db.expenseCategories.find(c => c.id === id);
-    if (cat) {
-        cat.enabledForSeller = !cat.enabledForSeller;
-        await saveData();
-    }
+    // Deprecated but kept for safety
+    updateExpenseCategoryRole(id, 'all');
 };
 function renderLogs(container) {
     const rows = db.logs.slice(0, 50).map(l => `<tr><td style="padding: 0.5rem;">${l.date}</td><td>${l.user}</td><td>${l.action}</td><td>${l.details}</td></tr>`).join('');
@@ -3791,32 +4096,65 @@ function importInventoryCSV(input) {
 }
 
 // --- PDF EXPORT ---
-async function exportInventoryPDF() {
+
+function exportInventoryPDFWrapper() {
+    const withImages = confirm("¿Deseas incluir las imágenes de los productos en el reporte PDF?\n\n(Nota: Esto aumentará el tamaño del archivo)");
+    exportInventoryPDF(withImages);
+}
+
+async function exportInventoryPDF(withImages = false) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-    const businessName = selectedBusinessId ? db.businesses.find(b => b.id === selectedBusinessId).name : 'Global';
+    const businessName = selectedBusinessId ? db.businesses.find(b => String(b.id) === String(selectedBusinessId)).name : 'Global';
 
     doc.setFontSize(18);
-    doc.text(`Inventario: ${businessName} `, 14, 20);
+    doc.text(`Inventario: ${businessName}`, 14, 20);
     doc.setFontSize(10);
-    doc.text(`Generado el: ${new Date().toLocaleString()} `, 14, 28);
+    doc.text(`Generado el: ${new Date().toLocaleString()}`, 14, 28);
 
-    const products = db.products.map(p => {
-        const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && i.businessId === selectedBusinessId)?.quantity || 0) :
+    const items = db.products.map(p => {
+        const stock = selectedBusinessId ? (db.inventory.find(i => i.productId === p.id && String(i.businessId) === String(selectedBusinessId))?.quantity || 0) :
             db.inventory.filter(i => i.productId === p.id).reduce((s, i) => s + i.quantity, 0);
-        return [p.name, p.category, stock, `$${p.cost.toFixed(2)} `, `$${p.price.toFixed(2)} `];
-    });
+
+        if (currentUser.role === 'seller' && stock <= 0) return null; // Logic consistency
+
+        const row = [p.name, p.category, stock, `$${p.cost.toFixed(2)}`, `$${p.price.toFixed(2)}`];
+        if (withImages) row.unshift(''); // Placeholder for image
+        return { row, image: p.image };
+    }).filter(i => i !== null);
+
+    const head = withImages
+        ? [['Imagen', 'Producto', 'Categoría', 'Stock', 'Costo', 'Venta']]
+        : [['Producto', 'Categoría', 'Stock', 'Costo', 'Venta']];
+
+    const body = items.map(i => i.row);
 
     doc.autoTable({
-        head: [['Producto', 'Categoría', 'Existencia', 'Costo', 'Venta']],
-        body: products,
+        head: head,
+        body: body,
         startY: 35,
         theme: 'grid',
-        headStyles: { fillColor: [63, 185, 80] }
+        headStyles: { fillColor: [63, 185, 80] },
+        styles: { valign: 'middle' },
+        columnStyles: withImages ? { 0: { cellWidth: 20, minCellHeight: 20 } } : {},
+        didDrawCell: function (data) {
+            if (withImages && data.column.index === 0 && data.cell.section === 'body') {
+                const itemIndex = data.row.index;
+                const imgBase64 = items[itemIndex].image;
+                if (imgBase64) {
+                    try {
+                        doc.addImage(imgBase64, 'JPEG', data.cell.x + 2, data.cell.y + 2, 16, 16);
+                    } catch (e) {
+                        // Fallback or ignore invalid image
+                    }
+                }
+            }
+        }
     });
 
     doc.save(`Inventario_${businessName}.pdf`);
 }
+
 
 // --- SALE DETAIL ---
 

@@ -9,7 +9,7 @@
 > * **Acción Continua:** Si una tarea tiene varios pasos, ejecútalos de forma secuencial sin detenerte a preguntar.
 > 
 > ### 2. Coordinación Multi-Agente (CRÍTICO)
-> * **Git Sync por Iteración:** Al iniciar cualquier tarea, debes hacer `git pull` para obtener los cambios del otro agente. Al finalizar, debes hacer `git push` OBLIGATORIAMENTE.
+> * **Git Sync por Iteración (CLOUD UPDATE REQUIRED):** Es OBLIGATORIO mantener el proyecto en la nube actualizado. Al iniciar: `git pull`. Al finalizar cualquier unidad de trabajo: `git push`.
 > * **Lectura de Memoria:** Antes de cualquier modificación, es obligatorio leer este archivo. Debes respetar las zonas de código marcadas por el otro agente.
 > * **Registro de Cambios:** Al finalizar una modificación importante en `app.js`, `data.js` o `index.html`, debes actualizar brevemente la sección "Registro de Progreso" al final de este documento.
 > 
@@ -92,3 +92,13 @@
 - **Despliegue**: Se preparó la aplicación para ser alojada en **Netlify** (Static Hosting), permitiendo acceso multi-dispositivo.
 - **Protocolo de Agentes**:
     - **CUALQUIER AGENTE** que modifique `app.js` **NO DEBE** re-declarar `db` ni functions de persistencia (`saveData`, `loadData`). Usar siempre `window.db` y `window.saveData()`.
+
+### 2026-01-19 - Overhaul Diseño Responsivo (Mobile First)
+- **POS Mobile**: Reestructuración total de la vista POS para móviles (< 768px).
+    - Layout cambia a vertical (Buscador Arriba, Carrito Abajo).
+    - Implementación de **Sticky Footer** (Barra de Pago Flotante) para facilitar el cobro sin scroll.
+- **Navegación**: Sidebar se oculta automáticamente en móviles y se accede vía "Menú Hamburguesa".
+- **Global CSS**: 
+    - Tablas con scroll horizontal automático (`overflow-x: auto`) para evitar roturas.
+    - Grids (`.grid-3`, `.inventory-grid`) convertidos a `repeat(auto-fit)` para escalar fluidamente.
+- **Fix**: Reparado bug visual en `window.toggleTheme` para cambio instantáneo de color.

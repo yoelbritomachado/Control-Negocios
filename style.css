@@ -1766,3 +1766,288 @@ html, body {
         gap: 1rem !important;
     }
 }
+/* --- POS MOBILE LAYOUT FIXES (< 768px) --- */
+@media screen and (max-width: 768px) {
+
+    /* 1. Stack Main Layout */
+    .pos-container,
+    div[style*="display: grid"][style*="grid-template-columns: 2fr 1fr"] {
+        display: flex !important;
+        flex-direction: column !important;
+        height: auto !important;
+        padding-bottom: 80px !important;
+        /* Space for sticky footer */
+    }
+
+    /* 2. Search Section (Top) */
+    .pos-left-panel {
+        width: 100% !important;
+        order: 1;
+    }
+
+    .pos-search-container {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: var(--bg-card);
+        padding: 0.5rem;
+    }
+
+    /* 3. Products Grid */
+    #pos-products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)) !important;
+        gap: 0.5rem !important;
+    }
+
+    .pos-product-card {
+        padding: 0.5rem !important;
+    }
+
+    .pos-product-card img {
+        height: 80px !important;
+    }
+
+    .pos-product-card h3 {
+        font-size: 0.8rem !important;
+    }
+
+    /* 4. Cart Section (Bottom) */
+    .pos-right-panel {
+        width: 100% !important;
+        order: 2;
+        margin-top: 1rem;
+    }
+
+    /* 5. Sticky Footer (Payment) */
+    .pos-footer-sticky {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: var(--bg-card);
+        border-top: 1px solid var(--primary);
+        padding: 0.75rem 1rem;
+        z-index: 9999;
+        box-shadow: 0 -5px 20px rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        animation: slideUp 0.3s ease-out;
+    }
+
+    .pos-footer-sticky .total-display {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--primary);
+    }
+
+    .pos-footer-sticky button {
+        padding: 0.5rem 2rem;
+        font-size: 1.1rem;
+    }
+}
+
+/* --- INVENTORY OVERHAUL STYLES --- */
+
+.inventory-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-card);
+    padding: 1rem;
+    border-radius: 16px;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.inventory-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.search-container {
+    position: relative;
+    flex: 1;
+    min-width: 250px;
+}
+
+.search-input {
+    width: 100%;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    padding: 0.75rem 1rem 0.75rem 2.5rem;
+    border-radius: 8px;
+    color: var(--text-main);
+    font-size: 0.95rem;
+}
+
+.search-icon {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 1.1rem;
+}
+
+.inventory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.5rem;
+}
+
+/* Product Card V2 (Sketch Match) */
+.product-card-v2 {
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px;
+    padding: 1.25rem;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 320px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.product-card-v2:hover {
+   transform: translateY(-5px);
+   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+   border-color: var(--primary);
+}
+
+.pc-header {
+    margin-bottom: 0.5rem;
+    padding-right: 2rem; 
+    height: 1.5rem; /* fixed height for alignment */
+}
+
+.pc-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-main);
+    font-family: var(--font-ui);
+}
+
+.pc-semaphore {
+    position: absolute;
+    top: 1.25rem;
+    right: 1.25rem;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    /* box-shadow handled by modifiers */
+}
+
+.pc-semaphore.green { background: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
+.pc-semaphore.yellow { background: #f59e0b; box-shadow: 0 0 12px rgba(245, 158, 11, 0.6); }
+.pc-semaphore.red { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.6); }
+
+.pc-image-container {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    margin: 0.5rem 0 1rem;
+    background: var(--bg-hover);
+    border-radius: 16px;
+    border: 1px solid var(--border);
+    position: relative; 
+}
+
+.pc-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.product-card-v2:hover .pc-image {
+    transform: scale(1.05);
+}
+
+.pc-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+}
+
+.pc-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.pc-qty-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+}
+
+.pc-qty-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--primary); /* Blue/Purple per sketch? Sketch used blue for qty */
+}
+
+.pc-price-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: right;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 0.2rem;
+}
+
+.pc-price-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--success); /* Green per sketch */
+}
+
+.pc-actions {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    gap: 0.5rem;
+    opacity: 0;
+    transition: all 0.3s ease;
+    z-index: 5;
+}
+
+.product-card-v2:hover .pc-actions {
+    opacity: 1;
+}
+
+.pc-action-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+}
+
+.pc-action-btn:hover {
+    background: var(--primary);
+    transform: scale(1.1);
+}
+
