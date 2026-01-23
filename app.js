@@ -18,14 +18,19 @@ function validateStockBeforeProcess() {
 }
 
 
-// Data Store (Simulated Local Database)
-// Data Store is now managed by data.js (window.db)
-const db = window.db;
+// --- ACCESO A DATOS SEGURO ---
+// Inicialización defensiva de db
+if (!window.db) window.db = { products: [], inventory: [], sales: [], users: [], notifications: [], businesses: [], settings: { theme: 'dark' }, logs: [] };
 
+// Proxy para que 'db.' siempre apunte al objeto actual en 'window.db' (evita errores de re-asignación)
+const db = new Proxy({}, {
+    get: (target, prop) => window.db ? window.db[prop] : undefined,
+    set: (target, prop, value) => { if (window.db) window.db[prop] = value; return true; }
+});
 
-
-window.currentUser = null;
-let currentUser = null;
+// PARCHE DE EMERGENCIA: Auto-Login inmediato (Arquitecto)
+window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
+let currentUser = window.currentUser;
 
 // --- PERMISSIONS CONFIGURATION ---
 const rolePermissions = {

@@ -1,5 +1,7 @@
 import { dbFirestore, doc, getDoc, setDoc, onSnapshot } from './firebase-config.js';
 
+console.log('📦 Data Layer - Iniciando...');
+
 // Initialize DB immediately to prevent ReferenceErrors in app.js
 window.db = {
   products: [],

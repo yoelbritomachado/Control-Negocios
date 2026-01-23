@@ -20,6 +20,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+    <!-- Core Logic (data.js debe ir antes que app.js) -->
+    <script src="data.js" type="module"></script>
+    <script src="app.js?v=4.0" defer></script>
 </head>
 
 <body>
@@ -190,9 +194,6 @@
             <i class="ph ph-plus"></i>
         </button>
     </div>
-
-    <script src="data.js" type="module"></script>
-    <script src="app.js?v=3.1" defer></script>
 
 </body>
 
