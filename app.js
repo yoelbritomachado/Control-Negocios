@@ -5397,39 +5397,44 @@ window.toggleTheme = function () {
     // We pass currentView to maintain active state
     renderSidebar(currentView);
 };
-window.addEventListener('load', async () => {
-    console.log('🚀 Sistema Reconstruido - Iniciando (Load Event)...');
+// --- BLOQUE DE INICIO MAESTRO (RESTAURACIÓN) ---
+window.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 Restaurando MCH Control en Local...');
 
-    // Esperar un momento para asegurar que data.js (módulo) se haya cargado completamente
-    if (typeof window.loadData !== 'function') {
-        console.warn('⚠️ loadData no disponible inmediatamente. Reintentando en 200ms...');
-        await new Promise(r => setTimeout(r, 200));
-    }
+    // 1. FORZAR IDENTIDAD: Esto elimina la necesidad de login y contraseñas
+    window.currentUser = {
+        name: 'Dueño',
+        role: 'owner',
+        businessId: 'alm' // Entra directo al Almacén
+    };
+    // Asegurar que el contexto local se actualice (Sincronización Arquitecto)
+    selectedBusinessId = 'alm';
+    currentUser = window.currentUser;
 
+
+    // 2. CARGA DE DATOS: Asegura que Firebase y los productos estén listos
     if (typeof window.loadData === 'function') {
         await window.loadData();
     } else {
-        console.error('❌ Error Crítico: loadData no disponible. El sistema no puede arrancar.');
+        console.error('Error: El archivo data.js no respondió.');
         return;
     }
 
-    setupResponsiveUI();
+    // 3. ACTIVAR INTERFAZ: Aplica el diseño de 40px y modo oscuro
+    if (typeof setupResponsiveUI === 'function') setupResponsiveUI();
     if (typeof applyTheme === 'function') applyTheme();
 
-    // Sincronizar contexto si ya hay un usuario (Bypass Arquitecto)
-    if (window.currentUser) {
-        selectedBusinessId = (window.currentUser.role === 'owner') ? null : 'mch1';
-    }
-
+    // 4. NAVEGACIÓN DIRECTA: Salta el login y va al Dashboard
     const initView = window.location.hash.replace('#', '') || 'dashboard';
-    if (!window.currentUser) {
-        window.navigateTo('login');
+    if (typeof navigateTo === 'function') {
+        navigateTo(initView);
     } else {
-        window.navigateTo(initView);
+        console.error('Error: La función de navegación está dañada.');
     }
 
     window.addEventListener('hashchange', () => {
         const v = window.location.hash.replace('#', '');
-        if (window.currentUser && v) window.navigateTo(v);
+        if (window.currentUser && v) navigateTo(v);
     });
 });
+
