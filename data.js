@@ -1,3 +1,5 @@
+import { dbFirestore, doc, getDoc, setDoc, onSnapshot } from './firebase-config.js';
+
 // Initialize DB immediately to prevent ReferenceErrors in app.js
 window.db = {
   products: [],

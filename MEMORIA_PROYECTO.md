@@ -110,3 +110,10 @@
 - **Nuevo**: Se creó el sistema de habilidades en `.agent/skills/creador_habilidades/`.
 - **Estandarización**: Se definió el formato oficial para nuevas habilidades usando `SKILL.md` con metadatos YAML.
 - **Propósito**: Facilitar la expansión del sistema permitiendo la creación guiada de nuevos roles y capacidades en español.
+
+### 2026-01-23 - Bypass de Seguridad y QA Validator (Arquitecto)
+- **Mejora**: Eliminada la validación de PIN/Gmail para roles en `app.js` para agilizar el desarrollo local.
+- **Feature**: Implementado **Auto-Login** como `Owner` al cargar la aplicación.
+- **Skill**: Creada la habilidad "Cazador de Errores" en `.agent/skills/qa_validator/SKILL.md`.
+- **Fix**: Reparado `ReferenceError: db is not defined` en `app.js` asegurando el acceso global a `window.db`.
+- **Fix**: Reparado fallo de conexión a Firebase en `data.js` agregando las importaciones faltantes de `firebase-config.js`.
