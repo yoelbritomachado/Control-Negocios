@@ -117,3 +117,14 @@
 - **Skill**: Creada la habilidad "Cazador de Errores" en `.agent/skills/qa_validator/SKILL.md`.
 - **Fix**: Reparado `ReferenceError: db is not defined` en `app.js` asegurando el acceso global a `window.db`.
 - **Fix**: Reparado fallo de conexión a Firebase en `data.js` agregando las importaciones faltantes de `firebase-config.js`.
+### 2026-01-23 - Parche de Emergencia: Estabilización de Carga (Arquitecto)
+- **Fix**: Implementado **Proxy de base de datos** en `app.js` para asegurar que las referencias a `db.` siempre apunten al objeto global actualizado.
+- **Mejora**: `window.currentUser` se inicializa ahora al inicio de `app.js`, garantizando bypass total de login incluso antes del `DOMContentLoaded`.
+- **Carga**: Reordenados los scripts en `index.html` (dentro del `<head>` con `defer`) para asegurar que `data.js` se ejecute antes que `app.js`.
+- **Verificación**: Comprobada la sintaxis de `app.js` y `data.js` (cero errores en node -c).
+### 2026-01-23 - Estabilización Crítica de Referencias y Carga (Arquitecto)
+- **Fix**: Refactorizado `data.js` para usar `Object.assign` en lugar de re-asignar `window.db`, manteniendo vivas las referencias en `app.js`.
+- **Fix**: Corregido anidamiento accidental de `navigateTo` dentro de `logout` en `app.js`.
+- **Compatibilidad**: `navigateTo` ahora es global (`window.navigateTo`) pero mantiene una declaración local para llamadas internas.
+- **Carga**: Scripts movidos definitivamente al final del `<body>` en `index.html` para un orden de ejecución determinista.
+- **Bypass**: Confirmado el auto-login inmediato como Owner al inicio de la carga.

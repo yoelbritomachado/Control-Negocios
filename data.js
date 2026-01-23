@@ -28033,7 +28033,10 @@ window.loadData = async function () {
 
     if (docSnap.exists()) {
       console.log('☁️ Datos encontrados en la NUBE. Descargando...');
-      window.db = docSnap.data();
+      // Mantenemos la referencia de window.db viva actualizando sus propiedades
+      const remoteData = docSnap.data();
+      Object.keys(window.db).forEach(key => delete window.db[key]);
+      Object.assign(window.db, remoteData);
       finalizeLoad();
 
       // Listen for realtime updates from OTHER devices
@@ -28059,7 +28062,9 @@ window.loadData = async function () {
 function loadFromLocal() {
   const raw = localStorage.getItem('bizControlData');
   if (raw) {
-    window.db = JSON.parse(raw);
+    const localData = JSON.parse(raw);
+    Object.keys(window.db).forEach(key => delete window.db[key]);
+    Object.assign(window.db, localData);
     finalizeLoad();
   } else {
     initializeDatabase();

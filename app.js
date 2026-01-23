@@ -19,18 +19,21 @@ function validateStockBeforeProcess() {
 
 
 // --- ACCESO A DATOS SEGURO ---
-// Inicialización defensiva de db
-if (!window.db) window.db = { products: [], inventory: [], sales: [], users: [], notifications: [], businesses: [], settings: { theme: 'dark' }, logs: [] };
-
-// Proxy para que 'db.' siempre apunte al objeto actual en 'window.db' (evita errores de re-asignación)
-const db = new Proxy({}, {
-    get: (target, prop) => window.db ? window.db[prop] : undefined,
-    set: (target, prop, value) => { if (window.db) window.db[prop] = value; return true; }
-});
+// Inicialización defensiva de db (Misma estructura que data.js)
+if (!window.db) {
+    window.db = {
+        products: [], inventory: [], sales: [], users: [],
+        notifications: [], businesses: [], logs: [],
+        settings: { theme: 'dark' },
+        businessFund: { cash: 100000, transfer: 0, usd: 0, eur: 0 }
+    };
+}
+const db = window.db; // Referencia directa (Proxy removido por simplicidad y compatibilidad)
 
 // PARCHE DE EMERGENCIA: Auto-Login inmediato (Arquitecto)
+// Se asegura que estas variables sean globales
 window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
-let currentUser = window.currentUser;
+var currentUser = window.currentUser;
 
 // --- PERMISSIONS CONFIGURATION ---
 const rolePermissions = {
@@ -290,6 +293,7 @@ function changeBusinessContext(val) {
 
 window.logout = function () {
     currentUser = null;
+    window.currentUser = null;
     currentView = 'login';
     selectedBusinessId = null;
     selectedProducts.clear();
@@ -351,12 +355,20 @@ function navigateTo(viewId) {
         case 'mermas':
             if (typeof renderMermas === 'function') renderMermas(container);
             break;
+        case 'financials':
+            if (typeof renderFinancials === 'function') renderFinancials(container);
+            break;
+        case 'reportes':
+            if (typeof renderReportes === 'function') renderReportes(container);
+            break;
         default:
-            if (viewId !== 'login') {
-                container.innerHTML = `<div style="padding:2rem; text-align:center;"><h2>Vista no encontrada: ${viewId}</h2></div>`;
-            }
+            if (typeof renderDashboard === 'function') renderDashboard(container);
     }
+
+    updateTitle(viewId.charAt(0).toUpperCase() + viewId.slice(1).replace('-', ' '));
 }
+window.navigateTo = navigateTo;
+
 
 function updateTitle(text) {
     document.getElementById('page-title').innerText = text;
@@ -5385,23 +5397,39 @@ window.toggleTheme = function () {
     // We pass currentView to maintain active state
     renderSidebar(currentView);
 };
-window.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Sistema Reconstruido - Iniciando...');
-    if (typeof window.loadData === 'function') { await window.loadData(); } else { console.error('Error: loadData no disponible.'); return; }
+window.addEventListener('load', async () => {
+    console.log('🚀 Sistema Reconstruido - Iniciando (Load Event)...');
+
+    // Esperar un momento para asegurar que data.js (módulo) se haya cargado completamente
+    if (typeof window.loadData !== 'function') {
+        console.warn('⚠️ loadData no disponible inmediatamente. Reintentando en 200ms...');
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    if (typeof window.loadData === 'function') {
+        await window.loadData();
+    } else {
+        console.error('❌ Error Crítico: loadData no disponible. El sistema no puede arrancar.');
+        return;
+    }
+
     setupResponsiveUI();
     if (typeof applyTheme === 'function') applyTheme();
-    // AUTO-LOGIN: Owner por defecto para desarrollo local
-    const owner = db.users.find(u => u.role === 'owner');
-    if (owner && !window.currentUser) {
-        console.log('⚡ Auto-Login: Accediendo como Owner...');
-        completeLogin(owner);
+
+    // Sincronizar contexto si ya hay un usuario (Bypass Arquitecto)
+    if (window.currentUser) {
+        selectedBusinessId = (window.currentUser.role === 'owner') ? null : 'mch1';
     }
 
     const initView = window.location.hash.replace('#', '') || 'dashboard';
-    if (!window.currentUser) navigateTo('login'); else navigateTo(initView);
+    if (!window.currentUser) {
+        window.navigateTo('login');
+    } else {
+        window.navigateTo(initView);
+    }
 
     window.addEventListener('hashchange', () => {
         const v = window.location.hash.replace('#', '');
-        if (window.currentUser && v) navigateTo(v);
+        if (window.currentUser && v) window.navigateTo(v);
     });
 });
