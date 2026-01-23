@@ -28102,6 +28102,7 @@ async function initializeDatabase() {
     { id: 'mch1', name: 'MCH 1', code: 'MCH1', icon: 'ph-storefront', color: '#3fb950', type: 'kiosk' },
     { id: 'mch2', name: 'MCH 2', code: 'MCH2', icon: 'ph-shopping-bag', color: '#d29922', type: 'kiosk' }
   ];
+  finalizeLoad(); // Seed users and settings
   await window.saveData();
 }
 

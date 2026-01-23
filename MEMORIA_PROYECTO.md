@@ -106,3 +106,7 @@
 ### 2026-01-19 - Correcciones Inventario y Datos
 - **Fix**: Inicialización de DB en `data.js` para asegurar conexión estable.
 - **Inventario**: Agregados campos `minStock` y `cantidad` en los modales de producto.
+### 2026-01-23 - Implementación de Skill "Creador de Habilidades" (Arquitecto)
+- **Nuevo**: Se creó el sistema de habilidades en `.agent/skills/creador_habilidades/`.
+- **Estandarización**: Se definió el formato oficial para nuevas habilidades usando `SKILL.md` con metadatos YAML.
+- **Propósito**: Facilitar la expansión del sistema permitiendo la creación guiada de nuevos roles y capacidades en español.
