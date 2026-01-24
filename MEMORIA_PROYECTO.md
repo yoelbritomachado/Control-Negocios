@@ -178,11 +178,10 @@
 - **Hallazgo 2**: `renderOpenSessionScreen` ha sido restaurada en `app.js` (Línea 1497) y su lógica de exposición global está activa.
 - **Acción**: Se confirma que el sistema está listo para pruebas de usuario final (`localhost:8080`).
 
-### 2026-01-24 - Refactorización Modular & Seguridad (Option B Lite)
-- **Hito**: Desacoplamiento del monolito `app.js`.
-- **Nuevos Módulos**:
-    - `js/core/security.js`: Sanitización XSS y Hashing de credenciales.
-    - `js/modules/pos.js`: Lógica de Venta, Carrito y Pagos.
-    - `js/modules/inventory.js`: Lógica de Inventario, Mermas y Edición.
-- **Estado**: `app.js` reducido en ~1700 líneas. Lógica dividida por dominios.
-- **Acción Requerida**: Verificar flujos de venta y cierre en `localhost:8080`.
+### 2026-01-24 - Hotfix: Corrección de Scope en POS (`v10.2`)
+- **Problema**: Error "cash is not defined" al cobrar.
+- **Causa**: Conflicto de scope variable en `registerIndividualSale` tras modularización.
+- **Solución**:
+    - Se reescribió `registerIndividualSale` con declaraciones explícitas y `try/catch` defensivo.
+    - Se implementó chequeo de nulidad para inputs DOM.
+    - Se incrementó versión de caché a `v10.2` en `index.html`.

@@ -447,27 +447,43 @@ window.validatePaymentSplit = function (total) {
 }
 
 window.registerIndividualSale = async function () {
-    if (posCart.length === 0) { alert("El carrito está vacío"); return; }
+    console.log("🚀 Iniciando cobro individual...");
 
-    // Inputs
+    // 1. Validate Cart
+    if (!window.posCart || window.posCart.length === 0) {
+        alert("El carrito está vacío");
+        return;
+    }
+
+    // 2. Validate Inputs
     const cashInput = document.getElementById('pay-cash-input');
     const transferInput = document.getElementById('pay-transfer-input');
     const currencySelect = document.getElementById('pay-currency-select');
 
-    // Values
-    const cash = parseFloat(cashInput.value || 0);
-    const transfer = parseFloat(transferInput.value || 0);
-    const currencyCode = currencySelect.value || 'mn';
-    const totalValue = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    if (!cashInput) { alert("Error interno: Input 'pay-cash-input' no encontrado."); return; }
+    if (!transferInput && currentUser.role === 'seller') { /* Seller might not have independent transfer input visible? check modal html */ }
+
+    // 3. Extract Values Safe
+    let cashVal = 0;
+    let transferVal = 0;
+
+    try {
+        cashVal = parseFloat(cashInput.value) || 0;
+        if (transferInput) transferVal = parseFloat(transferInput.value) || 0;
+    } catch (err) {
+        console.error("Error parsing inputs:", err);
+        alert("Error leyendo los montos.");
+        return;
+    }
+
+    const currencyCode = currencySelect ? currencySelect.value : 'mn';
+    // Calculate total from cart to match server calculation
+    const totalValue = window.posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const businessId = selectedBusinessId || 'mch1';
 
-    // Date & Time
-    const now = new Date();
-    const explicitDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : now.toISOString().split('T')[0];
-    const dateString = `${explicitDate} ${now.toLocaleTimeString([], { hour12: false })}`;
-    const timestamp = Date.now();
-    const posOpeningTime = document.getElementById('pos-open-time') ? document.getElementById('pos-open-time').value : null;
+    console.log(`💰 Datos de Cobro: Cash=$${cashVal}, Transf=$${transferVal}, Total=$${totalValue}`);
 
+    // 4. Validate Stock
     if (!validateStockBeforeProcess()) return;
 
     // --- INTEGRACIÓN: ACTUALIZAR SALDO AUTOMÁTICO ---
@@ -476,43 +492,67 @@ window.registerIndividualSale = async function () {
     }
 
     try {
-        if (editingSaleId) {
-            // ... [Edit Logic Omitted for Brevity in this specific chunk if desired, but including full for correctness]
-            const oldSale = db.sales.find(s => s.id === editingSaleId);
+        const now = new Date();
+        const explicitDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : now.toISOString().split('T')[0];
+        const dateString = `${explicitDate} ${now.toLocaleTimeString([], { hour12: false })}`;
+        const timestamp = Date.now();
+        const posOpeningTime = document.getElementById('pos-open-time') ? document.getElementById('pos-open-time').value : null;
+
+        // Common Payload Generators
+        const generateItems = () => window.posCart.map(i => ({
+            productId: i.id,
+            name: i.name,
+            qty: i.qty,
+            price: i.price
+        }));
+
+        if (window.editingSaleId) {
+            console.log("✏️ Editando Venta ID:", window.editingSaleId);
+
+            // A. Revert old stock
+            const oldSale = db.sales.find(s => s.id === window.editingSaleId);
             if (oldSale && oldSale.items) {
-                for (const item of oldSale.items) {
-                    const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(oldSale.businessId));
-                    if (inv) inv.quantity += item.qty;
-                }
+                oldSale.items.forEach(oldItem => {
+                    const inv = db.inventory.find(i => String(i.productId) === String(oldItem.productId || oldItem.id) && String(i.businessId) === String(oldSale.businessId));
+                    if (inv) inv.quantity += oldItem.qty;
+                });
             }
-            // Deduct new
-            for (const item of posCart) {
+
+            // B. Deduct New Stock
+            window.posCart.forEach(item => {
                 const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
                 if (inv) inv.quantity -= item.qty;
                 else db.inventory.push({ productId: item.id, businessId: businessId, quantity: -item.qty });
-            }
-            // Update DB
-            const saleIndex = db.sales.findIndex(s => s.id === editingSaleId);
+            });
+
+            // C. Update Record
+            const saleIndex = db.sales.findIndex(s => s.id === window.editingSaleId);
             if (saleIndex !== -1) {
                 const s = db.sales[saleIndex];
-                s.items = posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price }));
+                s.items = generateItems();
                 s.total = totalValue;
-                s.payment = { cash, transfer, currency: currencyCode };
+                s.payment = { cash: cashVal, transfer: transferVal, currency: currencyCode }; // Explicit naming
                 s.businessId = businessId;
                 s.date = dateString;
                 s.timestamp = timestamp;
                 s.openingTime = posOpeningTime;
+
+                // Keep session if exists
+                if (!s.sessionId) s.sessionId = currentSessionStartTime || Date.now();
+
                 addLog(`Venta #${s.id} actualizada: $${totalValue.toFixed(2)} (${currencyCode.toUpperCase()})`, 'info');
             }
-            editingSaleId = null;
+            window.editingSaleId = null;
 
         } else {
-            // New Sale
-            for (const item of posCart) {
+            console.log("✨ Nueva Venta");
+
+            // Deduct Stock
+            window.posCart.forEach(item => {
                 const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
                 if (inv) inv.quantity -= item.qty;
                 else db.inventory.push({ productId: item.id, businessId: businessId, quantity: -item.qty });
-            }
+            });
 
             const saleData = {
                 id: timestamp,
@@ -521,9 +561,9 @@ window.registerIndividualSale = async function () {
                 businessId: businessId,
                 seller: currentUser ? currentUser.name : 'Vendedor',
                 sellerId: currentUser ? currentUser.id : 0,
-                items: posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
+                items: generateItems(),
                 total: totalValue,
-                payment: { cash, transfer, currency: currencyCode },
+                payment: { cash: cashVal, transfer: transferVal, currency: currencyCode }, // Explicit naming
                 openingTime: posOpeningTime,
                 sessionId: currentSessionStartTime || Date.now(),
                 status: 'registered'
@@ -534,16 +574,16 @@ window.registerIndividualSale = async function () {
 
         await window.saveData();
         closeModal('payment-modal');
-        alert("¡Venta procesada con éxito!");
+        alert("¡Venta procesada con éxito! ✅"); // Emoji to verify new code
 
-        posCart = [];
-        renderPOS(document.getElementById('content-area'));
-        if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
-        if (typeof renderDashboard === 'function') renderDashboard(null);
+        window.posCart = [];
+        // Refresh UI
+        if (typeof renderPOS === 'function') renderPOS(document.getElementById('content-area'));
+        else location.reload();
 
     } catch (error) {
         console.error("Error registering sale:", error);
-        alert("Error al registrar la venta");
+        alert("Error al registrar la venta (Detalle en consola): " + error.message);
     }
 }
 
