@@ -2245,9 +2245,16 @@ function setPaymentMethod(method) {
 
 // --- POS HELPERS ---
 function getAvailableStock(productId) {
-    const businessId = selectedBusinessId || 'mch1';
-    const inv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === String(businessId));
-    let stock = inv ? inv.quantity : 0;
+    // Si es Global, sumar todo. Si no, filtrar por negocio.
+    let stock = 0;
+    if (selectedBusinessId === null) {
+        stock = db.inventory
+            .filter(i => String(i.productId) === String(productId))
+            .reduce((sum, i) => sum + (parseFloat(i.quantity) || 0), 0);
+    } else {
+        const inv = db.inventory.find(i => String(i.productId) === String(productId) && String(i.businessId) === String(selectedBusinessId));
+        stock = inv ? inv.quantity : 0;
+    }
 
     // Si estamos editando, sumar la cantidad original de la venta para no restringir artificialmente
     if (editingSaleId) {
@@ -2264,25 +2271,27 @@ function handlePOSSearch(val) {
     const results = document.getElementById('pos-results');
     if (!val) { results.style.display = 'none'; return; }
 
+    console.log(`🔎 Buscando: "${val}" | Contexto: ${selectedBusinessId || 'Global'} | Total Productos: ${db.products.length}`);
+
     const isSeller = currentUser.role === 'seller';
 
     const matches = db.products.filter(p => {
-        const inv = db.inventory.find(i => i.productId === p.id && i.businessId === (selectedBusinessId || 'mch1'));
-        const stock = inv ? inv.quantity : 0;
-
+        const stock = getAvailableStock(p.id);
         if (isSeller && stock <= 0) return false;
-        return p.name.toLowerCase().includes(val.toLowerCase());
-    }).slice(0, 8);
+
+        const nameMatch = p.name.toLowerCase().includes(val.toLowerCase());
+        const aliasMatch = p.alias && p.alias.toLowerCase().includes(val.toLowerCase());
+        return nameMatch || aliasMatch;
+    }).slice(0, 15); // Aumentado a 15 para mejor visibilidad
 
     if (matches.length === 0) {
-        results.innerHTML = '<div style="padding:1rem; color:var(--text-muted);">No se encontraron productos</div>';
+        results.innerHTML = `<div style="padding:1rem; color:var(--text-muted);">No se encontraron productos para "${val}"</div>`;
         results.style.display = 'block';
         return;
     }
 
     results.innerHTML = matches.map(p => {
-        const inv = db.inventory.find(i => i.productId === p.id && i.businessId === (selectedBusinessId || 2));
-        const stock = inv ? inv.quantity : 0;
+        const stock = getAvailableStock(p.id);
         return `
             <div class="pos-search-item" onclick="addToCart(${p.id})" style="display:flex; align-items:center; gap:1rem; padding:0.75rem 1rem; cursor:pointer; border-bottom:1px solid var(--border);">
                 <div style="width: 40px; height: 40px; border-radius: 4px; overflow: hidden; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
