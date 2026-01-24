@@ -128,3 +128,20 @@
 - **Compatibilidad**: `navigateTo` ahora es global (`window.navigateTo`) pero mantiene una declaración local para llamadas internas.
 - **Carga**: Scripts movidos definitivamente al final del `<body>` en `index.html` para un orden de ejecución determinista.
 - **Bypass**: Confirmado el auto-login inmediato como Owner al inicio de la carga.
+### 2026-01-23 - Cirugía de Emergencia: Bloque Maestro (Arquitecto)
+- **Fix**: Aplicado el **Bloque de Inicio Maestro** en `app.js` para restaurar la navegación.
+- **Identidad**: Forzada la identidad de `Owner` con acceso directo al Almacén (`businessId: 'alm'`).
+- **Navegación**: Corregida la lógica de entrada directa al Dashboard, saltando el limbo del login.
+- **Sincronización**: Sincronización completa de `window.currentUser` y variables locales de contexto.
+
+### 2026-01-23 - Auditoría de Calidad y Limpieza (Antigravity)
+- **Limpieza**: Eliminación de archivos temporales (`.bak`, `.tmp`) y scripts de diagnóstico obsoletos.
+- **Restauración**: Reconstrucción quirúrgica de `app.js`, reduciendo su tamaño de ~6500 a ~5400 líneas al eliminar redundancias masivas.
+- **Seguridad**: Restaurada la lógica de PIN y permisos (`rolePermissions`), eliminando parches de bypass de login para asegurar la integridad local.
+- **Localización**: Sistema optimizado para ejecución única en la máquina local (`localhost:8080`).
+
+### 2026-01-24 - Corrección Definitiva: Navegación y Contexto (Antigravity)
+- **Diagnóstico**: Se identificó un bloque de código residual ("Zombie Tail") al final de `app.js` que forzaba el contexto de "Almacén" (`businessId: 'alm'`) y anulaba la lógica de login estándar.
+- **Impacto**: Esto ocultaba el menú de POS y Ventas al usuario, causando la percepción de que "nada funcionaba".
+- **Fix**: Eliminado el bloque de auto-login corrupto.
+- **Restauración**: Implementada la secuencia de inicio estándar: `Carga de Datos -> Setup UI -> Verificación de Sesión -> Login/Dashboard`.

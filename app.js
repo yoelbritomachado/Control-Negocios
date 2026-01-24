@@ -28,12 +28,10 @@ if (!window.db) {
         businessFund: { cash: 100000, transfer: 0, usd: 0, eur: 0 }
     };
 }
-const db = window.db; // Referencia directa (Proxy removido por simplicidad y compatibilidad)
+const db = window.db;
 
-// PARCHE DE EMERGENCIA: Auto-Login inmediato (Arquitecto)
-// Se asegura que estas variables sean globales
-window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
-var currentUser = window.currentUser;
+window.currentUser = null;
+let currentUser = null;
 
 // --- PERMISSIONS CONFIGURATION ---
 const rolePermissions = {
@@ -5397,44 +5395,52 @@ window.toggleTheme = function () {
     // We pass currentView to maintain active state
     renderSidebar(currentView);
 };
-// --- BLOQUE DE INICIO MAESTRO (RESTAURACIÓN) ---
+// --- BLOQUE DE INICIO ESTÁNDAR (REPARADO) ---
 window.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Restaurando MCH Control en Local...');
+    console.log('🚀 Iniciando MCH Control (Modo Estándar)...');
 
-    // 1. FORZAR IDENTIDAD: Esto elimina la necesidad de login y contraseñas
-    window.currentUser = {
-        name: 'Dueño',
-        role: 'owner',
-        businessId: 'alm' // Entra directo al Almacén
-    };
-    // Asegurar que el contexto local se actualice (Sincronización Arquitecto)
-    selectedBusinessId = 'alm';
-    currentUser = window.currentUser;
-
-
-    // 2. CARGA DE DATOS: Asegura que Firebase y los productos estén listos
+    // 1. CARGA DE DATOS
     if (typeof window.loadData === 'function') {
-        await window.loadData();
+        try {
+            await window.loadData();
+            console.log("✅ Datos cargados correctamente.");
+        } catch (e) {
+            console.error("❌ Error cargando datos:", e);
+            alert("Error crítico cargando datos. Ver consola.");
+            return;
+        }
     } else {
-        console.error('Error: El archivo data.js no respondió.');
+        console.error("❌ Fatal: window.loadData no existe.");
+        alert("Error de integridad: data.js no cargó.");
         return;
     }
 
-    // 3. ACTIVAR INTERFAZ: Aplica el diseño de 40px y modo oscuro
+    // 2. SETUP UI
     if (typeof setupResponsiveUI === 'function') setupResponsiveUI();
     if (typeof applyTheme === 'function') applyTheme();
 
-    // 4. NAVEGACIÓN DIRECTA: Salta el login y va al Dashboard
+    // 3. NAVEGACIÓN INTELIGENTE
+    // Verifica si hay usuario activo (persistido o nueva sesión)
+    // Nota: Como quitamos la persistencia automática para seguridad, start as null usually.
+
+    // Check hash for direct link, default to dashboard
     const initView = window.location.hash.replace('#', '') || 'dashboard';
-    if (typeof navigateTo === 'function') {
-        navigateTo(initView);
+
+    if (!window.currentUser) {
+        console.log("🔒 Sin sesión activa. Redirigiendo a Login.");
+        navigateTo('login');
     } else {
-        console.error('Error: La función de navegación está dañada.');
+        console.log(`🔓 Sesión recuperada: ${window.currentUser.name}`);
+        navigateTo(initView);
     }
 
+    // 4. ESCUCHA DE NAVEGACIÓN
     window.addEventListener('hashchange', () => {
         const v = window.location.hash.replace('#', '');
+        // Solo navegar si hay usuario o si es login
+        if (v === 'login') return;
         if (window.currentUser && v) navigateTo(v);
+        else if (!window.currentUser) navigateTo('login');
     });
 });
 
