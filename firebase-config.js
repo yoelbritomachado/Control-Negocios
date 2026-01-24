@@ -30,4 +30,9 @@ const firebaseConfig = {
 
 console.log("🔥 Firebase Mock Initialized (Offline)");
 
-export { dbFirestore, doc, getDoc, setDoc, onSnapshot };
+// Attach to window for global access
+window.dbFirestore = dbFirestore;
+window.doc = doc;
+window.getDoc = getDoc;
+window.setDoc = setDoc;
+window.onSnapshot = onSnapshot;
