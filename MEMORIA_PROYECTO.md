@@ -178,8 +178,11 @@
 - **Hallazgo 2**: `renderOpenSessionScreen` ha sido restaurada en `app.js` (Línea 1497) y su lógica de exposición global está activa.
 - **Acción**: Se confirma que el sistema está listo para pruebas de usuario final (`localhost:8080`).
 
-### 2026-01-24 - Expansión de Capacidades (Creador de Habilidades)
-- **Habilidades Nuevas**: Se integraron `planificacion` y `brainstorming` basándose en la metodología "Superpowers".
-- **Fuente**: Adaptado de `github.com/obra/superpowers`.
-- **Ubicación**: `.agent/skills/planificacion/` y `.agent/skills/brainstorming/`.
-- **Propósito**: Estandarizar el diseño de soluciones (Brainstorming) y la ejecución técnica (Planificación) para futuros agentes.
+### 2026-01-24 - Refactorización Modular & Seguridad (Option B Lite)
+- **Hito**: Desacoplamiento del monolito `app.js`.
+- **Nuevos Módulos**:
+    - `js/core/security.js`: Sanitización XSS y Hashing de credenciales.
+    - `js/modules/pos.js`: Lógica de Venta, Carrito y Pagos.
+    - `js/modules/inventory.js`: Lógica de Inventario, Mermas y Edición.
+- **Estado**: `app.js` reducido en ~1700 líneas. Lógica dividida por dominios.
+- **Acción Requerida**: Verificar flujos de venta y cierre en `localhost:8080`.
