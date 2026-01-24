@@ -245,7 +245,7 @@ function renderSidebar(activeView) {
     `;
 }
 
-function toggleUserMenu(e) {
+window.toggleUserMenu = function (e) {
     if (e) e.stopPropagation();
     const dropdown = document.getElementById('userDropdown');
     dropdown.classList.toggle('show');
@@ -262,7 +262,7 @@ function toggleUserMenu(e) {
     }
 }
 
-function changeBusinessContext(val) {
+window.changeBusinessContext = function (val) {
     if (currentUser && currentUser.role === 'seller') {
         const biz = db.businesses.find(b => String(b.id) === String(val));
         if (biz && biz.type === 'warehouse') {
@@ -2656,7 +2656,7 @@ window.removeIncidentPhoto = function (index) {
     renderPhotoPreviews();
 };
 
-function updateIncidentUI() {
+window.updateIncidentUI = function () {
     const type = document.getElementById('incidentType').value;
     const info = document.getElementById('incidentInfo');
     const moneyGroup = document.getElementById('moneyGroup');
@@ -2727,7 +2727,7 @@ async function confirmExpense() {
     }, 50);
 }
 
-async function processIncident() {
+window.processIncident = async function () {
     const type = document.getElementById('incidentType').value;
     const productId = document.getElementById('selectedIncidentProductId') ? document.getElementById('selectedIncidentProductId').value : null;
     const product = db.products.find(p => String(p.id) === String(productId));
@@ -5542,4 +5542,75 @@ window.addEventListener('hashchange', () => {
         navigateTo(v);
     }
 });
+
+// --- UTILIDADES DE MODALES Y ACCIONES ---
+window.openModal = function (id) {
+    const modal = document.getElementById(id);
+    if (modal) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+    }
+};
+
+window.closeModal = function (id) {
+    const modal = document.getElementById(id);
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+    }
+};
+
+window.handleFabAction = function () {
+    openModal('incidentModal');
+};
+
+// --- INCIDENT SMART SEARCH --- (Re-conectado a window)
+window.handleIncidentSearch = function (query) {
+    const results = document.getElementById('incident-search-results');
+    if (!results) return;
+    if (query.length < 2) {
+        results.style.display = 'none';
+        return;
+    }
+
+    const filtered = db.products.filter(p => p.name.toLowerCase().includes(query.toLowerCase()));
+    if (filtered.length === 0) {
+        results.style.display = 'none';
+        return;
+    }
+
+    results.innerHTML = filtered.map(p => {
+        const inv = db.inventory.find(invI => String(invI.productId) === String(p.id) && String(invI.businessId) === (selectedBusinessId || 'mch1'));
+        const stock = inv ? inv.quantity : 0;
+        return `
+            <div class="pos-search-item" onclick="selectIncidentProduct(${p.id})" style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px;">
+                <div style="width: 40px; height: 40px; border-radius: 4px; overflow: hidden; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
+                    ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 1.2rem; color: var(--text-muted);"></i>`}
+                </div>
+                <div>
+                    <div style="font-weight: bold;">${p.name}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">$${p.price.toFixed(2)} | Stock: ${stock}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    results.style.display = 'block';
+};
+
+window.selectIncidentProduct = function (productId) {
+    const p = db.products.find(prod => String(prod.id) === String(productId));
+    if (!p) return;
+
+    document.getElementById('incidentProductSearch').value = p.name;
+    document.getElementById('incident-search-results').style.display = 'none';
+
+    updateIncidentPreviewCard(p);
+};
+
+window.removeIncidentPhoto = function (index) {
+    if (typeof incidentPhotosData !== 'undefined') {
+        incidentPhotosData.splice(index, 1);
+        renderPhotoPreviews();
+    }
+};
 
