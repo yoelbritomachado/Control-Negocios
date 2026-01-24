@@ -5560,6 +5560,11 @@ window.closeModal = function (id) {
     }
 };
 
+window.closeLoginModal = function () {
+    const overlay = document.getElementById('login-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+};
+
 window.handleFabAction = function () {
     openModal('incidentModal');
 };
