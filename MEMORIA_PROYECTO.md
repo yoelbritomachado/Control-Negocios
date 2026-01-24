@@ -242,3 +242,8 @@
 - **Problema**: Error crítico `ReferenceError: getAvailableStock is not defined` capturado por el Debug Overlay.
 - **Causa**: `app.js` contenía una versión antigua de `validateStockBeforeProcess` en sus primeras líneas. Al cargar `app.js` después de `pos.js`, esta función obsoleta sobrescribía la correcta (shadowing global), invocando una función `getAvailableStock` que ya no existía.
 - **Solución**: Se eliminó el bloque de código legado en `app.js` (Líneas 9-18). Ahora se utiliza la versión correcta definida en `pos.js`.
+
+### 2026-01-24 - Hotfix: Scope de Sesión (`v10.17`)
+- **Problema**: Error `currentSessionStartTime is not defined` capturado por Debug Overlay.
+- **Causa**: Acceso directo a una variable que debía ser `window.currentSessionStartTime` o tener un fallback.
+- **Solución**: Se corrigieron las referencias en `pos.js` para usar acceso seguro a `window`.
