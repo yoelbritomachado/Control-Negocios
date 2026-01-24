@@ -211,3 +211,8 @@
     - Se creó script Python `process_csv_final.py` que transforma los CSV de `Data csv/` a `js/initial_data.js`.
     - Se modificó `data.js` para iterar sobre todas las sedes (`alm`, `mch1`, `mch2`) de este archivo JSON.
 - **Autoridad:** El sistema ahora **sobrescribe** las cantidades locales con las del CSV en cada inicio, garantizando sincronización total con los archivos proporcionados.
+
+### 2026-01-24 - Fix Critico: Carrito Vacío (`v10.9`)
+- **Problema**: Al presionar "Cobrar Ahora", el sistema alertaba "El carrito está vacío" a pesar de tener productos.
+- **Causa**: Conflicto de nombres (`Shadowing`). `app.js` definía `let posCart = []`, ocultando la variable global `window.posCart` que usa el módulo POS. Los productos se agregaban a uno y se intentaban cobrar del otro.
+- **Solución**: Se eliminó la declaración duplicada en `app.js`. Ahora todo el sistema apunta a la única instancia en memoria.

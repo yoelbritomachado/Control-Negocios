@@ -48,7 +48,7 @@ function getPermissions(role) {
 let currentView = 'dashboard';
 let selectedBusinessId = null; // null means 'Global'
 let selectedProducts = new Set();
-let posCart = [];
+// let posCart = []; // [SCOPE FIX] Removed to use window.posCart from pos.js
 let editingSaleId = null;
 let isReviewingClosure = false;
 let reviewingClosureId = null;
