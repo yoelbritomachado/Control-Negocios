@@ -1,4 +1,4 @@
-console.log('📦 Data Layer - Iniciando...');
+console.log('📦 Data Layer [v10.1] - Iniciando...');
 
 // Initialize DB immediately to prevent ReferenceErrors in app.js
 window.db = {

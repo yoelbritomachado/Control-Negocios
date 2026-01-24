@@ -29,6 +29,7 @@ if (!window.db) {
     };
 }
 const db = window.db;
+console.log('🚀 App Initialized [v10.1] | Productos en memoria:', db.products.length);
 
 window.currentUser = null;
 let currentUser = null;
@@ -2285,7 +2286,9 @@ function handlePOSSearch(val) {
     }).slice(0, 15); // Aumentado a 15 para mejor visibilidad
 
     if (matches.length === 0) {
-        results.innerHTML = `<div style="padding:1rem; color:var(--text-muted);">No se encontraron productos para "${val}"</div>`;
+        let msg = `No se encontraron productos para "${val}"`;
+        if (db.products.length === 0) msg = "⚠️ La base de datos está VACÍA. Ve a 'Control Efectivo' y presiona 'Simular Historial' para cargar los productos.";
+        results.innerHTML = `<div style="padding:1rem; color:var(--text-muted);">${msg}</div>`;
         results.style.display = 'block';
         return;
     }

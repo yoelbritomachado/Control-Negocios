@@ -161,3 +161,4 @@
 - **Nuevo**: Se creó la habilidad `security_auditor` en `.agent/skills/security_auditor/SKILL.md` siguiendo los principios de Dot Dager.
 - **Auditoría**: Se realizó el primer escaneo de seguridad. Se detectaron **vulnerabilidades críticas**: el sistema de login no verifica PINs y éstos se almacenan en texto plano en `data.js`.
 - **Acción**: Se documentaron los hallazgos en el `walkthrough.md` para su pronta corrección.
+- **Nota**: A petición del usuario, se posponen las correcciones de seguridad (hashing de PINs y validación estricta) mientras el proyecto sea de uso puramente local para agilizar el desarrollo. Se implementarán antes del despliegue online.
