@@ -162,3 +162,8 @@
 - **Auditoría**: Se realizó el primer escaneo de seguridad. Se detectaron **vulnerabilidades críticas**: el sistema de login no verifica PINs y éstos se almacenan en texto plano en `data.js`.
 - **Acción**: Se documentaron los hallazgos en el `walkthrough.md` para su pronta corrección.
 - **Nota**: A petición del usuario, se posponen las correcciones de seguridad (hashing de PINs y validación estricta) mientras el proyecto sea de uso puramente local para agilizar el desarrollo. Se implementarán antes del despliegue online.
+
+### 2026-01-24 - Auditoría de Código y Corrección Lógica (Antigravity)
+- **Fix Critico (Cash Control)**: Se detectó que el reporte "Control de Efectivo" sumaba todas las ventas como MN, ignorando la divisa. Se parcheó `renderCashControl` y `getNetChange` en `app.js` para clasificar correctamente los ingresos en USD, EUR y MN.
+- **Fix Critico (Cierre de Día)**: Se descubrió que la función `openPOSClosureModal` (necesaria para el botón "Cerrar Día") no existía. Se implementó la función completa, restaurando el flujo de cierre de caja para los vendedores.
+- **Validación**: Se verificó el cumplimiento de las "Leyes en Piedra" (Integridad de Inventario y Aislamiento de Sesiones) en el código fuente.

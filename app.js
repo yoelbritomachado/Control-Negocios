@@ -4622,6 +4622,120 @@ function approveSale(id) {
     renderVentas(document.getElementById('content-area'));
 }
 
+// --- FUNCIONALIDAD RESTAURADA: MODAL DE CIERRE ---
+window.openPOSClosureModal = function () {
+    const businessId = selectedBusinessId || 'mch1';
+
+    // 1. Calcular Totales Esperados (Solo Registradas, de hoy/sesión)
+    const sales = db.sales.filter(s =>
+        s.status === 'registered' &&
+        s.seller === currentUser.name &&
+        String(s.businessId) === String(businessId)
+    );
+
+    let expCash = 0;
+    let expTransfer = 0;
+
+    sales.forEach(s => {
+        const p = s.payment || {};
+        const curr = (p.currency || 'mn').toLowerCase();
+        // Nota: Por ahora el arqueo se centra en MN. 
+        // USD/EUR no se suman al esperado de caja MN para evitar descuadre.
+        if (curr === 'mn') {
+            expCash += (p.cash || 0);
+        }
+        expTransfer += (p.transfer || 0);
+    });
+
+    const totalExpected = expCash + expTransfer;
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    const modalHtml = `
+    <div id="pos-closure-modal" class="modal-overlay">
+        <div class="card" style="width: 500px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1rem;">
+                <h2 style="margin: 0;"><i class="ph ph-lock-key"></i> Cerrar Caja / Día</h2>
+                <div style="font-size: 0.9rem; color: var(--text-muted);">${now.toLocaleString()}</div>
+            </div>
+
+            <form id="pos-closure-form" onsubmit="event.preventDefault(); finalizePOSSale();">
+                <input type="hidden" name="targetDate" value="${todayStr}">
+                <input type="hidden" name="totalExpected" value="${totalExpected.toFixed(2)}">
+                <input type="hidden" name="expectedCash" value="${expCash.toFixed(2)}">
+                <input type="hidden" name="expectedTransfer" value="${expTransfer.toFixed(2)}">
+
+                <!-- Resumen Esperado -->
+                <div class="grid-2" style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                    <div>
+                        <small style="color: var(--text-muted);">Ventas Efectivo (MN)</small>
+                        <div style="font-size: 1.2rem; font-weight: bold;">$${expCash.toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <small style="color: var(--text-muted);">Ventas Transferencia</small>
+                        <div style="font-size: 1.2rem; font-weight: bold;">$${expTransfer.toFixed(2)}</div>
+                    </div>
+                </div>
+
+                <!-- Arqueo Efectivo -->
+                <h4 style="margin-bottom: 0.5rem; color: var(--success);">1. Arqueo de Efectivo</h4>
+                <div class="grid-2" style="gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="font-size: 0.8rem;">Sobrante (+)</label>
+                        <input type="number" step="0.01" name="surplusCash" class="input-field" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">Faltante (-)</label>
+                        <input type="number" step="0.01" name="shortageCash" class="input-field" placeholder="0.00">
+                    </div>
+                </div>
+
+                <!-- Arqueo Transferencia -->
+                <h4 style="margin-bottom: 0.5rem; color: var(--primary);">2. Arqueo de Transferencias</h4>
+                <div class="grid-2" style="gap: 1rem; margin-bottom: 1.5rem;">
+                    <div>
+                        <label style="font-size: 0.8rem;">Sobrante (+)</label>
+                        <input type="number" step="0.01" name="surplusTransfer" class="input-field" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem;">Faltante (-)</label>
+                        <input type="number" step="0.01" name="shortageTransfer" class="input-field" placeholder="0.00">
+                    </div>
+                </div>
+
+                <!-- Extras -->
+                 <div style="margin-bottom: 1.5rem;">
+                    <label style="display:block; margin-bottom:0.5rem;">Notas / Observaciones</label>
+                    <textarea name="notes" class="input-field" rows="2"></textarea>
+                </div>
+
+                <div style="margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--warning); border-radius: 8px; background: rgba(255, 165, 0, 0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                         <label style="font-weight: bold; color: var(--warning);">Solicitar Pago de Salario</label>
+                         <input type="checkbox" name="requestSalary" value="true" style="width: 20px; height: 20px;">
+                    </div>
+                    
+                    <div>
+                        <label style="font-size: 0.8rem;">Comisión Estimada ($)</label>
+                        <input type="number" step="0.01" name="commissionAmount" class="input-field" placeholder="Opcional">
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 1rem;">
+                    <button type="button" class="btn-ghost" onclick="closeModal('pos-closure-modal')" style="flex: 1;">Cancelar</button>
+                    <button type="submit" class="btn-primary" style="flex: 2;">ENVIAR CIERRE</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    `;
+
+    // Inject and Open
+    const existing = document.getElementById('pos-closure-modal');
+    if (existing) existing.remove();
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+};
+
 // 2. ENVIAR NOTIFICACIÓN (Finalizar paso del Vendedor)
 window.finalizePOSSale = async function () {
     const form = document.getElementById('pos-closure-form');
@@ -5233,8 +5347,19 @@ window.renderCashControl = function (container) {
             const d = new Date(s.date);
             if (d >= fromDate && d <= toDate) {
                 if (s.status === 'cancelled') return;
-                change.cash += s.payment?.cash || 0;
-                change.transfer += s.payment?.transfer || 0;
+
+                const p = s.payment || { cash: 0, transfer: 0, currency: 'mn' };
+                const curr = (p.currency || 'mn').toLowerCase();
+                const cashVal = p.cash || 0;
+                const transVal = p.transfer || 0;
+
+                // Sort Cash by Currency
+                if (curr === 'usd') change.usd += cashVal;
+                else if (curr === 'eur') change.eur += cashVal;
+                else change.cash += cashVal; // MN and others
+
+                // Transfer is currently treated as a single global bucket (usually MN)
+                change.transfer += transVal;
             }
         });
 
@@ -5284,8 +5409,16 @@ window.renderCashControl = function (container) {
     db.sales.forEach(s => {
         const d = new Date(s.date);
         if (d >= sDate && d <= eDate && s.status !== 'cancelled') {
-            rangeStats.mn.income += s.payment?.cash || 0;
-            rangeStats.transfer.income += s.payment?.transfer || 0;
+            const p = s.payment || { cash: 0, transfer: 0, currency: 'mn' };
+            const curr = (p.currency || 'mn').toLowerCase();
+            const cashVal = p.cash || 0;
+            const transVal = p.transfer || 0;
+
+            if (curr === 'usd') rangeStats.usd.income += cashVal;
+            else if (curr === 'eur') rangeStats.eur.income += cashVal;
+            else rangeStats.mn.income += cashVal;
+
+            rangeStats.transfer.income += transVal;
         }
     });
 
