@@ -223,4 +223,4 @@
 - **Mejora**: Ahora **Todos los roles** (Seller, Admin, Owner) utilizan la misma interfaz de cobro unificada que permite:
     1.  Seleccionar Moneda (MN, USD, EUR).
     2.  Ingresar Pagos Mixtos (Efectivo + Transferencia).
-- **Fix Adicional**: Se robusteció `registerIndividualSale` para evitar fallos silenciosos por errores de lectura de inputs.
+- **Fix Adicional (v10.11)**: Corrección de referencia a `posCart` en `validateStockBeforeProcess`, que causaba fallo silencioso al confirmar el cobro.

@@ -601,7 +601,7 @@ window.registerIndividualSale = async function () {
 // POS Helper
 function validateStockBeforeProcess() {
     const businessId = selectedBusinessId || 'mch1';
-    for (const item of posCart) {
+    for (const item of window.posCart) {
         const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
         if (!inv || inv.quantity < item.qty) {
             // Allow override? No.
