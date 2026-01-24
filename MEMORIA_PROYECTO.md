@@ -223,4 +223,13 @@
 - **Mejora**: Ahora **Todos los roles** (Seller, Admin, Owner) utilizan la misma interfaz de cobro unificada que permite:
     1.  Seleccionar Moneda (MN, USD, EUR).
     2.  Ingresar Pagos Mixtos (Efectivo + Transferencia).
-- **Fix Adicional (v10.11)**: Corrección de referencia a `posCart` en `validateStockBeforeProcess`, que causaba fallo silencioso al confirmar el cobro.
+- **Fix Adicional (v10.11)**: Corrección de referencia a `posCart` en `validateStockBeforeProcess`.
+
+### 2026-01-24 - Hotfix: Renombrado de Función de Cobro (`v10.12`)
+- **Problema**: El botón "Cobrar Ahora" seguía sin responder en algunos contextos (posible conflicto de caché o shadowing persistente).
+- **Solución**: Se renombró la función principal de `registerIndividualSale` a `processPOSPayment` para forzar una nueva vinculación en el navegador y descartar referencias antiguas. Se añadieron logs explícitos de inicio de proceso.
+
+### 2026-01-24 - Hotfix: Restauración de `showToast` (`v10.13`)
+- **Problema**: Error `Uncaught ReferenceError: showToast is not defined` al intentar agregar productos al carrito si había validaciones (ej. stock).
+- **Causa**: La función de utilidad `showToast` se perdió accidentalmente durante la limpieza de `app.js`.
+- **Solución**: Se restauró la función al final de `app.js` y se expuso globalmente.

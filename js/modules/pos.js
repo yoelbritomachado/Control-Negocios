@@ -410,7 +410,7 @@ window.showPaymentModal = function () {
 
             <div style="display: flex; gap: 1rem;">
                 <button class="btn-ghost" style="flex: 1;" onclick="closeModal('payment-modal')">Cancelar</button>
-                <button id="confirm-payment-btn" class="btn-primary" style="flex: 2; font-size: 1.1rem;" onclick="registerIndividualSale()">
+                <button id="confirm-payment-btn" class="btn-primary" style="flex: 2; font-size: 1.1rem;" onclick="window.processPOSPayment()">
                     COBRAR AHORA
                 </button>
             </div>
@@ -455,8 +455,10 @@ window.validatePaymentSplit = function (total) {
     }
 }
 
-window.registerIndividualSale = async function () {
-    console.log("🚀 Iniciando cobro individual...");
+// [DEBUG FIX] Renamed to ensure fresh binding
+window.processPOSPayment = async function () {
+    // alert("DEBUG: Iniciando proceso de cobro..."); // Uncomment if desperate, but let's try console first with the toast
+    console.log("🚀 Iniciando cobro individual (Function Renamed)...");
 
     // 1. Validate Cart (Robust Scope Check)
     if (!window.posCart || window.posCart.length === 0) {
