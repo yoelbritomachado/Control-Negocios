@@ -499,7 +499,9 @@ function renderLogin(container) {
 window.selectUserLogin = function (role) {
     const user = db.users.find(u => u.role === role);
     if (user) {
-        initiateLogin(role);
+        // [BYPASS] PIN removed as requested by user
+        // initiateLogin(role); 
+        completeLogin(user);
     }
 };
 

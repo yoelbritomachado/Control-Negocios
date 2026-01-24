@@ -187,5 +187,7 @@
 - **Problema**: Error `Uncaught ReferenceError: renderOpenSessionScreen is not defined` en `app.js`.
 - **Causa**: La función `renderOpenSessionScreen` no fue migrada correctamente a `pos.js` y `app.js` intentaba referenciarla.
 - **Solución**:
-    - Se agregaron `renderOpenSessionScreen` y `openPOSSession` al final de `js/modules/pos.js`.
-    - Se eliminó la línea redundante en `app.js` que causaba el fallo.
+### 2026-01-24 - UX: Desactivación Temporal de PIN (`v10.4`)
+- **Solicitud**: "Quita el uso de pin por ahora".
+- **Cambio**: Se modificó `selectUserLogin` en `app.js` para llamar directamente a `completeLogin`, saltando la ventana modal de autenticación.
+- **Seguridad**: Medida temporal por conveniencia operativa. El código de verificación sigue existiendo pero puenteado.
