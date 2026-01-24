@@ -712,3 +712,9 @@ window.openPOSSession = function () {
         location.reload();
     }
 };
+
+window.isWarehouseContext = function () {
+    if (!selectedBusinessId) return false;
+    const biz = db.businesses.find(b => String(b.id) === String(selectedBusinessId));
+    return biz && biz.type === 'warehouse';
+}

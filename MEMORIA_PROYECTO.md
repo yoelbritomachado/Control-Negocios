@@ -195,4 +195,7 @@
 ### 2026-01-24 - Fix: Visibilidad de Sidebar en Login (`v10.5`)
 - **Problema**: Elementos de la UI (Sidebar/Header) visibles antes del login.
 - **Causa**: Código de desarrollo "Auto-Login" activo en `app.js` (Líneas ~3890).
-- **Solución**: Se eliminó la asignación automática de `currentUser`, forzando el estado inicial nulo.
+### 2026-01-24 - Fix: isWarehouseContext Error (`v10.6`)
+- **Problema**: Error `isWarehouseContext is not defined` en POS.
+- **Causa**: La función auxiliar de contexto se perdió durante la modularización.
+- **Solución**: Se reimplementó `isWarehouseContext` en `pos.js` y se expuso globalmente para verificar si la sede actual es un almacén.
