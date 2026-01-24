@@ -3892,7 +3892,8 @@ window.addEventListener('DOMContentLoaded', () => {
             }
 
             // [ARCHITECT FIX] Auto-Login Owner
-            window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
+            // [ARCHITECT FIX] Auto-Login Removed for Production
+            // window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
 
             clearInterval(checkDataLayer);
             console.log('🚀 Sistema de Datos Detectado y Completo. Cargando App...');
@@ -3903,8 +3904,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
                 // 2. Sincronizar usuario global
                 if (!window.currentUser) {
-                    // Bypass local: Auto-login
-                    window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
+                    // Bypass local: Auto-login REMOVED
+                    // window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
                 }
                 currentUser = window.currentUser;
 

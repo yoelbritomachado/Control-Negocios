@@ -191,3 +191,8 @@
 - **Solicitud**: "Quita el uso de pin por ahora".
 - **Cambio**: Se modificó `selectUserLogin` en `app.js` para llamar directamente a `completeLogin`, saltando la ventana modal de autenticación.
 - **Seguridad**: Medida temporal por conveniencia operativa. El código de verificación sigue existiendo pero puenteado.
+
+### 2026-01-24 - Fix: Visibilidad de Sidebar en Login (`v10.5`)
+- **Problema**: Elementos de la UI (Sidebar/Header) visibles antes del login.
+- **Causa**: Código de desarrollo "Auto-Login" activo en `app.js` (Líneas ~3890).
+- **Solución**: Se eliminó la asignación automática de `currentUser`, forzando el estado inicial nulo.
