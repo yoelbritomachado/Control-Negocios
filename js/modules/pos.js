@@ -497,14 +497,16 @@ window.processPOSPayment = async function () {
     console.log(`💰 Datos de Cobro: Cash=$${cashVal}, Transf=$${transferVal}, Total=$${totalValue}`);
 
     // 4. Validate Stock
-    if (!validateStockBeforeProcess()) return;
-
-    // --- INTEGRACIÓN: ACTUALIZAR SALDO AUTOMÁTICO ---
-    if (typeof window.actualizarSaldo === 'function') {
-        window.actualizarSaldo(currencyCode, totalValue);
+    if (!validateStockBeforeProcess()) {
+        console.warn("Stock validation failed");
+        return;
     }
 
     try {
+        // --- INTEGRACIÓN: ACTUALIZAR SALDO AUTOMÁTICO ---
+        if (typeof window.actualizarSaldo === 'function') {
+            try { window.actualizarSaldo(currencyCode, totalValue); } catch (e) { console.warn("Error updating balance UI:", e); }
+        }
         const now = new Date();
         const explicitDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : now.toISOString().split('T')[0];
         const dateString = `${explicitDate} ${now.toLocaleTimeString([], { hour12: false })}`;
@@ -607,7 +609,9 @@ function validateStockBeforeProcess() {
         const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
         if (!inv || inv.quantity < item.qty) {
             // Allow override? No.
-            alert(`Stock insuficiente para ${item.name}. Disponible: ${inv ? inv.quantity : 0}`);
+            const msg = `Stock insuficiente para ${item.name}. Disponible: ${inv ? inv.quantity : 0}`;
+            // alert(msg); // Use toast
+            showToast(msg, "warning");
             return false;
         }
     }

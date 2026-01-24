@@ -233,3 +233,7 @@
 - **Problema**: Error `Uncaught ReferenceError: showToast is not defined` al intentar agregar productos al carrito si había validaciones (ej. stock).
 - **Causa**: La función de utilidad `showToast` se perdió accidentalmente durante la limpieza de `app.js`.
 - **Solución**: Se restauró la función al final de `app.js` y se expuso globalmente.
+
+### 2026-01-24 - Hotfix: Robustez en Cobro (`v10.14`)
+- **Problema**: Posible fallo silencioso si la función `actualizarSaldo` no existe o falla.
+- **Solución**: Se envolvió la llamada a `actualizarSaldo` en un bloque `try-catch` independiente para que no interrumpa el flujo principal de registro de venta. Se agregaron alertas de depuración en consola.
