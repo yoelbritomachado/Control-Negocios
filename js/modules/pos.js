@@ -339,83 +339,92 @@ window.removeFromCart = function (index) {
 // --- CHECKOUT LOGIC ---
 
 window.showPaymentModal = function () {
-    if (posCart.length === 0) {
-        alert("El carrito está vacío");
+    // [OPTIMIZATION] Unified Payment Interface for ALL Roles
+    if (window.posCart.length === 0) {
+        showToast("El carrito está vacío", "error");
         return;
     }
-    const total = posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const isSeller = currentUser && currentUser.role === 'seller';
-    let formContent = '';
 
-    if (isSeller) {
-        formContent = `
-            <div class="form-group" style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Pago por Transferencia</label>
-                <div style="position: relative;">
-                    <i class="ph ph-bank" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--primary);"></i>
-                    <input type="number" id="pay-transfer-input" step="0.01" class="input-field" 
-                           style="padding-left: 3rem; border: 1px solid var(--primary);" 
-                           value="0" placeholder="0.00" oninput="autoCalculateCash(${total})">
-                </div>
-            </div>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Pago en Efectivo (Restante)</label>
-                <div style="position: relative;">
-                    <i class="ph ph-money" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--success);"></i>
-                    <input type="number" id="pay-cash-input" step="0.01" class="input-field" 
-                           style="padding-left: 3rem; background: var(--bg-hover); color: var(--text-muted);" 
-                           value="${total.toFixed(2)}" readonly>
-                </div>
-            </div>
-            <input type="hidden" id="pay-currency-select" value="mn">
-        `;
-    } else {
-        formContent = `
-            <div class="form-group" style="margin-bottom: 1rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Monto Efectivo</label>
-                <div style="position: relative;">
-                    <i class="ph ph-money" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--success);"></i>
-                    <input type="number" id="pay-cash-input" step="0.1" class="input-field" style="padding-left: 3rem;" value="${total.toFixed(2)}" oninput="validatePaymentSplit(${total})">
-                </div>
-            </div>
-            <div class="form-group" style="margin-bottom: 1.5rem;">
-                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Método de Pago / Moneda</label>
+    // Explicitly use window.posCart for consistency
+    const total = window.posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+
+    // Unified Form: Currency + Split Payment for Everyone
+    const formContent = `
+        <div class="grid-2" style="gap: 1rem; margin-bottom: 1rem;">
+             <!-- Currency Selector -->
+            <div class="form-group">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Moneda</label>
                 <div style="position: relative;">
                     <i class="ph ph-currency-circle-dollar" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--warning);"></i>
-                    <select id="pay-currency-select" class="input-field" style="padding-left: 3rem;">
-                        <option value="mn">MN (Pesos)</option>
+                    <select id="pay-currency-select" class="input-field" style="padding-left: 3rem; width: 100%;">
+                        <option value="mn" selected>MN (Pesos)</option>
                         <option value="usd">USD (Dólares)</option>
                         <option value="eur">EUR (Euros)</option>
                     </select>
-                    <input type="hidden" id="pay-transfer-input" value="0">
                 </div>
             </div>
-        `;
-    }
+            
+            <!-- Transfer Input -->
+             <div class="form-group">
+                <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Transferencia</label>
+                <div style="position: relative;">
+                    <i class="ph ph-bank" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--primary);"></i>
+                    <input type="number" id="pay-transfer-input" step="0.01" class="input-field" 
+                           style="padding-left: 3rem; width: 100%; border-color: var(--primary);" 
+                           value="0" placeholder="0.00" oninput="autoCalculateCash(${total})">
+                </div>
+            </div>
+        </div>
+
+        <!-- Cash Input (Calculated) -->
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label style="display: block; margin-bottom: 0.5rem; font-size: 0.9rem;">Efectivo (Restante)</label>
+            <div style="position: relative;">
+                <i class="ph ph-money" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--success);"></i>
+                <input type="number" id="pay-cash-input" step="0.01" class="input-field" 
+                       style="padding-left: 3rem; background: var(--bg-hover); color: var(--text-muted); width: 100%; font-weight: bold;" 
+                       value="${total.toFixed(2)}" readonly>
+            </div>
+        </div>
+    `;
 
     const modalHtml = `
-        <div class="card" style="width: 400px; padding: 2rem; border-radius: 20px;">
-            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ph ph-coins" style="color: var(--warning);"></i> Finalizar Venta ${isSeller ? '(MN)' : ''}
-            </h2>
-            <div style="background: var(--bg-dark); padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center;">
-                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Total a Cobrar</div>
-                <div style="font-size: 2.5rem; font-weight: 900; color: var(--primary);">$${total.toFixed(2)}</div>
+        <div class="card" style="width: 450px; max-width: 95vw; padding: 2rem; border-radius: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ph ph-coins" style="color: var(--warning);"></i> Finalizar Venta
+                </h2>
+                <div class="badge" style="font-size: 0.8rem;">${currentUser.role.toUpperCase()}</div>
             </div>
+            
+            <div style="background: var(--bg-dark); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center; border: 1px solid var(--border);">
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Total a Cobrar</div>
+                <div style="font-size: 3rem; font-weight: 900; color: var(--primary); letter-spacing: -1px;">$${total.toFixed(2)}</div>
+            </div>
+            
             ${formContent}
+            
             <div id="payment-error" style="color: var(--danger); font-size: 0.85rem; margin-bottom: 1.5rem; text-align: center; display: none;">
-                <i class="ph ph-warning"></i> La suma debe ser igual al total ($${total.toFixed(2)})
+                <i class="ph ph-warning"></i> La suma no coincide con el total.
             </div>
+
             <div style="display: flex; gap: 1rem;">
                 <button class="btn-ghost" style="flex: 1;" onclick="closeModal('payment-modal')">Cancelar</button>
-                <button id="confirm-payment-btn" class="btn-primary" style="flex: 2;" onclick="registerIndividualSale()">
+                <button id="confirm-payment-btn" class="btn-primary" style="flex: 2; font-size: 1.1rem;" onclick="registerIndividualSale()">
                     COBRAR AHORA
                 </button>
             </div>
         </div>
     `;
-    showModal('payment-modal', modalHtml);
-}
+
+    // Safely call showModal from app.js
+    if (typeof window.showModal === 'function') {
+        window.showModal('payment-modal', modalHtml);
+    } else {
+        console.error("Critical: window.showModal is missing!");
+        alert("Error de interfaz: Modal no disponible.");
+    }
+};
 
 window.autoCalculateCash = function (total) {
     const transferInput = document.getElementById('pay-transfer-input');
@@ -449,9 +458,9 @@ window.validatePaymentSplit = function (total) {
 window.registerIndividualSale = async function () {
     console.log("🚀 Iniciando cobro individual...");
 
-    // 1. Validate Cart
+    // 1. Validate Cart (Robust Scope Check)
     if (!window.posCart || window.posCart.length === 0) {
-        alert("El carrito está vacío");
+        showToast("El carrito está vacío", "error");
         return;
     }
 
@@ -460,8 +469,10 @@ window.registerIndividualSale = async function () {
     const transferInput = document.getElementById('pay-transfer-input');
     const currencySelect = document.getElementById('pay-currency-select');
 
-    if (!cashInput) { alert("Error interno: Input 'pay-cash-input' no encontrado."); return; }
-    if (!transferInput && currentUser.role === 'seller') { /* Seller might not have independent transfer input visible? check modal html */ }
+    if (!cashInput || !transferInput || !currencySelect) {
+        alert("Error interno: Inputs de cobro no encontrados.");
+        return;
+    }
 
     // 3. Extract Values Safe
     let cashVal = 0;
@@ -469,14 +480,14 @@ window.registerIndividualSale = async function () {
 
     try {
         cashVal = parseFloat(cashInput.value) || 0;
-        if (transferInput) transferVal = parseFloat(transferInput.value) || 0;
+        transferVal = parseFloat(transferInput.value) || 0;
     } catch (err) {
         console.error("Error parsing inputs:", err);
         alert("Error leyendo los montos.");
         return;
     }
 
-    const currencyCode = currencySelect ? currencySelect.value : 'mn';
+    const currencyCode = currencySelect.value;
     // Calculate total from cart to match server calculation
     const totalValue = window.posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const businessId = selectedBusinessId || 'mch1';

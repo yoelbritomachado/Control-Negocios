@@ -216,3 +216,11 @@
 - **Problema**: Al presionar "Cobrar Ahora", el sistema alertaba "El carrito está vacío" a pesar de tener productos.
 - **Causa**: Conflicto de nombres (`Shadowing`). `app.js` definía `let posCart = []`, ocultando la variable global `window.posCart` que usa el módulo POS. Los productos se agregaban a uno y se intentaban cobrar del otro.
 - **Solución**: Se eliminó la declaración duplicada en `app.js`. Ahora todo el sistema apunta a la única instancia en memoria.
+
+### 2026-01-24 - Optimization: Unificación Modal de Cobro (`v10.10`)
+- **Solicitud**: "Optimizar nivel programación... debe ser el mismo en cada sesión".
+- **Cambio**: Se reescribió `showPaymentModal` en `pos.js`.
+- **Mejora**: Ahora **Todos los roles** (Seller, Admin, Owner) utilizan la misma interfaz de cobro unificada que permite:
+    1.  Seleccionar Moneda (MN, USD, EUR).
+    2.  Ingresar Pagos Mixtos (Efectivo + Transferencia).
+- **Fix Adicional**: Se robusteció `registerIndividualSale` para evitar fallos silenciosos por errores de lectura de inputs.
