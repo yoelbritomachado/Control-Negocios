@@ -145,6 +145,21 @@ function finalizeLoad() {
     window.db.businesses.forEach(b => { if (idMap[String(b.id)]) b.id = idMap[String(b.id)]; });
   }
 
+  // [ARCHITECT FIX] Enforce Critical Businesses Existence
+  const defaultBusinesses = [
+    { id: 'alm', name: 'Almacén MCH', code: 'ALM', icon: 'ph-warehouse', color: '#58a6ff', type: 'warehouse' },
+    { id: 'mch1', name: 'MCH 1', code: 'MCH1', icon: 'ph-storefront', color: '#3fb950', type: 'kiosk' },
+    { id: 'mch2', name: 'MCH 2', code: 'MCH2', icon: 'ph-shopping-bag', color: '#d29922', type: 'kiosk' }
+  ];
+
+  defaultBusinesses.forEach(defBiz => {
+    const exists = window.db.businesses.find(b => String(b.id) === String(defBiz.id));
+    if (!exists) {
+      window.db.businesses.push(defBiz);
+      console.log(`🔧 Negocio restaurado: ${defBiz.name}`);
+    }
+  });
+
   console.log('✅ Datos cargados correctamente.');
   if (typeof applyTheme === 'function') applyTheme(window.db ? window.db.settings.theme : 'dark');
   if (typeof renderSidebar === 'function') renderSidebar();

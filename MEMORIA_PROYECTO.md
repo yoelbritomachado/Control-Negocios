@@ -199,3 +199,8 @@
 - **Problema**: Error `isWarehouseContext is not defined` en POS.
 - **Causa**: La función auxiliar de contexto se perdió durante la modularización.
 - **Solución**: Se reimplementó `isWarehouseContext` en `pos.js` y se expuso globalmente para verificar si la sede actual es un almacén.
+
+### 2026-01-24 - Feat: Activación Multisede (MCH1, MCH2, Almacén) (`v10.7`)
+- **Solicitud**: "Activar lógica de almacén, mch1 y mch2".
+- **Implementación**: Se modificó `loadFromLocal` en `data.js` para **forzar** la existencia de las 3 entidades (MCH 1, MCH 2, Almacén) en la base de datos local, incluso si los datos antiguos no las incluían.
+- **Resultado**: El selector de sedes ahora mostrará siempre las opciones completas.
