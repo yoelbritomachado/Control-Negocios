@@ -146,7 +146,14 @@
 - **Fix**: Eliminado el bloque de auto-login corrupto.
 - **Restauración**: Implementada la secuencia de inicio estándar: `Carga de Datos -> Setup UI -> Verificación de Sesión -> Login/Dashboard`.
 
+### 2026-01-24 - Reparación de Navegación y Restauración de Inventario (Arquitecto/Antigravity)
+- **Fix**: Reordenado de scripts en `index.html` (ambos como `type="module"`) para asegurar un orden de ejecución determinista y evitar fallos de referencia.
+- **Navegación**: Definida la función `renderOpenSessionScreen` en `app.js` y configurado un **Bypass Automático** (`isSessionActive = true`) para facilitar las pruebas locales.
+- **Inventario**: Implementada la función `seedDatabase()` en `data.js` que utiliza el bloque `REAL_INVENTORY` para repoblar el sistema.
+- **UI**: Agregado el botón "Simular Historial" en la vista de Control de Efectivo para disparar la reconstrucción de datos.
+
 ### 2026-01-24 - Estabilización de Navegación y Diagnóstico Visual (Antigravity)
 - **Diagnóstico**: El usuario reportó "pantalla negra" en secciones como Configuración. Se identificó una desincronización de la variable local `currentUser` al recargar la página.
 - **Fix**: Se agregó la sincronización explícita `currentUser = window.currentUser` en el bloque de inicio `DOMContentLoaded`.
 - **Mejora**: Se envolvió la lógica de `navigateTo` en un bloque `try/catch` con `alert()` para exponer errores invisibles al usuario en caso de futuros fallos de renderizado.
+- **Estabilidad**: Se implementó un mecanismo de **Polling (Reintento)** en el inicio de `app.js` para esperar hasta 5 segundos a que `data.js` cargue completamente, evitando condiciones de carrera en entornos locales lentos.

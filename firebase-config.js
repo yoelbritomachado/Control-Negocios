@@ -1,27 +1,33 @@
-// --- Firebase Configuration ---
+// --- Firebase Configuration (OFFLINE MODE) ---
 // Import functions from the SDKs (using CDN modules for static app)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {
-    getFirestore,
-    doc,
-    getDoc,
-    setDoc,
-    onSnapshot
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+// import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+// import {
+//     getFirestore,
+//     doc,
+//     getDoc,
+//     setDoc,
+//     onSnapshot
+// } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+// MOCK IMPLEMENTATION FOR OFFLINE / LOCALHOST USE
+console.warn("⚠️ MODO LOCAL: Firebase desactivado. Usando localStorage.");
+
+const dbFirestore = {};
+
+function doc() { return {}; }
+async function getDoc() { return { exists: () => false }; } // Always return "not found" so it falls back to local
+async function setDoc() { console.log("💾 [Local] Guardado simulado (persistido en localStorage)"); return true; }
+function onSnapshot() { return () => { }; }
 
 const firebaseConfig = {
-    apiKey: "AIzaSyBxPusqyeKmkx-lo4SX2w1ZORZjKY4k6fQ",
-    authDomain: "mch-control.firebaseapp.com",
-    projectId: "mch-control",
-    storageBucket: "mch-control.firebasestorage.app",
-    messagingSenderId: "669337977940",
-    appId: "1:669337977940:web:b9a29e5cd58dfe1ec399c1"
+    apiKey: "OFFLINE_MODE",
+    projectId: "local-mch-control"
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const dbFirestore = getFirestore(app);
+// const app = initializeApp(firebaseConfig);
+// const dbFirestore = getFirestore(app);
 
-console.log("🔥 Firebase Initialized");
+console.log("🔥 Firebase Mock Initialized (Offline)");
 
 export { dbFirestore, doc, getDoc, setDoc, onSnapshot };

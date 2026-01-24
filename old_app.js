@@ -1,7 +1,7 @@
 // Global Error Handler
 window.onerror = function (msg, url, line, col, error) {
     console.error("Error Global:", msg, "Line:", line);
-    alert("Error Global de JavaScript:\n" + msg + "\nLínea: " + line);
+    // alert("Error: " + msg + "\nLine: " + line); // Descomenta si quieres alertas visuales
     return false;
 };
 
@@ -28,10 +28,12 @@ if (!window.db) {
         businessFund: { cash: 100000, transfer: 0, usd: 0, eur: 0 }
     };
 }
-const db = window.db;
+const db = window.db; // Referencia directa (Proxy removido por simplicidad y compatibilidad)
 
-window.currentUser = null;
-let currentUser = null;
+// PARCHE DE EMERGENCIA: Auto-Login inmediato (Arquitecto)
+// Se asegura que estas variables sean globales
+window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
+var currentUser = window.currentUser;
 
 // --- PERMISSIONS CONFIGURATION ---
 const rolePermissions = {
@@ -55,7 +57,7 @@ let reviewingNotificationId = null;
 let posOpeningTime = '08:00';
 let currentPaymentMethod = 'cash'; // Default to cash
 let transferCart = []; // <--- NUEVO: Carrito para transferencias
-let isSessionActive = true; // <--- AUTO-ACTIVADO para pruebas locales como solicitó el usuario
+let isSessionActive = false; // <--- NUEVO: Estado de sesión POS
 
 let selectedLoginRole = null; // To track role during login flow
 
@@ -103,7 +105,7 @@ function applyTheme() {
 
 function toggleTheme() {
     db.settings.theme = db.settings.theme === 'light' ? 'dark' : 'light';
-    window.saveData();
+    saveData();
     applyTheme();
     renderSidebar(currentView);
 }
@@ -112,11 +114,6 @@ function toggleTheme() {
 function renderSidebar(activeView) {
     const sidebar = document.querySelector('.sidebar');
     const topBar = document.querySelector('.top-bar');
-
-    if (!sidebar || !topBar) {
-        console.warn('⚠️ Sidebar or TopBar element not found. Skipping render.');
-        return;
-    }
 
     if (!currentUser) {
         sidebar.style.display = 'none';
@@ -127,10 +124,10 @@ function renderSidebar(activeView) {
     sidebar.style.display = 'flex';
     topBar.style.display = 'flex';
 
-    // 🔗 Logo & Branding Area
+    // Logo Area with Premium Branding
     const logoHtml = `
         <div class="logo-area" style="padding: 1.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 1rem;">
-            <div style="width: 40px; height: 40px; min-width: 40px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(59, 130, 246, 0.2);">
+            <div style="width: 40px; height: 40px; min-width: 40px; border-radius: 12px; background: rgba(255, 51, 119, 0.1); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(255, 51, 119, 0.2);">
                 <i class="ph ph-storefront" style="font-size: 1.5rem; color: var(--primary);"></i>
             </div>
             <div style="display: flex; flex-direction: column; line-height: 1; justify-content: center;">
@@ -140,11 +137,11 @@ function renderSidebar(activeView) {
         </div>
     `;
 
-    // 🔔 Notifications Badge Sinc
+    // Notifications visibility
     const notifBell = document.getElementById('notifBtn');
     if (notifBell) {
         notifBell.style.display = (currentUser.role === 'owner' || currentUser.role === 'admin') ? 'block' : 'none';
-        const pendingNotifs = (db.notifications || []).filter(n => n.status === 'pending').length;
+        const pendingNotifs = db.notifications.filter(n => n.status === 'pending').length;
         const notifCount = document.getElementById('notif-count');
         if (notifCount) {
             notifCount.innerText = pendingNotifs;
@@ -152,48 +149,56 @@ function renderSidebar(activeView) {
         }
     }
 
-    // 👤 User Profile Sync
-    const userNameEl = document.querySelector('.user-profile span');
-    if (userNameEl) userNameEl.innerText = currentUser.name;
-
+    // Perfil de Usuario Premium en Sidebar (opcional, pero mejoramos el topBar)
+    document.querySelector('.user-profile span').innerText = currentUser.name;
     const avatarEl = document.querySelector('.user-profile .avatar');
     if (avatarEl) {
-        avatarEl.innerText = (currentUser.name || 'U').charAt(0).toUpperCase();
-        avatarEl.style.background = 'linear-gradient(135deg, var(--primary), #3b82f6)';
+        avatarEl.innerText = currentUser.name.charAt(0).toUpperCase();
+        avatarEl.style.background = 'linear-gradient(135deg, var(--primary), #3498db)';
+        avatarEl.style.boxShadow = '0 0 10px rgba(52, 152, 219, 0.5)';
     }
 
-    // 🏢 Business Selector (Contexto)
+    // Business Selector
     let businessOptions = [];
     if (currentUser.role === 'owner') {
-        businessOptions = [{ id: null, name: 'VISTA GLOBAL' }, ...(db.businesses || [])];
+        businessOptions = [{ id: null, name: 'VISTA GLOBAL' }, ...db.businesses];
+    } else if (currentUser.role === 'admin') {
+        businessOptions = [...db.businesses];
     } else {
-        businessOptions = [...(db.businesses || [])];
+        // Sellers only see Kiosks
+        businessOptions = db.businesses.filter(b => b.type === 'kiosk');
     }
 
     const selectorHtml = `
         <div class="business-selector-container" style="margin: 0 1rem 1.5rem; position: relative;">
             <select id="sidebar-business-select" onchange="changeBusinessContext(this.value)" 
-                    style="width: 100%; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: white;">
-                ${businessOptions.map(b => `<option value="${b.id === null ? 'global' : b.id}" ${String(selectedBusinessId || 'global') === String(b.id || 'global') ? 'selected' : ''}>${b.name}</option>`).join('')}
+                    style="width: 100%; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: white; -webkit-appearance: none;">
+                ${businessOptions.map(b => `<option value="${b.id === null ? 'global' : b.id}" ${String(selectedBusinessId) === String(b.id) ? 'selected' : ''}>${b.name}</option>`).join('')}
             </select>
             <i class="ph ph-caret-down" style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted);"></i>
         </div>
     `;
 
-    // 🛠️ Navigation Sections Logic
     const navSections = [
-        { title: 'GENERAL', items: [{ id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' }] },
+        {
+            title: 'GENERAL',
+            items: [
+                { id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' }
+            ]
+        },
         {
             title: 'OPERACIONES',
             items: [
                 { id: 'pos', icon: 'ph-calculator', label: 'Punto de Venta' },
-                { id: 'ventas', icon: 'ph-receipt', label: 'Historial Ventas' }
+                { id: 'ventas', icon: 'ph-receipt', label: 'Historial Ventas' },
+                { id: 'compras', icon: 'ph-shopping-bag-open', label: 'Compras' }
             ]
         },
         {
             title: 'GESTIÓN',
             items: [
                 { id: 'inventory', icon: 'ph-warehouse', label: 'Inventario' },
+                { id: 'transfer', icon: 'ph-arrows-left-right', label: 'Transferencias' },
                 { id: 'mermas', icon: 'ph-warning-circle', label: 'Mermas/Dev' }
             ]
         },
@@ -201,45 +206,55 @@ function renderSidebar(activeView) {
             title: 'ADMINISTRACIÓN',
             items: [
                 { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
-                { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' }
+                { id: 'financials', icon: 'ph-money', label: 'Finanzas' },
+                { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' },
+                { id: 'logs', icon: 'ph-scroll', label: 'Logs Sistema' }
             ]
         }
     ];
 
     const perms = rolePermissions[currentUser.role] || [];
-    let navHtml = '';
 
+    let navHtml = '';
     navSections.forEach(section => {
-        const visibleItems = section.items.filter(item => perms.includes(item.id));
+        const visibleItems = section.items.filter(item => {
+            let visible = perms.includes(item.id);
+            // Lógica específica para Almacén (ID 'alm')
+            if (String(selectedBusinessId) === 'alm' && (item.id === 'pos' || item.id === 'ventas')) {
+                visible = false;
+            }
+            return visible;
+        });
 
         if (visibleItems.length > 0) {
-            navHtml += `<li class="nav-section-title" style="padding: 0.5rem 1.5rem; font-size: 0.7rem; color: var(--text-muted); font-weight: 700;">${section.title}</li>`;
+            navHtml += `<li class="nav-section-title">${section.title}</li>`;
             visibleItems.forEach(item => {
-                const isActive = activeView === item.id;
+                let label = item.label;
+                if (String(selectedBusinessId) === 'alm' && item.id === 'transfer') {
+                    label = 'Abastecer Kioscos';
+                }
                 navHtml += `
-                    <li class="nav-item ${isActive ? 'active' : ''}" onclick="window.navigateTo('${item.id}')" 
-                        style="padding: 0.8rem 1.5rem; display: flex; align-items: center; gap: 0.75rem; cursor: pointer; border-left: 3px solid ${isActive ? 'var(--primary)' : 'transparent'}; background: ${isActive ? 'rgba(59, 130, 246, 0.05)' : 'transparent'}; color: ${isActive ? 'var(--primary)' : 'inherit'};">
-                        <i class="ph ${item.icon}" style="font-size: 1.25rem;"></i>
-                        <span style="font-weight: ${isActive ? '600' : '400'};">${item.label}</span>
+                    <li class="${activeView === item.id ? 'active' : ''}" onclick="navigateTo('${item.id}')">
+                        <i class="ph ${item.icon}"></i>
+                        <span>${label}</span>
                     </li>
                 `;
             });
         }
     });
 
-    // 🏁 Final Assembler
     sidebar.innerHTML = `
         ${logoHtml}
         <div class="nav-links-container" style="flex: 1; overflow-y: auto;">
-            <ul class="nav-links" style="list-style: none; padding: 0;">
+            <ul class="nav-links">
                 ${selectorHtml}
                 ${navHtml}
             </ul>
         </div>
-        <div class="sidebar-footer" style="padding: 1.5rem; border-top: 1px solid var(--border);">
-            <button class="btn-ghost" onclick="toggleTheme()" style="width: 100%; display: flex; align-items: center; gap: 0.75rem; color: var(--text-muted);">
-                <i class="ph ${db.settings.theme === 'light' ? 'ph-moon' : 'ph-sun'}"></i>
-                <span>Modo ${db.settings.theme === 'light' ? 'Oscuro' : 'Claro'}</span>
+        <div style="margin-top: auto; padding: 1rem; border-top: 1px solid var(--border);">
+            <button class="btn-ghost" onclick="toggleTheme()" style="width: 100%; display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem; border-radius: 12px; color: var(--text-muted); cursor: pointer;">
+                <i class="ph ${db.settings.theme === 'light' ? 'ph-moon' : 'ph-sun'}" style="font-size: 1.25rem;"></i>
+                <span style="font-size: 0.85rem; font-weight: 500;">Modo ${db.settings.theme === 'light' ? 'Oscuro' : 'Claro'}</span>
             </button>
         </div>
     `;
@@ -277,134 +292,80 @@ function changeBusinessContext(val) {
 }
 
 window.logout = function () {
-    console.log('🚪 Cerrando sesión...');
-    window.currentUser = null;
     currentUser = null;
+    window.currentUser = null;
     currentView = 'login';
     selectedBusinessId = null;
+    selectedProducts.clear();
 
-    if (db) {
-        db.id = null; // Clear any session-specific logic if needed
-    }
+    // Reset POS State
+    posCart = [];
+    editingSaleId = null;
+    isReviewingClosure = false;
+    reviewingNotificationId = null;
 
-    // Reset UI state
-    document.body.classList.remove('sidebar-open');
-    window.saveData();
-    window.location.hash = 'login';
+    saveData();
     navigateTo('login');
 };
 
-/**
- * Sistema de Navegación Centralizado
- * @param {string} viewId - El ID de la vista a renderizar
- */
 function navigateTo(viewId) {
     if (!viewId) viewId = 'dashboard';
-
-    // 1. Sincronización de Identidad
-    if (window.currentUser) {
-        currentUser = window.currentUser;
-    } else if (viewId !== 'login') {
-        console.warn('⚠️ Intento de navegación sin sesión. Redirigiendo a login.');
-        viewId = 'login';
-    }
-
-    console.log(`🌐 Navegando a: ${viewId}`);
     currentView = viewId;
     window.location.hash = viewId;
 
-    // 2. Persistencia de Estado
-    window.saveData();
+    // Save state
+    saveData();
 
-    // 3. Preparar Interfaz
+    // Update Sidebar
+    renderSidebar(viewId);
+
     const container = document.getElementById('content-area');
-    if (!container) {
-        console.error('❌ Error fatal: content-area no encontrado en el DOM.');
-        return;
+    if (!container) return;
+    container.innerHTML = ''; // Clear
+
+    // Dispatch
+    switch (viewId) {
+        case 'login':
+            renderLogin(container);
+            break;
+        case 'dashboard':
+            if (typeof renderDashboard === 'function') renderDashboard(container);
+            break;
+        case 'pos':
+            if (typeof renderPOS === 'function') renderPOS(container);
+            break;
+        case 'inventory':
+            if (typeof renderInventory === 'function') renderInventory(container);
+            break;
+        case 'ventas':
+            if (typeof renderVentas === 'function') renderVentas(container);
+            break;
+        case 'daily-records':
+            if (typeof renderDailyRecords === 'function') renderDailyRecords(container);
+            break;
+        case 'cash-control':
+            if (typeof renderCashControl === 'function') renderCashControl(container);
+            break;
+        case 'settings':
+            if (typeof renderSettings === 'function') renderSettings(container);
+            break;
+        case 'transfer':
+            if (typeof renderTransfer === 'function') renderTransfer(container);
+            break;
+        case 'mermas':
+            if (typeof renderMermas === 'function') renderMermas(container);
+            break;
+        case 'financials':
+            if (typeof renderFinancials === 'function') renderFinancials(container);
+            break;
+        case 'reportes':
+            if (typeof renderReportes === 'function') renderReportes(container);
+            break;
+        default:
+            if (typeof renderDashboard === 'function') renderDashboard(container);
     }
 
-    // Limpieza agresiva para evitar fugas de eventos o visuales
-    container.innerHTML = '<div class="loading-view" style="padding: 3rem; text-align: center; color: var(--text-muted);"><i class="ph ph-circle-notch ph-spin" style="font-size: 2rem;"></i></div>';
-
-    // 4. Actualizar Sidebar (solo si hay usuario)
-    if (currentUser) {
-        renderSidebar(viewId);
-    } else {
-        const sidebar = document.querySelector('.sidebar');
-        const topBar = document.querySelector('.top-bar');
-        if (sidebar) sidebar.style.display = 'none';
-        if (topBar) topBar.style.display = 'none';
-    }
-
-    // 5. Despachador de Vistas Seguro
-    try {
-        switch (viewId) {
-            case 'login':
-                renderLogin(container);
-                break;
-            case 'dashboard':
-                if (typeof renderDashboard === 'function') renderDashboard(container);
-                else throw new Error('renderDashboard no definida');
-                break;
-            case 'pos':
-                if (typeof renderPOS === 'function') renderPOS(container);
-                else throw new Error('renderPOS no definida');
-                break;
-            case 'inventory':
-                if (typeof renderInventory === 'function') renderInventory(container);
-                else throw new Error('renderInventory no definida');
-                break;
-            case 'ventas':
-            case 'daily-records':
-                if (typeof renderVentas === 'function') renderVentas(container);
-                else throw new Error('renderVentas no definida');
-                break;
-            case 'cash-control':
-                if (typeof renderCashControl === 'function') renderCashControl(container);
-                else if (typeof renderReportes === 'function') renderReportes(container);
-                else throw new Error('No hay vista de control de efectivo disponible');
-                break;
-            case 'settings':
-                if (typeof renderSettings === 'function') renderSettings(container);
-                else throw new Error('renderSettings no definida');
-                break;
-            case 'transfer':
-                if (typeof renderTransfer === 'function') renderTransfer(container);
-                else throw new Error('renderTransfer no definida');
-                break;
-            case 'mermas':
-                if (typeof renderMermas === 'function') renderMermas(container);
-                else throw new Error('renderMermas no definida');
-                break;
-            case 'financials':
-                if (typeof renderFinancials === 'function') renderFinancials(container);
-                else throw new Error('renderFinancials no definida');
-                break;
-            case 'reportes':
-                if (typeof renderReportes === 'function') renderReportes(container);
-                else throw new Error('renderReportes no definida');
-                break;
-            default:
-                console.warn(`Vista desconocida: ${viewId}, redirigiendo a dashboard.`);
-                renderDashboard(container);
-        }
-
-        // Actualizar Título
-        const titleText = viewId.charAt(0).toUpperCase() + viewId.slice(1).replace('-', ' ');
-        document.getElementById('page-title').innerText = titleText;
-
-    } catch (e) {
-        console.error(`❌ Error renderizando "${viewId}":`, e);
-        container.innerHTML = `
-            <div class="error-box" style="padding: 3rem; text-align: center; color: var(--danger); border: 1px dashed var(--danger); border-radius: 12px; margin: 2rem;">
-                <i class="ph ph-warning-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
-                <h2>Error de Visualización</h2>
-                <p>No se pudo cargar la sección "${viewId}".</p>
-                <code style="display: block; background: rgba(0,0,0,0.2); padding: 1rem; margin-top: 1rem; font-size: 0.8rem; text-align: left;">${e.message}</code>
-                <button onclick="navigateTo('dashboard')" class="btn-primary" style="margin-top: 1.5rem;">Volver al Inicio</button>
-            </div>
-        `;
-    }
+    updateTitle(viewId.charAt(0).toUpperCase() + viewId.slice(1).replace('-', ' '));
 }
 window.navigateTo = navigateTo;
 
@@ -850,7 +811,7 @@ window.generateMockSales = async function () {
                 businesses.length = 0; // Clear existing businesses array
                 businesses.push(...db.businesses);
 
-                await window.saveData();
+                await saveData();
                 console.log(`✅ ${db.products.length} productos importados automáticamente.`);
             } else {
                 alert("Error: No se encontró el inventario base en data.js");
@@ -885,7 +846,7 @@ window.generateMockSales = async function () {
         if (inv) inv.quantity = Math.max(0, inv.quantity - qty);
     }
 
-    await window.saveData();
+    await saveData();
     alert(`Generadas ${count} ventas ficticias.`);
     navigateTo('dashboard');
 }
@@ -1313,7 +1274,7 @@ async function deleteSelectedProducts() {
     // Log action
     addLog('Eliminación Masiva', `Se eliminaron ${idsToDelete.length} productos del sistema.`);
 
-    await window.saveData();
+    await saveData();
     selectedProducts.clear();
     showToast(`${idsToDelete.length} productos eliminados.`);
     renderInventory(document.getElementById('content-area'));
@@ -1461,7 +1422,7 @@ async function handleSaveWaste(e) {
     }
 
     db.waste.push(wasteRecord);
-    await window.saveData();
+    await saveData();
     closeModal('waste-modal');
     renderMermas(document.getElementById('content-area'));
 }
@@ -1482,7 +1443,7 @@ async function approveWaste(wasteId) {
 
         addLog(`Merma aprobada por ${currentUser.name}: ${db.products.find(p => p.id === waste.productId)?.name}`, 'success');
         if (isReviewingClosure && !window.auditTempData) window.auditTempData = {}; // Safety init
-        await window.saveData();
+        await saveData();
         renderMermas(document.getElementById('content-area'));
         if (document.getElementById('modal-notifications')) showNotificationsModal();
     }
@@ -1492,48 +1453,6 @@ function isWarehouseContext() {
     const biz = db.businesses.find(b => String(b.id) === String(selectedBusinessId));
     return biz && biz.type === 'warehouse';
 }
-
-function renderOpenSessionScreen(container) {
-    container.innerHTML = `
-        <div class="fade-in" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center;">
-            <div style="width: 120px; height: 120px; border-radius: 60px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 2rem;">
-                <i class="ph ph-door-open" style="font-size: 4rem; color: var(--primary);"></i>
-            </div>
-            <h2>Sesión POS Cerrada</h2>
-            <p style="color: var(--text-muted); max-width: 400px; margin-bottom: 2rem;">Es necesario abrir una nueva sesión de caja para comenzar a registrar ventas hoy.</p>
-            <button class="btn-primary" style="padding: 1rem 3rem; font-size: 1.1rem; border-radius: 50px;" 
-                    onclick="openPOSSession()">
-                <i class="ph ph-plus-circle"></i> ABRIR CAJA AHORA
-            </button>
-        </div>
-    `;
-}
-
-window.openPOSSession = function () {
-    isSessionActive = true;
-    addLog("Sesión POS abierta manualmente.");
-    navigateTo('pos');
-};
-
-window.seedDatabaseWithHistory = async function () {
-    const btn = event?.currentTarget;
-    if (btn) btn.innerHTML = '<i class="ph ph-circle-notch ph-spin"></i> Sembrando...';
-
-    try {
-        if (typeof window.seedDatabase === 'function') {
-            await window.seedDatabase();
-            alert("✅ Base de datos sembrada con éxito desde el inventario real.");
-            location.reload();
-        } else {
-            throw new Error("window.seedDatabase no está definida en data.js");
-        }
-    } catch (e) {
-        console.error(e);
-        alert("❌ Error al sembrar: " + e.message);
-    } finally {
-        if (btn) btn.innerHTML = '<i class="ph ph-database"></i> Simular Historial';
-    }
-};
 
 function renderPOS(container) {
     try {
@@ -1858,7 +1777,7 @@ async function returnItemFromTodaySale(saleId, itemId) {
         db.sales = db.sales.filter(s => s.id !== saleId);
     }
 
-    await window.saveData();
+    await saveData();
     addLog(`Artículo devuelto de venta #${saleId}: ${item.name}`, 'warning');
     renderTodaySalesList();
     renderInventory(document.getElementById('content-area')); // Refrescar stock si visible
@@ -1980,7 +1899,7 @@ async function registerIndividualSale() {
         // db.businessFund.cash -= amount; 
 
         addLog(`Gasto registrado: ${category} - $${amount.toFixed(2)}`, 'warning');
-        await window.saveData();
+        await saveData();
 
         closeModal('expense-modal');
         alert("Gasto registrado correctamente.");
@@ -2066,7 +1985,7 @@ async function registerIndividualSale() {
             addLog(`Venta registrada: $${totalValue.toFixed(2)} (${currencyCode.toUpperCase()})`, 'success');
         }
 
-        await window.saveData();
+        await saveData();
         closeModal('payment-modal');
         alert("¡Venta procesada con éxito!");
 
@@ -2707,7 +2626,7 @@ async function confirmExpense() {
     db.sales.unshift(expenseEntry);
     addLog(`Gasto registrado: -$${amount.toFixed(2)} (${reason})`, 'warning');
 
-    window.saveData().catch(e => console.error("Background save warning:", e));
+    saveData().catch(e => console.error("Background save warning:", e));
     alert("Gasto registrado con éxito.");
     closeModal('expense-modal');
 
@@ -2791,7 +2710,7 @@ async function processIncident() {
 
     addLog(`Incidencia registrada: ${logType} - ${product.name} (x${qty})`, (type === 'internal_loss' ? 'danger' : 'warning'));
 
-    await window.saveData();
+    await saveData();
     alert("✅ Operación completada.");
     closeModal('incidentModal');
     renderTodaySalesList();
@@ -3251,7 +3170,7 @@ async function confirmPendingTransfer() {
         date: new Date().toLocaleString()
     });
 
-    await window.saveData();
+    await saveData();
     posCart = [];
     const modal = document.getElementById('transferConfirmModal');
     if (modal) modal.remove();
@@ -3408,7 +3327,7 @@ function toggleTransferCheck(transferId, itemIdx, field, value) {
     const t = db.transfers.find(tr => tr.id === transferId);
     if (t) {
         t.items[itemIdx][field] = value;
-        window.saveData();
+        saveData();
         renderTransfer(document.getElementById('content-area'));
     }
 }
@@ -3418,7 +3337,7 @@ async function cancelTransfer(id) {
     const t = db.transfers.find(tr => tr.id === id);
     if (t) {
         t.status = 'cancelled';
-        await window.saveData();
+        await saveData();
         alert("Transferencia cancelada.");
         renderTransfer(document.getElementById('content-area'));
     }
@@ -3458,7 +3377,7 @@ async function completeTransfer(id) {
     const notif = db.notifications.find(n => n.data && n.data.transferId === id);
     if (notif) notif.status = 'completed';
 
-    await window.saveData();
+    await saveData();
     addLog(`Transferencia #${t.id} completada. Stock movido de ${t.fromId} a ${t.toId}`, 'success');
 
     alert("✅ Operación completada con éxito. El inventario ha sido actualizado.");
@@ -3657,7 +3576,7 @@ async function executeTransfer() {
         });
     }
 
-    await window.saveData();
+    await saveData();
     addLog(`Transferencia masiva realizada: ${transferCart.length} items de ${originName} a ${destName} `, 'info');
 
     alert("✅ Transferencia realizada con éxito.");
@@ -3726,7 +3645,7 @@ function renderNotifications() {
 async function markAllNotificationsAsSeen() {
     if (db.notifications) {
         db.notifications.forEach(n => n.seen = true);
-        await window.saveData();
+        await saveData();
         renderNotifications();
     }
 }
@@ -3750,7 +3669,7 @@ async function handleNotificationClick(id) {
             db.notifications = db.notifications.filter(notif => notif.id !== id);
         }
 
-        await window.saveData();
+        await saveData();
         renderSidebar(currentView); // Refresh badge count
         renderNotifications();
     }
@@ -3772,7 +3691,7 @@ function markNotificationAsSeen(id) {
     const n = db.notifications.find(notif => notif.id === id);
     if (n && !n.seen) {
         n.seen = true;
-        window.saveData();
+        saveData();
         // Update UI without full flicker
         const modal = document.getElementById('notifications-modal');
         if (modal) {
@@ -3806,7 +3725,7 @@ async function approveNotification(id) {
 
     n.status = 'approved';
     n.resolvedBy = currentUser.name;
-    await window.saveData();
+    await saveData();
     closeModal();
     renderSidebar(currentView);
     addLog(`Notificación aprobada: ${n.title} `, 'success');
@@ -3819,7 +3738,7 @@ async function rejectNotification(id) {
 
     n.status = 'rejected';
     n.resolvedBy = currentUser.name;
-    await window.saveData();
+    await saveData();
     closeModal();
     renderSidebar(currentView);
     addLog(`Notificación rechazada: ${n.title} `, 'warning');
@@ -4068,7 +3987,7 @@ async function saveNewProduct() {
         addLog(`Producto añadido: ${newProduct.name}`, 'success');
 
         // Fire and forget persistence
-        window.saveData().catch(e => console.error("Background save warning:", e));
+        saveData().catch(e => console.error("Background save warning:", e));
 
         closeModal('product-modal');
 
@@ -4156,7 +4075,7 @@ async function updateProduct(id) {
         }
 
         // Fire and forget persistence
-        window.saveData().catch(e => console.error("Background save warning:", e));
+        saveData().catch(e => console.error("Background save warning:", e));
 
         addLog(`Producto actualizado: ${db.products[pIndex].name}`);
         closeModal('edit-product-modal');
@@ -4184,7 +4103,7 @@ function handleInventoryImageUpload(id, input) {
             const p = db.products.find(prod => prod.id === id);
             if (p) {
                 p.image = base64;
-                window.saveData();
+                saveData();
                 renderInventory(document.getElementById('content-area'));
                 addLog(`Imagen de producto ${p.name} actualizada`, 'info');
             }
@@ -4222,7 +4141,7 @@ function showMermaModal(productId) {
         user: currentUser.name
     });
 
-    window.saveData();
+    saveData();
     addLog(`Merma registrada: ${qty}x ${p.name} `, 'warning');
     renderInventory(document.getElementById('content-area'));
 }
@@ -4289,7 +4208,7 @@ function importInventoryCSV(input) {
                 inv.quantity = stock;
             }
         }
-        await window.saveData();
+        await saveData();
         alert("Importación completada");
         renderInventory(document.getElementById('content-area'));
     };
@@ -4569,7 +4488,7 @@ async function deleteSaleAction(id, force = false) {
         }
         db.sales = db.sales.filter(sale => sale.id !== id);
         db.notifications = db.notifications.filter(n => !(n.refId === id && n.type === 'delete_request'));
-        await window.saveData();
+        await saveData();
         addLog(`Venta #${id.toString().slice(-6)} eliminada.Stock restaurado.`, 'warning');
         alert("Venta eliminada con éxito.");
 
@@ -4596,7 +4515,7 @@ function sendDeleteRequest(s) {
         status: 'pending',
         date: new Date().toLocaleString()
     });
-    window.saveData();
+    saveData();
     alert("Solicitud enviada para aprobación.");
 }
 
@@ -4604,7 +4523,7 @@ function approveSale(id) {
     const s = db.sales.find(sale => sale.id === id);
     if (!s) return;
     s.status = 'closed';
-    window.saveData();
+    saveData();
     addLog(`Cierre de venta aprobado: #${id.toString().slice(-6)} `, 'success');
     closeModal('sale-detail-modal');
     renderVentas(document.getElementById('content-area'));
@@ -4664,7 +4583,7 @@ window.finalizePOSSale = async function () {
     if (!db.notifications) db.notifications = [];
     db.notifications.unshift(notification);
 
-    await window.saveData();
+    await saveData();
 
     closeModal('pos-closure-modal');
 
@@ -4805,7 +4724,7 @@ window.updateAuditItemQty = async function (seller, businessId, productId, newVa
             report.shortage = Math.max(0, expCash - (report.cashReal || 0)) + Math.max(0, expTrans - (report.transferReal || 0));
         }
 
-        await window.saveData();
+        await saveData();
         // Recargar el modal para refrescar los cálculos de Sistema y Diferencias
         openSuperReviewModal(sourceId, isNotification);
     } else {
@@ -4910,7 +4829,7 @@ window.finalApproveClosure = async function (id, isNotification) {
             source.seen = true;
         }
 
-        await window.saveData();
+        await saveData();
         closeModal('super-review-modal');
         closeModal('sale-detail-modal');
 
@@ -5055,7 +4974,7 @@ window.deleteSession = async function (sessionId, date, seller, businessId) {
     const deletedCount = initialCount - db.sales.length;
     addLog(`Sesión eliminada por ${currentUser.name}: ${deletedCount} registros borrados.`, 'critical');
 
-    await window.saveData();
+    await saveData();
     renderVentas(document.getElementById('content-area'));
     alert("Sesión eliminada correctamente.");
 };
@@ -5166,7 +5085,7 @@ window.approveClosureFromPOS = async function () {
         }
     }
 
-    await window.saveData();
+    await saveData();
 
     // 4. Limpiar estado y volver
     isReviewingClosure = false;
@@ -5472,65 +5391,50 @@ window.toggleTheme = function () {
     }
 
     // 3. Save (Background)
-    window.saveData();
+    saveData();
 
     // 4. Re-render Sidebar (to update Icon)
     // We pass currentView to maintain active state
     renderSidebar(currentView);
 };
-// --- BLOQUE DE INICIO ESTÁNDAR (ROBUSTO) ---
-window.addEventListener('DOMContentLoaded', () => {
-    console.log('⏳ Esperando inicialización del Data Layer...');
+// --- BLOQUE DE INICIO MAESTRO (RESTAURACIÓN) ---
+window.addEventListener('DOMContentLoaded', async () => {
+    console.log('🚀 Restaurando MCH Control en Local...');
 
-    let attempts = 0;
-    const maxAttempts = 50;
+    // 1. FORZAR IDENTIDAD: Esto elimina la necesidad de login y contraseñas
+    window.currentUser = {
+        name: 'Dueño',
+        role: 'owner',
+        businessId: 'alm' // Entra directo al Almacén
+    };
+    // Asegurar que el contexto local se actualice (Sincronización Arquitecto)
+    selectedBusinessId = 'alm';
+    currentUser = window.currentUser;
 
-    const checkDataLayer = setInterval(async () => {
-        attempts++;
-        const dataLayerReady = typeof window.loadData === 'function' &&
-            typeof window.saveData === 'function' &&
-            window.db;
 
-        if (dataLayerReady) {
-            clearInterval(checkDataLayer);
-            console.log('🚀 Sistema de Datos Detectado y Completo. Cargando App...');
-
-            try {
-                // 1. Cargar Datos
-                await window.loadData();
-
-                // 2. Sincronizar usuario global
-                if (!window.currentUser) {
-                    // Bypass local: Auto-login
-                    window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
-                }
-                currentUser = window.currentUser;
-
-                // 3. Setup de UI General
-                if (typeof setupResponsiveUI === 'function') setupResponsiveUI();
-                if (typeof applyTheme === 'function') applyTheme();
-
-                // 4. Navegación Inicial
-                const hashView = window.location.hash.replace('#', '') || 'dashboard';
-                navigateTo(hashView);
-
-            } catch (error) {
-                console.error('❌ Fallo crítico en el arranque:', error);
-                alert("Error técnico al iniciar la aplicación. Revise su conexión.");
-            }
-        } else if (attempts >= maxAttempts) {
-            clearInterval(checkDataLayer);
-            console.error("❌ Fatal: El archivo data.js no respondió a tiempo.");
-            alert("Error de carga: El sistema de datos no está disponible.");
-        }
-    }, 100);
-});
-
-// Listener de Hash para navegación manual/atrás
-window.addEventListener('hashchange', () => {
-    const v = window.location.hash.replace('#', '');
-    if (v && v !== currentView) {
-        navigateTo(v);
+    // 2. CARGA DE DATOS: Asegura que Firebase y los productos estén listos
+    if (typeof window.loadData === 'function') {
+        await window.loadData();
+    } else {
+        console.error('Error: El archivo data.js no respondió.');
+        return;
     }
+
+    // 3. ACTIVAR INTERFAZ: Aplica el diseño de 40px y modo oscuro
+    if (typeof setupResponsiveUI === 'function') setupResponsiveUI();
+    if (typeof applyTheme === 'function') applyTheme();
+
+    // 4. NAVEGACIÓN DIRECTA: Salta el login y va al Dashboard
+    const initView = window.location.hash.replace('#', '') || 'dashboard';
+    if (typeof navigateTo === 'function') {
+        navigateTo(initView);
+    } else {
+        console.error('Error: La función de navegación está dañada.');
+    }
+
+    window.addEventListener('hashchange', () => {
+        const v = window.location.hash.replace('#', '');
+        if (window.currentUser && v) navigateTo(v);
+    });
 });
 
