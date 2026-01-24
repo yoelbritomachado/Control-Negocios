@@ -247,3 +247,7 @@
 - **Problema**: Error `currentSessionStartTime is not defined` capturado por Debug Overlay.
 - **Causa**: Acceso directo a una variable que debía ser `window.currentSessionStartTime` tanto en el registro de venta como en el filtrado de lista (`renderTodaySalesList`).
 - **Solución**: Se corrigieron TODAS las referencias en `pos.js` para usar acceso seguro a `window`. (v10.18)
+
+### 2026-01-24 - Feature: Reloj en Tiempo Real (`v10.19`)
+- **Solicitud**: Restaurar contador de fecha y hora en tiempo real al abrir venta.
+- **Implementación**: Se agregó un widget de reloj digital en el encabezado del POS que se actualiza cada segundo (`setInterval`), mostrando la hora exacta con segundos.

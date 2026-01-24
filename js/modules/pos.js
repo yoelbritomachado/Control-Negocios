@@ -36,6 +36,12 @@ window.renderPOS = function (container) {
                 </div>
                 <div style="display: flex; gap: 2rem; text-align: right;">
                     <div>
+                         <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Exacta</label>
+                         <div id="pos-clock" style="font-size: 1.5rem; font-weight: bold; font-family: monospace; color: var(--primary); background: rgba(59, 130, 246, 0.1); padding: 0.2rem 0.8rem; border-radius: 8px;">
+                            --:--:--
+                         </div>
+                    </div>
+                    <div>
                         <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Apertura</label>
                         <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" class="input-minimal" style="width: 100px;">
                     </div>
@@ -159,6 +165,18 @@ window.renderPOS = function (container) {
 
         window.removeEventListener('resize', updatePOSMobileFooter);
         window.addEventListener('resize', updatePOSMobileFooter);
+
+        // [CLOCK] Start Real-Time Clock
+        if (window.posClockInterval) clearInterval(window.posClockInterval);
+        const updateTime = () => {
+            const el = document.getElementById('pos-clock');
+            if (el) {
+                const now = new Date();
+                el.innerText = now.toLocaleTimeString('es-ES', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            }
+        };
+        updateTime();
+        window.posClockInterval = setInterval(updateTime, 1000);
 
     } catch (e) {
         console.error('Error rendering POS:', e);
