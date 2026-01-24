@@ -553,7 +553,7 @@ window.processPOSPayment = async function () {
                 s.openingTime = posOpeningTime;
 
                 // Keep session if exists
-                if (!s.sessionId) s.sessionId = currentSessionStartTime || Date.now();
+                if (!s.sessionId) s.sessionId = (typeof window.currentSessionStartTime !== 'undefined' ? window.currentSessionStartTime : Date.now());
 
                 addLog(`Venta #${s.id} actualizada: $${totalValue.toFixed(2)} (${currencyCode.toUpperCase()})`, 'info');
             }
@@ -580,7 +580,7 @@ window.processPOSPayment = async function () {
                 total: totalValue,
                 payment: { cash: cashVal, transfer: transferVal, currency: currencyCode }, // Explicit naming
                 openingTime: posOpeningTime,
-                sessionId: currentSessionStartTime || Date.now(),
+                sessionId: (typeof window.currentSessionStartTime !== 'undefined' ? window.currentSessionStartTime : Date.now()),
                 status: 'registered'
             };
             db.sales.unshift(saleData);
