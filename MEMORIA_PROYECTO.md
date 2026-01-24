@@ -157,3 +157,7 @@
 - **Fix**: Se agregó la sincronización explícita `currentUser = window.currentUser` en el bloque de inicio `DOMContentLoaded`.
 - **Mejora**: Se envolvió la lógica de `navigateTo` en un bloque `try/catch` con `alert()` para exponer errores invisibles al usuario en caso de futuros fallos de renderizado.
 - **Estabilidad**: Se implementó un mecanismo de **Polling (Reintento)** en el inicio de `app.js` para esperar hasta 5 segundos a que `data.js` cargue completamente, evitando condiciones de carrera en entornos locales lentos.
+### 2026-01-24 - Implementación de Auditoría de Seguridad (Especialista Administrativo)
+- **Nuevo**: Se creó la habilidad `security_auditor` en `.agent/skills/security_auditor/SKILL.md` siguiendo los principios de Dot Dager.
+- **Auditoría**: Se realizó el primer escaneo de seguridad. Se detectaron **vulnerabilidades críticas**: el sistema de login no verifica PINs y éstos se almacenan en texto plano en `data.js`.
+- **Acción**: Se documentaron los hallazgos en el `walkthrough.md` para su pronta corrección.
