@@ -204,3 +204,10 @@
 - **Solicitud**: "Activar lógica de almacén, mch1 y mch2".
 - **Implementación**: Se modificó `loadFromLocal` en `data.js` para **forzar** la existencia de las 3 entidades (MCH 1, MCH 2, Almacén) en la base de datos local, incluso si los datos antiguos no las incluían.
 - **Resultado**: El selector de sedes ahora mostrará siempre las opciones completas.
+
+### 2026-01-24 - Feat: Inyección de Inventario CSV (`v10.8`)
+- **Solicitud**: "El inventario de cada uno sean los csv".
+- **Pipeline de Datos**:
+    - Se creó script Python `process_csv_final.py` que transforma los CSV de `Data csv/` a `js/initial_data.js`.
+    - Se modificó `data.js` para iterar sobre todas las sedes (`alm`, `mch1`, `mch2`) de este archivo JSON.
+- **Autoridad:** El sistema ahora **sobrescribe** las cantidades locales con las del CSV en cada inicio, garantizando sincronización total con los archivos proporcionados.

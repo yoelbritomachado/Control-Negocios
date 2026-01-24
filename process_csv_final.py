@@ -2,42 +2,42 @@ import csv
 import json
 import os
 
-files = {
-    'alm': 'Data csv/diciembre 1 almacen.csv',
-    'mch1': 'Data csv/diciembre 1 mch1.csv',
-    'mch2': 'Data csv/diciembre 1 mch2.csv'
+files_map = {
+    "alm": "Data csv/diciembre 1 almacen.csv",
+    "mch1": "Data csv/diciembre 1 mch1.csv",
+    "mch2": "Data csv/diciembre 1 mch2.csv"
 }
 
-result = {}
+output_data = {}
 
-for biz_id, filepath in files.items():
-    result[biz_id] = []
-    if not os.path.exists(filepath):
+for key, relative_path in files_map.items():
+    if not os.path.exists(relative_path):
+        print(f"Warning: File not found {relative_path}")
         continue
     
-    # Using latin-1 to avoid decode errors with Spanish chars if file is not UTF-8
-    with open(filepath, mode='r', encoding='latin-1') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            clean_row = {k.strip(): v.strip() if v else "" for k, v in row.items() if k}
-            if clean_row.get('Nombre'):
-                result[biz_id].append(clean_row)
+    print(f"Processing {key} from {relative_path}...")
+    items = []
+    try:
+        with open(relative_path, mode='r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Clean keys just in case
+                clean_row = {k.strip(): v for k, v in row.items() if k}
+                
+                # Check for critical fields
+                if 'Nombre' not in clean_row or not clean_row['Nombre'].strip():
+                    continue
 
-new_inv_js = "window.REAL_INVENTORY = " + json.dumps(result, indent=2, ensure_ascii=False) + ";"
+                items.append(clean_row)
+        output_data[key] = items
+        print(f"  -> {len(items)} items loaded.")
+    except Exception as e:
+        print(f"Error processing {relative_path}: {e}")
 
-with open('data.js', 'r', encoding='utf-8') as f:
-    orig = f.read()
+# Generate JS file
+js_content = f"window.REAL_INVENTORY = {json.dumps(output_data, indent=2, ensure_ascii=False)};"
 
-start_marker = 'window.REAL_INVENTORY = {'
-end_pattern = '/* SISTEMA DE CAJAS FUERTES */'
+with open("js/initial_data.js", "w", encoding="utf-8") as f:
+    f.write(js_content)
 
-start_idx = orig.find(start_marker)
-end_idx = orig.find(end_pattern)
-
-if start_idx != -1 and end_idx != -1:
-    new_content = orig[:start_idx] + new_inv_js + '\n' + orig[end_idx:]
-    with open('data.js', 'w', encoding='utf-8') as f:
-        f.write(new_content)
-    print('SUCCESS')
-else:
-    print(f'ERROR: Markers not found. Start: {start_idx}, End: {end_idx}')
+print("Done. Created js/initial_data.js")

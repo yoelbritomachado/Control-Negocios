@@ -1,38 +1,50 @@
 console.log('📦 Data Layer [v10.1] - Iniciando...');
 
-// [ARCHITECT FIX] Finance Agent: Data Migration Skill
+// [ARCHITECT FIX] Finance Agent: Data Migration Skill (Multi-Tenant)
 window.populateFromRealInventory = async function () {
   console.log("🔄 Iniciando población de base de datos desde REAL_INVENTORY...");
-  if (!window.REAL_INVENTORY || !window.REAL_INVENTORY['alm']) {
-    console.warn("⚠️ No hay datos en REAL_INVENTORY['alm']");
+  if (!window.REAL_INVENTORY) {
+    console.warn("⚠️ No hay datos en REAL_INVENTORY");
     return;
   }
-  const warehouseData = window.REAL_INVENTORY['alm'];
-  let count = 0;
-  warehouseData.forEach((item, index) => {
-    let p = db.products.find(prod => prod.name === item.Nombre);
-    if (!p) {
-      p = {
-        id: Date.now() + index,
-        name: item.Nombre,
-        category: item.Categoría || 'General',
-        cost: parseFloat(item.Costo) || 0,
-        price: parseFloat(item.Precio) || 0,
-        image: '', status: 'active'
-      };
-      db.products.push(p);
-    }
-    let inv = db.inventory.find(i => i.productId === p.id && i.businessId === 'alm');
-    if (!inv) {
-      db.inventory.push({
-        businessId: 'alm',
-        productId: p.id,
-        quantity: parseFloat(item.Cantidad) || 0
-      });
-      count++;
-    }
-  });
-  console.log(`✅ Población completada. ${count} registros procesados.`);
+
+  let totalCount = 0;
+
+  for (const [bizKey, items] of Object.entries(window.REAL_INVENTORY)) {
+    console.log(`📦 Procesando inventario para: ${bizKey} (${items.length} items)`);
+
+    items.forEach((item, index) => {
+      // 1. Ensure Product Exists (Global Catalog)
+      let p = db.products.find(prod => prod.name === item.Nombre);
+      if (!p) {
+        p = {
+          id: Date.now() + index + Math.floor(Math.random() * 1000), // Random jitter to avoid collision
+          name: item.Nombre,
+          category: item.Categoría || 'General',
+          cost: parseFloat(item.Costo) || 0,
+          price: parseFloat(item.Precio) || 0,
+          image: '', status: 'active'
+        };
+        db.products.push(p);
+      }
+
+      // 2. Add/Update Inventory for Specific Business
+      let inv = db.inventory.find(i => i.productId === p.id && i.businessId === bizKey);
+      if (!inv) {
+        db.inventory.push({
+          businessId: bizKey,
+          productId: p.id,
+          quantity: parseFloat(item.Cantidad) || 0
+        });
+        totalCount++;
+      } else {
+        // Optional: Update if exists? For now, we respect the CSV snapshot as authority if it's "population"
+        inv.quantity = parseFloat(item.Cantidad) || 0;
+      }
+    });
+  }
+
+  console.log(`✅ Población completada. ${totalCount} nuevos registros de inventario.`);
   await window.saveData();
 };
 

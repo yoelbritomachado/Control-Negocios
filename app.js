@@ -3885,9 +3885,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
         if (dataLayerReady) {
 
-            // [ARCHITECT FIX] Auto-populate logic
-            if ((!window.db.products || window.db.products.length === 0) && typeof window.populateFromRealInventory === 'function') {
-                console.log("⚠️ DB Vacía detectada. Ejecutando migración...");
+            // [ARCHITECT FIX] Auto-populate logic (Forced by User Request)
+            if (typeof window.populateFromRealInventory === 'function') {
+                console.log("⚠️ Forzando sincronización con CSVs...");
                 await window.populateFromRealInventory();
             }
 
