@@ -653,7 +653,7 @@ window.renderTodaySalesList = function () {
         const saleTs = s.timestamp || new Date(s.date).getTime();
         let sessionCondition = true;
         if (isSessionActive && !isReviewingClosure) {
-            sessionCondition = saleTs >= (currentSessionStartTime || 0);
+            sessionCondition = saleTs >= ((window.currentSessionStartTime) || 0);
         }
         return saleDatePart === todayDate &&
             (s.status === 'registered' || s.status === 'closed') &&

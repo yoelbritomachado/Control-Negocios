@@ -245,5 +245,5 @@
 
 ### 2026-01-24 - Hotfix: Scope de Sesión (`v10.17`)
 - **Problema**: Error `currentSessionStartTime is not defined` capturado por Debug Overlay.
-- **Causa**: Acceso directo a una variable que debía ser `window.currentSessionStartTime` o tener un fallback.
-- **Solución**: Se corrigieron las referencias en `pos.js` para usar acceso seguro a `window`.
+- **Causa**: Acceso directo a una variable que debía ser `window.currentSessionStartTime` tanto en el registro de venta como en el filtrado de lista (`renderTodaySalesList`).
+- **Solución**: Se corrigieron TODAS las referencias en `pos.js` para usar acceso seguro a `window`. (v10.18)
