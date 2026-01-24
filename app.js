@@ -3870,7 +3870,7 @@ window.toggleTheme = function () {
 window.addEventListener('DOMContentLoaded', () => {
     console.log('⏳ Esperando inicialización del Data Layer...');
     // [ARCHITECT FIX] Expose components
-    window.renderOpenSessionScreen = renderOpenSessionScreen;
+    // [ARCHITECT FIX] Expose components (Managed by modules now)
 
     let attempts = 0;
     const maxAttempts = 50;

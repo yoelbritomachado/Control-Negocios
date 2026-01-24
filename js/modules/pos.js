@@ -684,3 +684,31 @@ window.returnItemFromTodaySale = async function (saleId, itemId) {
 }
 
 console.log('🛒 POS Module Loaded');
+
+// --- SESSION HELPERS ---
+window.renderOpenSessionScreen = function (container) {
+    container.innerHTML = `
+        <div class="fade-in" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; text-align: center;">
+            <div style="width: 120px; height: 120px; border-radius: 60px; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; margin-bottom: 2rem;">
+                <i class="ph ph-door-open" style="font-size: 4rem; color: var(--primary);"></i>
+            </div>
+            <h2>Sesión POS Cerrada</h2>
+            <p style="color: var(--text-muted); max-width: 400px; margin-bottom: 2rem;">Es necesario abrir una nueva sesión de caja para comenzar a registrar ventas hoy.</p>
+            <button class="btn-primary" style="padding: 1rem 3rem; font-size: 1.1rem; border-radius: 50px;" 
+                    onclick="openPOSSession()">
+                <i class="ph ph-plus-circle"></i> ABRIR CAJA AHORA
+            </button>
+        </div>
+    `;
+}
+
+window.openPOSSession = function () {
+    window.isSessionActive = true;
+    window.currentSessionStartTime = Date.now(); // Track session start
+    window.addLog("Sesión POS abierta manualmente.", "info");
+    if (typeof window.renderPOS === 'function') {
+        window.renderPOS(document.getElementById('content-area'));
+    } else {
+        location.reload();
+    }
+};

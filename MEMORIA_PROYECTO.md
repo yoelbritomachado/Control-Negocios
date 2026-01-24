@@ -183,5 +183,9 @@
 - **Causa**: Conflicto de scope variable en `registerIndividualSale` tras modularización.
 - **Solución**:
     - Se reescribió `registerIndividualSale` con declaraciones explícitas y `try/catch` defensivo.
-    - Se implementó chequeo de nulidad para inputs DOM.
-    - Se incrementó versión de caché a `v10.2` en `index.html`.
+### 2026-01-24 - Hotfix 2: Restauración de Pantalla de Sesión
+- **Problema**: Error `Uncaught ReferenceError: renderOpenSessionScreen is not defined` en `app.js`.
+- **Causa**: La función `renderOpenSessionScreen` no fue migrada correctamente a `pos.js` y `app.js` intentaba referenciarla.
+- **Solución**:
+    - Se agregaron `renderOpenSessionScreen` y `openPOSSession` al final de `js/modules/pos.js`.
+    - Se eliminó la línea redundante en `app.js` que causaba el fallo.
