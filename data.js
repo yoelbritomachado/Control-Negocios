@@ -1,5 +1,41 @@
 console.log('📦 Data Layer [v10.1] - Iniciando...');
 
+// [ARCHITECT FIX] Finance Agent: Data Migration Skill
+window.populateFromRealInventory = async function () {
+  console.log("🔄 Iniciando población de base de datos desde REAL_INVENTORY...");
+  if (!window.REAL_INVENTORY || !window.REAL_INVENTORY['alm']) {
+    console.warn("⚠️ No hay datos en REAL_INVENTORY['alm']");
+    return;
+  }
+  const warehouseData = window.REAL_INVENTORY['alm'];
+  let count = 0;
+  warehouseData.forEach((item, index) => {
+    let p = db.products.find(prod => prod.name === item.Nombre);
+    if (!p) {
+      p = {
+        id: Date.now() + index,
+        name: item.Nombre,
+        category: item.Categoría || 'General',
+        cost: parseFloat(item.Costo) || 0,
+        price: parseFloat(item.Precio) || 0,
+        image: '', status: 'active'
+      };
+      db.products.push(p);
+    }
+    let inv = db.inventory.find(i => i.productId === p.id && i.businessId === 'alm');
+    if (!inv) {
+      db.inventory.push({
+        businessId: 'alm',
+        productId: p.id,
+        quantity: parseFloat(item.Cantidad) || 0
+      });
+      count++;
+    }
+  });
+  console.log(`✅ Población completada. ${count} registros procesados.`);
+  await window.saveData();
+};
+
 // Initialize DB immediately to prevent ReferenceErrors in app.js
 window.db = {
   products: [],

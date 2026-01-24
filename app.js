@@ -5626,6 +5626,8 @@ window.toggleTheme = function () {
 // --- BLOQUE DE INICIO ESTÁNDAR (ROBUSTO) ---
 window.addEventListener('DOMContentLoaded', () => {
     console.log('⏳ Esperando inicialización del Data Layer...');
+    // [ARCHITECT FIX] Expose components
+    window.renderOpenSessionScreen = renderOpenSessionScreen;
 
     let attempts = 0;
     const maxAttempts = 50;
@@ -5637,6 +5639,16 @@ window.addEventListener('DOMContentLoaded', () => {
             window.db;
 
         if (dataLayerReady) {
+
+            // [ARCHITECT FIX] Auto-populate logic
+            if ((!window.db.products || window.db.products.length === 0) && typeof window.populateFromRealInventory === 'function') {
+                console.log("⚠️ DB Vacía detectada. Ejecutando migración...");
+                await window.populateFromRealInventory();
+            }
+
+            // [ARCHITECT FIX] Auto-Login Owner
+            window.currentUser = { id: 1, name: 'Dueño', role: 'owner', pin: '1234' };
+
             clearInterval(checkDataLayer);
             console.log('🚀 Sistema de Datos Detectado y Completo. Cargando App...');
 

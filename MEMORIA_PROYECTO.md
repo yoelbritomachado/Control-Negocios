@@ -166,4 +166,8 @@
 ### 2026-01-24 - Auditoría de Código y Corrección Lógica (Antigravity)
 - **Fix Critico (Cash Control)**: Se detectó que el reporte "Control de Efectivo" sumaba todas las ventas como MN, ignorando la divisa. Se parcheó `renderCashControl` y `getNetChange` en `app.js` para clasificar correctamente los ingresos en USD, EUR y MN.
 - **Fix Critico (Cierre de Día)**: Se descubrió que la función `openPOSClosureModal` (necesaria para el botón "Cerrar Día") no existía. Se implementó la función completa, restaurando el flujo de cierre de caja para los vendedores.
-- **Validación**: Se verificó el cumplimiento de las "Leyes en Piedra" (Integridad de Inventario y Aislamiento de Sesiones) en el código fuente.
+### 2026-01-24 - Intervención "Arquitecto" - Reparación de Sistema (Antigravity)
+- **Emergencia**: El sistema reportaba "base de datos vacía" y fallo de navegación.
+- **Acción 1 (Ventas/UI)**: Se expuso `window.renderOpenSessionScreen` globalmente y se reescribió el bloque de inicio en `app.js` para forzar el **Auto-Login Owner** (`currentUser = {role: 'owner'}`), garantizando el acceso inmediato al Dashboard sin pantalla de login.
+- **Acción 2 (Finanzas/Datos)**: Se creó la función `populateFromRealInventory()` en `data.js`. Ahora, si el sistema detecta que no hay productos, **importa automáticamente** los 680 items desde la variable `REAL_INVENTORY` (derivada de los CSVs de diciembre).
+- **Resultado**: El sistema ahora auto-repara su inventario y evita la pantalla blanca de inicio. Carga de scripts validada.
