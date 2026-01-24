@@ -237,3 +237,8 @@
 ### 2026-01-24 - Hotfix: Robustez en Cobro (`v10.14`)
 - **Problema**: Posible fallo silencioso si la función `actualizarSaldo` no existe o falla.
 - **Solución**: Se envolvió la llamada a `actualizarSaldo` en un bloque `try-catch` independiente para que no interrumpa el flujo principal de registro de venta. Se agregaron alertas de depuración en consola.
+
+### 2026-01-24 - Hotfix: Eliminación de Código Fantasma (`v10.16`)
+- **Problema**: Error crítico `ReferenceError: getAvailableStock is not defined` capturado por el Debug Overlay.
+- **Causa**: `app.js` contenía una versión antigua de `validateStockBeforeProcess` en sus primeras líneas. Al cargar `app.js` después de `pos.js`, esta función obsoleta sobrescribía la correcta (shadowing global), invocando una función `getAvailableStock` que ya no existía.
+- **Solución**: Se eliminó el bloque de código legado en `app.js` (Líneas 9-18). Ahora se utiliza la versión correcta definida en `pos.js`.

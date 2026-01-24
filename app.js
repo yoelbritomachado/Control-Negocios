@@ -5,17 +5,7 @@ window.onerror = function (msg, url, line, col, error) {
     return false;
 };
 
-// --- STOCK VALIDATION HELPERS ---
-function validateStockBeforeProcess() {
-    for (const item of posCart) {
-        const available = getAvailableStock(item.id);
-        if (item.qty > available) {
-            alert(`Error: Se ha excedido el stock disponible para "${item.name}".\nStock actual: ${available}.`);
-            return false;
-        }
-    }
-    return true;
-}
+// [CLEANUP] Legacy validator removed. Uses pos.js version.
 
 
 // --- ACCESO A DATOS SEGURO ---
