@@ -322,45 +322,50 @@ function navigateTo(viewId) {
     container.innerHTML = ''; // Clear
 
     // Dispatch
-    switch (viewId) {
-        case 'login':
-            renderLogin(container);
-            break;
-        case 'dashboard':
-            if (typeof renderDashboard === 'function') renderDashboard(container);
-            break;
-        case 'pos':
-            if (typeof renderPOS === 'function') renderPOS(container);
-            break;
-        case 'inventory':
-            if (typeof renderInventory === 'function') renderInventory(container);
-            break;
-        case 'ventas':
-            if (typeof renderVentas === 'function') renderVentas(container);
-            break;
-        case 'daily-records':
-            if (typeof renderDailyRecords === 'function') renderDailyRecords(container);
-            break;
-        case 'cash-control':
-            if (typeof renderCashControl === 'function') renderCashControl(container);
-            break;
-        case 'settings':
-            if (typeof renderSettings === 'function') renderSettings(container);
-            break;
-        case 'transfer':
-            if (typeof renderTransfer === 'function') renderTransfer(container);
-            break;
-        case 'mermas':
-            if (typeof renderMermas === 'function') renderMermas(container);
-            break;
-        case 'financials':
-            if (typeof renderFinancials === 'function') renderFinancials(container);
-            break;
-        case 'reportes':
-            if (typeof renderReportes === 'function') renderReportes(container);
-            break;
-        default:
-            if (typeof renderDashboard === 'function') renderDashboard(container);
+    try {
+        switch (viewId) {
+            case 'login':
+                renderLogin(container);
+                break;
+            case 'dashboard':
+                if (typeof renderDashboard === 'function') renderDashboard(container);
+                break;
+            case 'pos':
+                if (typeof renderPOS === 'function') renderPOS(container);
+                break;
+            case 'inventory':
+                if (typeof renderInventory === 'function') renderInventory(container);
+                break;
+            case 'ventas':
+                if (typeof renderVentas === 'function') renderVentas(container);
+                break;
+            case 'daily-records':
+                if (typeof renderDailyRecords === 'function') renderDailyRecords(container);
+                break;
+            case 'cash-control':
+                if (typeof renderCashControl === 'function') renderCashControl(container);
+                break;
+            case 'settings':
+                if (typeof renderSettings === 'function') renderSettings(container);
+                break;
+            case 'transfer':
+                if (typeof renderTransfer === 'function') renderTransfer(container);
+                break;
+            case 'mermas':
+                if (typeof renderMermas === 'function') renderMermas(container);
+                break;
+            case 'financials':
+                if (typeof renderFinancials === 'function') renderFinancials(container);
+                break;
+            case 'reportes':
+                if (typeof renderReportes === 'function') renderReportes(container);
+                break;
+            default:
+                if (typeof renderDashboard === 'function') renderDashboard(container);
+        }
+    } catch (e) {
+        console.error("Render Error:", e);
+        alert(`Error visualizando sección "${viewId}":\n${e.message}`);
     }
 
     updateTitle(viewId.charAt(0).toUpperCase() + viewId.slice(1).replace('-', ' '));
@@ -5431,6 +5436,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         navigateTo('login');
     } else {
         console.log(`🔓 Sesión recuperada: ${window.currentUser.name}`);
+        // CRITICAL SYNC: Update local variable
+        currentUser = window.currentUser;
         navigateTo(initView);
     }
 
