@@ -256,3 +256,10 @@
 - **Problema**: El botón "Abrir Caja Ahora" no respondía al clic.
 - **Causa**: Limitación de scope en el evento `onclick` generado dinámicamente.
 - **Solución**: Se forzó el uso de `window.openPOSSession()` en el HTML y se agregó un fallback de recarga en el JS.
+
+### 2026-01-24 - Feature: Mejoras en Buscador POS (`v10.21`)
+- **Solicitud**: Búsqueda desde la primera letra y filtro por precio.
+- **Implementación**: 
+    1. Se redujo el límite mínimo de caracteres de 2 a 1.
+    2. Se agregó condición para buscar también por precio (comienza con...).
+    3. Validación de input sanitizado mantenida.

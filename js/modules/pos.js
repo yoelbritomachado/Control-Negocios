@@ -193,7 +193,7 @@ window.handlePOSSearch = function (query) {
     // [SECURITY FIX] Sanitize input
     query = Security.sanitize(query);
 
-    if (query.length < 2) {
+    if (query.length < 1) {
         results.style.display = 'none';
         return;
     }
@@ -210,7 +210,8 @@ window.handlePOSSearch = function (query) {
 
     const filtered = availableProducts.filter(p =>
         p.name.toLowerCase().includes(query.toLowerCase()) ||
-        (p.alias && p.alias.toLowerCase().includes(query.toLowerCase()))
+        (p.alias && p.alias.toLowerCase().includes(query.toLowerCase())) ||
+        String(p.price).startsWith(query) // Price search
     );
 
     if (filtered.length === 0) {
