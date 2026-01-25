@@ -251,3 +251,8 @@
 ### 2026-01-24 - Feature: Reloj en Tiempo Real (`v10.19`)
 - **Solicitud**: Restaurar contador de fecha y hora en tiempo real al abrir venta.
 - **Implementación**: Se agregó un widget de reloj digital en el encabezado del POS que se actualiza cada segundo (`setInterval`), mostrando la hora exacta con segundos.
+
+### 2026-01-24 - Hotfix: Botón Abrir Caja (`v10.20`)
+- **Problema**: El botón "Abrir Caja Ahora" no respondía al clic.
+- **Causa**: Limitación de scope en el evento `onclick` generado dinámicamente.
+- **Solución**: Se forzó el uso de `window.openPOSSession()` en el HTML y se agregó un fallback de recarga en el JS.

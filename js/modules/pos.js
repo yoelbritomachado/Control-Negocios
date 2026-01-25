@@ -730,7 +730,7 @@ window.renderOpenSessionScreen = function (container) {
             <h2>Sesión POS Cerrada</h2>
             <p style="color: var(--text-muted); max-width: 400px; margin-bottom: 2rem;">Es necesario abrir una nueva sesión de caja para comenzar a registrar ventas hoy.</p>
             <button class="btn-primary" style="padding: 1rem 3rem; font-size: 1.1rem; border-radius: 50px;" 
-                    onclick="openPOSSession()">
+                    onclick="window.openPOSSession()">
                 <i class="ph ph-plus-circle"></i> ABRIR CAJA AHORA
             </button>
         </div>
@@ -738,14 +738,23 @@ window.renderOpenSessionScreen = function (container) {
 }
 
 window.openPOSSession = function () {
+    console.log("🔓 Intentando abrir sesión...");
     window.isSessionActive = true;
-    window.currentSessionStartTime = Date.now(); // Track session start
-    window.addLog("Sesión POS abierta manualmente.", "info");
-    if (typeof window.renderPOS === 'function') {
-        window.renderPOS(document.getElementById('content-area'));
-    } else {
-        location.reload();
-    }
+    window.currentSessionStartTime = Date.now();
+
+    // Force Save
+    if (window.saveData) window.saveData();
+
+    addLog("Sesión POS abierta manualmente.", "info");
+
+    // Force refresh with delay
+    setTimeout(() => {
+        if (typeof window.renderPOS === 'function') {
+            window.renderPOS(document.getElementById('content-area'));
+        } else {
+            location.reload();
+        }
+    }, 100);
 };
 
 window.isWarehouseContext = function () {
