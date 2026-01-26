@@ -430,7 +430,7 @@ window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
         window.networkEditorState.isDraggingConnection = true;
         window.networkEditorState.connectionSourceDetails = {
             nodeId: connToDetach.from,
-            x: sourceNode.x + 214,
+            x: sourceNode.x + 207,
             y: sourceNode.y + 72
         };
     }
@@ -463,9 +463,9 @@ function drawConnection(svg, nodeA, nodeB, connData) {
     const PORT_STEP = PORT_HEIGHT + PORT_GAP; // 24px
 
     // --- SOURCE (Output) ---
-    // Tip of the triangle (Right) is at ~214px relative to Node Left.
+    // Triangle Output (Right). Center is approx ~207px (Under Port)
     const y1 = nodeA.y + HEADER_OFFSET;
-    const x1 = nodeA.x + 214;
+    const x1 = nodeA.x + 207;
 
     // --- DESTINATION (Input) ---
     // Find index among incoming connections to nodeB
@@ -476,11 +476,8 @@ function drawConnection(svg, nodeA, nodeB, connData) {
     const y2 = nodeB.y + HEADER_OFFSET + (index * PORT_STEP);
 
     // X Alignment:
-    // Port has margin-left: -10px inside a padding: 1rem (16px) container.
-    // Net start: +6px from border. Width 16px. Center ~14px?
-    // Let's try x2 = nodeA.x + 10 to hit slightly inside.
-    // X Alignment: Input Triangle Base (-18px)
-    const x2 = nodeB.x - 18;
+    // Input Circle (-18px). Center is -11px (Inside)
+    const x2 = nodeB.x - 11;
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
 
@@ -775,8 +772,8 @@ window.startConnectionDrag = function (e, nodeId) {
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: nodeId,
-        x: node.x + 214, // 214px Tip of Output Triangle
-        y: node.y + 72   // 72px Center Y
+        x: node.x + 207, // Center of Output Triangle (Under Port)
+        y: node.y + 72   // Center Y
     };
 
     // Create Temp Line (Visual feedback)
@@ -803,8 +800,8 @@ window.startConnectionDragFromInput = function (e, nodeId) {
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: conn.from,
-        x: sourceNode.x + 180,
-        y: sourceNode.y + 40
+        x: sourceNode.x + 207, // Center of Output Triangle (Under Port)
+        y: sourceNode.y + 72   // Center Y
     };
 
     renderConnections(); // Permanent line gone

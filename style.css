@@ -2149,25 +2149,30 @@ body {
     filter: brightness(1.2);
 }
 
-/* DaVinci Style: Triangle Input (Pointing In/Right) */
+/* Hybrid Style: Circle Input, Triangle Output */
 .port-in {
     margin-left: -18px;
     /* Stick out left */
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
-    width: 12px;
-    /* Slightly narrower for arrowhead look */
-    border-radius: 0;
-    box-shadow: none;
-    /* Clip-path clips shadow, so we rely on bg */
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    /* CIRCLE */
+    clip-path: none;
+    /* Reset clip-path */
+    background: #666;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    /* Restore subtle border definition for circle */
 }
 
-/* DaVinci Style: Square Output (Modified to Triangle as per user reference) */
+/* Output Triangle (Pointing Right) */
 .port-out {
     margin-right: -18px;
     /* Stick out right */
     clip-path: polygon(0 0, 100% 50%, 0 100%);
     /* Triangle Pointing Right */
-    width: 12px;
+    width: 14px;
+    /* Standard width */
+    height: 14px;
     border-radius: 0;
     box-shadow: none;
 }
