@@ -81,9 +81,8 @@ window.db = {
   logs: [],
   transfers: [],
   expenseCategories: [
-    { id: 'salarios', label: 'Salarios' },
-    { id: 'suministros', label: 'Suministros' },
-    { id: 'servicios', label: 'Servicios' },
+    { id: 'area', label: 'Área' },
+    { id: 'limpieza', label: 'Limpieza' },
     { id: 'otros', label: 'Otros' }
   ]
 };

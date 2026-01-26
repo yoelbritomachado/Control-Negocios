@@ -35,6 +35,10 @@ window.renderPOS = function (container) {
                     <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" 
                            style="background: transparent; border: none; color: white; font-family: inherit; font-size: 0.9rem; outline: none;">
                 </div>
+                <!-- CLOSE DAY BUTTON -->
+                <button onclick="confirmCloseDay()" class="btn-secondary" style="margin-left:auto; border-color:var(--primary); color:var(--primary); font-size:0.85rem; padding:0.4rem 1rem;">
+                    <i class="ph ph-moon-stars"></i> Cerrar Día
+                </button>
             </div>
         `;
 
@@ -971,6 +975,122 @@ window.registerExpense = function (data) {
     if (window.showToast) window.showToast('💸 Gasto registrado', 'info');
 };
 
-window.showIncidentModal = function () {
-    if (window.showToast) window.showToast('Esta función estará disponible en la próxima actualización.', 'info');
-};
+/* --- END OF DAY CLOSURE WORKFLOW --- */
+
+window.confirmCloseDay = function () {
+    // 1. Calculate Totals
+    const today = new Date().toISOString().split('T')[0];
+    const todaySales = db.sales.filter(s => s.date.startsWith(today) && s.businessId === (selectedBusinessId || 'mch1'));
+
+    // Filter by type
+    const salesTotal = todaySales.filter(s => !s.type || s.type === 'SALE').reduce((sum, s) => sum + s.total, 0);
+    const expensesTotal = todaySales.filter(s => s.type === 'EXPENSE').reduce((sum, s) => sum + Math.abs(s.total), 0);
+    const mermasTotal = todaySales.filter(s => s.type === 'MERMA').reduce((sum, s) => sum + s.lossValue, 0);
+    const finalCash = salesTotal - expensesTotal; // Simplified
+
+    // 2. Show Modal with Salary Switch
+    if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
+
+    let comm = 0; // Default commission
+
+    Swal.fire({
+        title: 'Cerrar el Día',
+        html: `
+            <div style="text-align: left;">
+                <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.5rem;">
+                    Se enviará el reporte diario al Administrador/Dueño para su revisión.
+                </p>
+                
+                <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; margin-bottom:1.5rem;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                        <span>Ventas Totales:</span>
+                        <span style="color:var(--success); font-weight:bold;">$${salesTotal.toFixed(2)}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                        <span>Gastos:</span>
+                        <span style="color:var(--danger); font-weight:bold;">-$${expensesTotal.toFixed(2)}</span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem;">
+                        <span>Balance Caja:</span>
+                        <span style="color:var(--primary); font-weight:900;">$${finalCash.toFixed(2)}</span>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:1rem; background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px;">
+                    <label class="switch">
+                        <input type="checkbox" id="salary-request-switch">
+                        <span class="slider round"></span>
+                    </label>
+                    <div>
+                        <div style="font-weight:600;">Solicitar Pago de Salario</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted);">
+                            Acumulado est.: <span id="est-salary">$0.00</span> (Pendiente de cálculo)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Confirmar Cierre',
+        background: 'var(--bg-card)',
+        color: 'var(--text-main)',
+        preConfirm: () => {
+            return document.getElementById('salary-request-switch').checked;
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            processDayClosure(result.value, { salesTotal, expensesTotal, finalCash });
+        }
+    });
+}
+
+window.processDayClosure = function (requestSalary, totals) {
+    const today = new Date().toISOString().split('T')[0];
+    const timestamp = Date.now();
+    const businessId = selectedBusinessId || 'mch1';
+
+    // Mark today's sales
+    db.sales.forEach(s => {
+        if (s.date.startsWith(today) && s.businessId === businessId && s.status === 'registered') {
+            s.status = 'pending_review';
+        }
+    });
+
+    // 2. Create Notification for Owners/Admins
+    const notification = {
+        id: timestamp,
+        type: 'daily_closure',
+        title: `Cierre del Día (${today})`,
+        message: `El empleado ${currentUser.name} ha cerrado caja. Ventas: $${totals.salesTotal.toFixed(2)}. ${requestSalary ? 'SOLICITA PAGO SALARIO.' : ''}`,
+        timestamp: timestamp,
+        read: false,
+        data: {
+            salesTotal: totals.salesTotal,
+            requestSalary: requestSalary,
+            employeeId: currentUser.id,
+            date: today
+        },
+        targetRoles: ['owner', 'admin']
+    };
+    db.notifications.unshift(notification);
+
+    // 3. Log Salary Request
+    if (requestSalary) {
+        addLog(`Solicitud de Salario generada por ${currentUser.name}`, 'info');
+    }
+
+    // 4. Close Session locally
+    window.isSessionActive = false;
+    window.saveData();
+
+    // 5. Show Success
+    Swal.fire({
+        title: 'Día Cerrado',
+        text: 'La información ha sido enviada al Administrador.',
+        icon: 'success',
+        background: 'var(--bg-card)',
+        color: 'var(--text-main)'
+    }).then(() => {
+        renderOpenSessionScreen(document.getElementById('content-area'));
+    });
+}
