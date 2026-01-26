@@ -25,19 +25,20 @@ window.renderPOS = function (container) {
         // Header (Compact) - Fits in Left Panel
         const headerHtml = `
             <div style="display: flex; gap: 1rem; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem;">
-                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.4rem 0.8rem; border-radius: 8px;">
-                    <i class="ph ph-calendar" style="color: var(--primary);"></i>
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid var(--border);">
+                    <i class="ph ph-calendar" style="color: var(--primary); font-size: 1.1rem;"></i>
                     <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" 
-                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 0.9rem; outline: none;">
+                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 1rem; outline: none; font-weight: 500;">
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.4rem 0.8rem; border-radius: 8px;">
-                    <i class="ph ph-clock" style="color: var(--text-muted);"></i>
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid var(--border);">
+                    <i class="ph ph-clock" style="color: var(--text-muted); font-size: 1.1rem;"></i>
                     <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" 
-                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 0.9rem; outline: none;">
+                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 1rem; outline: none; font-weight: 500;">
                 </div>
-                <!-- CLOSE DAY BUTTON -->
-                <button onclick="confirmCloseDay()" class="btn-secondary" style="margin-left:auto; border-color:var(--primary); color:var(--primary); font-size:0.85rem; padding:0.4rem 1rem;">
-                    <i class="ph ph-moon-stars"></i> Cerrar Día
+                <!-- CLOSE DAY BUTTON (Enhanced) -->
+                <button onclick="confirmCloseDay()" class="btn-secondary" 
+                        style="margin-left:auto; border: 1px solid var(--primary); background: rgba(59, 130, 246, 0.1); color: white; font-size: 0.95rem; padding: 0.6rem 1.5rem; border-radius: 12px; transition: all 0.2s; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ph ph-moon-stars" style="color: var(--primary);"></i> Cerrar Día
                 </button>
             </div>
         `;
@@ -72,67 +73,80 @@ window.renderPOS = function (container) {
             </div>
         `;
 
-        // Main Layout: Grid 60% - 40%
+        // Main Layout: Grid structure based on Photoshop Mockup
+        // Left Column: Header + Search + Cart (Big)
+        // Right Column: History (Top) + Actions/Total (Bottom)
+        // RATIO UPDATE: 2.5fr 1fr -> Gives more space to Cart
         container.innerHTML = `
-        <div id="pos-container" class="fade-in" style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.5rem; height: calc(100vh - 120px); overflow: hidden;">
+        <div id="pos-container" class="fade-in" style="display: grid; grid-template-columns: 2.5fr 1fr; gap: 2rem; height: calc(100vh - 100px); overflow: hidden; padding: 1rem;">
             
-            <!-- LEFT PANEL: Search & Results -->
-            <div style="display: flex; flex-direction: column; min-height: 0;">
-                ${headerHtml}
-                ${searchHtml}
+            <!-- LEFT PANEL -->
+            <div style="display: flex; flex-direction: column; gap: 1rem; min-height: 0;">
                 
-                <!-- Results Grid (Static) -->
-                <div id="pos-results-area" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; align-content: start; padding-right: 0.5rem;">
-                    <!-- Default State: Show Categories or Recent -->
-                    <div style="grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); opacity: 0.5;">
-                        <i class="ph ph-magnifying-glass" style="font-size: 3rem; margin-bottom: 1rem;"></i>
-                        <p>Busca un producto para comenzar</p>
+                <!-- 1. Header Row -->
+                ${headerHtml}
+
+                <!-- 2. Search Bar Area -->
+                <div style="position: relative; z-index: 10;">
+                    ${searchHtml}
+                    <!-- Results Dropdown (Absolute overlay) -->
+                    <div id="pos-results-area" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; max-height: 400px; overflow-y: auto; display: none; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+                        <!-- List Items Injected Here -->
                     </div>
+                </div>
+                
+                <!-- 3. Cart Area (Dominant) -->
+                <div class="card" style="flex: 1; display: flex; flex-direction: column; padding: 0; overflow: hidden; border: 1px solid var(--border); background: var(--bg-card);">
+                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+                        <div style="font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.8rem;">
+                            <i class="ph ph-shopping-cart"></i> Carrito
+                            <span id="cart-count-badge" style="background: var(--primary); color: white; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem;">0</span>
+                        </div>
+                        <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); opacity: 0.8;" title="Vaciar Carrito"><i class="ph ph-trash"></i></button>
+                    </div>
+                    
+                    <!-- Cart Items List -->
+                    <div id="pos-cart-items" style="flex: 1; overflow-y: auto; padding: 0.5rem;"></div>
                 </div>
             </div>
 
-            <!-- RIGHT PANEL: Cart (Top) + History (Bottom) -->
-            <div style="display: flex; flex-direction: column; gap: 1rem; min-height: 0; height: 100%;">
+            <!-- RIGHT PANEL -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0;">
                 
-                <!-- CART SECTION (Top Half) -->
-                <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; flex: 1; border: 1px solid var(--border);">
-                    <div style="padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
-                        <div style="font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
-                            <i class="ph ph-shopping-cart"></i> Carrito
-                            <span id="cart-count-badge" style="background: var(--primary); color: white; padding: 1px 6px; border-radius: 8px; font-size: 0.75rem;">0</span>
-                        </div>
-                        <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 4px;" title="Vaciar"><i class="ph ph-trash"></i></button>
+                <!-- 1. History (Top Right) - EXPANDED to fill available space -->
+                <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; flex: 1; border: 1px solid var(--border); background: var(--bg-card); border-radius: 20px;">
+                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.02); font-size: 0.9rem; font-weight: 600; color: var(--text-muted); display:flex; gap: 0.5rem; align-items:center;">
+                        <i class="ph ph-clock-counter-clockwise"></i> Movimientos Hoy
                     </div>
-                    <div id="pos-cart-items" style="flex: 1; overflow-y: auto; background: var(--bg-dark);"></div>
+                    <div id="today-sales-list" style="flex: 1; overflow-y: auto; padding: 0.5rem;"></div>
                 </div>
 
-                <!-- HISTORY SECTION (Middle - Restored) -->
-                <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; height: 30%; min-height: 150px; border: 1px solid var(--border);">
-                    <div style="padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark); font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-                        <span><i class="ph ph-clock-counter-clockwise"></i> Movimientos Hoy</span>
-                    </div>
-                    <div id="today-sales-list" style="flex: 1; overflow-y: auto;"></div>
-                </div>
-
-                <!-- FOOTER ACTIONS (Fixed Bottom) -->
-                <div class="card" style="padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 -4px 20px rgba(0,0,0,0.2);">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.8rem;">
-                        <span style="color: var(--text-muted); font-size: 0.9rem;">Total</span>
-                        <span id="cart-total-display" style="font-size: 2rem; font-weight: 800; color: var(--primary); line-height: 1;">$0.00</span>
+                <!-- 2. Actions & Total (Bottom Right - Pinned & Compact) -->
+                <div class="card" style="display: flex; flex-direction: column; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 20px; box-shadow: 0 -10px 40px rgba(0,0,0,0.1); flex-shrink: 0;">
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.2rem;">
+                        <span style="color: var(--text-muted); font-size: 1rem;">Total</span>
+                        <span id="cart-total-display" style="font-size: 2.8rem; font-weight: 800; color: #ff4081; line-height: 1;">$0.00</span>
                     </div>
 
-                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                         <button class="btn-secondary" onclick="showExpenseModal()" style="flex: 1; padding: 0.6rem; font-size: 0.9rem; border-color: var(--danger); color: var(--danger);">
+                    <div style="display: flex; gap: 0.8rem; margin-bottom: 1rem;">
+                         <button class="btn-secondary" onclick="showExpenseModal()" style="flex: 1; padding: 0.8rem; border-color: var(--border); color: var(--text-muted);">
                             <i class="ph ph-receipt"></i> Gasto
                         </button>
-                         <button class="btn-secondary" onclick="showIncidentModal()" style="flex: 1; padding: 0.6rem; font-size: 0.9rem; border-color: var(--warning); color: var(--warning);">
+                         <button class="btn-secondary" onclick="showIncidentModal()" style="flex: 1; padding: 0.8rem; border-color: var(--border); color: var(--warning);">
                             <i class="ph ph-warning-circle"></i> Merma
                         </button>
                     </div>
 
                     <button id="payBtn" class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" 
-                            style="width: 100%; font-size: 1.1rem; padding: 0.8rem; opacity: 0.5; pointer-events: none;">
+                            style="width: 100%; font-size: 1.2rem; padding: 1rem; border-radius: 12px; background: #ff4081; border: none; font-weight: 700; box-shadow: 0 4px 15px rgba(255, 64, 129, 0.4);">
                         ${isWarehouseContext() ? 'TRANSFERIR' : 'COBRAR'} <i class="ph ph-arrow-right" style="margin-left: 0.5rem;"></i>
+                    </button>
+                    
+                     <!-- Save Button: Hidden by default, toggled in renderCart -->
+                     <button id="save-sale-btn" class="btn-secondary" onclick="window.savePendingSale()" 
+                             style="width: 100%; margin-top: 0.8rem; border-color: var(--warning); color: var(--warning); font-size: 1rem; padding: 0.8rem; border-radius: 12px; display: none; font-weight: 600;">
+                        <i class="ph ph-floppy-disk"></i> GUARDAR VENTA (PENDIENTE)
                     </button>
                 </div>
             </div>
@@ -194,22 +208,37 @@ window.handlePOSSearch = function (query) {
         return;
     }
 
-    // RENDER AS GRID CARDS (No Borders to fix "lines" complaint)
+    // RENDER AS LIST (Horizontal Layout requested)
+    if (filtered.length > 0) {
+         resultsArea.style.display = 'block'; // Show dropdown overlay
+    } else {
+         resultsArea.style.display = 'none';
+         return;
+    }
+
     resultsArea.innerHTML = filtered.map(p => `
-        <div class="pos-product-card fade-in" onclick="addToPOSCart(${p.id})" 
-             style="background: var(--bg-card); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s; display: flex; flex-direction: column; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+        <div class="pos-search-item fade-in" onclick="addToPOSCart(${p.id})" 
+             style="display: flex; align-items: center; gap: 1rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s;">
             
-            <div style="height: 100px; background: var(--bg-dark); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 2rem; color: var(--text-muted); opacity:0.5;"></i>`}
-                
-                <div style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.6); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; backdrop-filter: blur(4px);">
-                    Stock: ${p.stock}
-                </div>
+            <!-- Image (Thumbnail) -->
+            <div style="width: 48px; height: 48px; border-radius: 8px; overflow: hidden; background: var(--bg-dark); flex-shrink: 0;">
+                ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"><i class="ph ph-image" style="color:var(--text-muted);"></i></div>`}
             </div>
 
-            <div style="padding: 0.8rem; flex: 1; display: flex; flex-direction: column;">
-                <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${p.name}</div>
-                <div style="margin-top: auto; font-size: 1.1rem; font-weight: 800; color: var(--primary);">$${p.price.toFixed(2)}</div>
+            <!-- Name & Stock -->
+            <div style="flex: 1; display:flex; flex-direction:column;">
+                <div style="font-weight: 600; font-size: 0.95rem; color: var(--text-main);">${p.name}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Stock: <span style="color:${p.stock > 0 ? 'var(--success)' : 'var(--danger)'}">${p.stock}</span></div>
+            </div>
+
+            <!-- Price -->
+            <div style="font-size: 1rem; font-weight: 700; color: #ff4081;">
+                $${p.price.toFixed(2)}
+            </div>
+
+            <!-- Action Icon -->
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 64, 129, 0.1); display: flex; align-items: center; justify-content: center;">
+                <i class="ph ph-plus" style="color: #ff4081; font-weight: bold;"></i>
             </div>
         </div>
     `).join('');
@@ -252,12 +281,13 @@ window.addToPOSCart = function (productId) {
     renderCart();
     renderCart();
 
-    // Clear search and reset grid
+    // Clear search and reset grid (HIDE dropdown)
     const searchInput = document.getElementById('pos-search');
+    const resultsArea = document.getElementById('pos-results-area');
     if (searchInput) {
         searchInput.value = '';
         searchInput.focus();
-        handlePOSSearch(''); // Reset grid to default
+        if(resultsArea) resultsArea.style.display = 'none'; // Hide list
     }
 }
 
@@ -266,6 +296,7 @@ window.renderCart = function () {
     const totalDisplay = document.getElementById('cart-total-display');
     const badge = document.getElementById('cart-count-badge');
     const payBtn = document.getElementById('payBtn');
+    const saveBtn = document.getElementById('save-sale-btn');
 
     if (!container) return;
 
@@ -286,6 +317,7 @@ window.renderCart = function () {
             payBtn.style.opacity = '0.5';
             payBtn.style.pointerEvents = 'none';
         }
+        if (saveBtn) saveBtn.style.display = 'none'; // Hide save button
         updatePOSMobileFooter();
         return;
     }
@@ -295,26 +327,36 @@ window.renderCart = function () {
         payBtn.style.opacity = '1';
         payBtn.style.pointerEvents = 'auto';
     }
+    if (saveBtn) {
+        saveBtn.style.display = 'flex'; // Show save button
+        saveBtn.style.justifyContent = 'center';
+    }
 
     container.innerHTML = posCart.map((item, index) => {
         total += item.price * item.qty;
         return `
-            <div class="fade-in" style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; gap: 0.8rem;">
-                <div style="width: 50px; height: 50px; border-radius: 6px; overflow: hidden; background: var(--bg-dark); flex-shrink: 0;">
+            <div class="fade-in" style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; gap: 1rem; align-items: center;">
+                
+                <!-- Image -->
+                <div style="width: 40px; height: 40px; border-radius: 6px; overflow: hidden; background: var(--bg-dark); flex-shrink: 0; opacity: 0.6;">
                      ${item.image ? `<img src="${item.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"><i class="ph ph-image" style="color:#555;"></i></div>`}
                 </div>
+
+                <!-- Info -->
                 <div style="flex: 1;">
-                    <div style="font-weight: 600; font-size: 0.95rem; line-height: 1.2; margin-bottom: 0.2rem;">${item.name}</div>
-                    <div style="font-size: 0.85rem; color: var(--primary);">$${item.price.toFixed(2)}</div>
+                    <div style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.2rem; color: #eee;">${item.name}</div>
+                    <div style="font-size: 0.9rem; color: #ff4081; font-weight: 700;">$${item.price.toFixed(2)}</div>
                 </div>
-                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
-                     <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 2px; border-radius: 6px; border: 1px solid var(--border);">
-                        <button class="btn-icon" onclick="updateCartItemQty(${index}, -1)" style="width: 24px; height: 24px; padding: 0;"><i class="ph ph-minus" style="font-size: 0.8rem;"></i></button>
-                        <span style="font-weight: bold; min-width: 16px; text-align: center; font-size: 0.9rem;">${item.qty}</span>
-                        <button class="btn-icon" onclick="updateCartItemQty(${index}, 1)" style="width: 24px; height: 24px; padding: 0;"><i class="ph ph-plus" style="font-size: 0.8rem;"></i></button>
-                    </div>
-                    <button class="btn-icon" onclick="removeFromCart(${index})" style="color: var(--danger); width: 24px; height: 24px; padding: 0;"><i class="ph ph-trash"></i></button>
+
+                <!-- Controls (Styled per Mockup) -->
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: #000; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border);">
+                    <button class="btn-icon" onclick="updateCartItemQty(${index}, -1)" style="width: 20px; height: 20px; padding: 0; color: var(--text-muted); border: none;"><i class="ph ph-minus" style="font-size: 0.8rem;"></i></button>
+                    <span style="font-weight: bold; min-width: 20px; text-align: center; font-size: 1rem; color: white;">${item.qty}</span>
+                    <button class="btn-icon" onclick="updateCartItemQty(${index}, 1)" style="width: 20px; height: 20px; padding: 0; color: var(--text-muted); border: none;"><i class="ph ph-plus" style="font-size: 0.8rem;"></i></button>
                 </div>
+                
+                <!-- Delete -->
+                <button class="btn-icon" onclick="removeFromCart(${index})" style="color: var(--danger); opacity: 0.5; width: 30px; border:none; background:transparent;"><i class="ph ph-trash"></i></button>
             </div>
         `;
     }).join('');
@@ -742,12 +784,37 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
     container.innerHTML = html;
 }
 
-window.editSale = function (saleId) {
+window.editSale = async function (saleId) {
     const sale = db.sales.find(s => s.id === saleId);
     if (!sale) return;
 
     if (window.posCart.length > 0) {
-        if (!confirm("Hay productos en el carrito actual. ¿Deseas descartarlos para editar esta venta?")) return;
+        const result = await Swal.fire({
+            title: 'Carrito activo',
+            text: "¿Qué deseas hacer con los productos en el carrito actual?",
+            icon: 'question',
+            showDenyButton: true,
+            showCancelButton: true,
+            confirmButtonText: '💾 Guardar y Editar',
+            denyButtonText: '🗑️ Descartar',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: 'var(--warning)',
+            denyButtonColor: 'var(--danger)',
+            background: 'var(--bg-card)',
+            color: 'var(--text-main)'
+        });
+
+        if (result.isConfirmed) {
+            // Save current cart as Pending Sale
+            window.savePendingSale(); // This clears posCart
+            // Now proceed to load the edit
+        } else if (result.isDenied) {
+            // Just discard
+            window.posCart = [];
+        } else {
+            // Cancel action
+            return;
+        }
     }
 
     // Load to Cart
@@ -1290,11 +1357,55 @@ window.registerExpense = function (data) {
 
 /* --- END OF DAY CLOSURE WORKFLOW --- */
 
-window.confirmCloseDay = function () {
+window.confirmCloseDay = async function () {
     const today = new Date().toISOString().split('T')[0];
     const todaySales = db.sales.filter(s => s.date.startsWith(today) && s.businessId === (selectedBusinessId || 'mch1'));
 
-    // 1. Calculate Financials
+    // [NEW] 1. Check for Pending (Saved) Sales before proceeding
+    const pendingSales = todaySales.filter(s => s.status === 'saved');
+    
+    if (pendingSales.length > 0) {
+        const result = await Swal.fire({
+            title: '⚠️ Ventas Pendientes Detectadas',
+            html: `
+                <div style="text-align: left; color: var(--text-muted);">
+                    <p>Tienes <b>${pendingSales.length} ventas guardadas</b> (pendientes) que no han sido finalizadas.</p>
+                    <p style="margin-top: 1rem;">Para cerrar el día, estas ventas deben ser eliminadas o finalizadas.</p>
+                    <p style="font-size: 0.9rem; margin-top: 1rem; color: var(--warning);">Si continúas, se <b>ELIMINARÁN</b> permanentemente y el stock reservado se liberará.</p>
+                </div>
+            `,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: '🗑️ Eliminar y Cerrar',
+            cancelButtonText: 'Cancelar y Revisar',
+            confirmButtonColor: 'var(--danger)',
+            background: 'var(--bg-card)',
+            color: 'var(--text-main)'
+        });
+
+        if (!result.isConfirmed) {
+            return; // Abort closure to let user review
+        }
+
+        // Auto-delete pending sales logic
+        pendingSales.forEach(s => {
+             // Revert Stock logic (same as deleteSale)
+             if (s.items) {
+                s.items.forEach(item => {
+                    const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(s.businessId));
+                    if (inv) inv.quantity += item.qty;
+                });
+             }
+             // Remove from DB
+             db.sales = db.sales.filter(sale => sale.id !== s.id);
+        });
+        
+        window.saveData();
+        showToast("Ventas pendientes limpiadas.", "info");
+        // Proceed with closure logic...
+    }
+
+    // 2. Calculate Financials (Original Logic continues...)
     const salesTotal = todaySales.filter(s => (!s.type || s.type === 'SALE') && s.status === 'registered').reduce((sum, s) => sum + s.total, 0);
     const expensesTotal = todaySales.filter(s => s.type === 'EXPENSE').reduce((sum, s) => sum + Math.abs(s.total), 0);
     const mermasTotal = todaySales.filter(s => s.type === 'MERMA').reduce((sum, s) => sum + s.lossValue, 0);

@@ -97,7 +97,7 @@ window.renderUserList = function () {
                         <span style="color: var(--text-muted);">PIN Acceso:</span>
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <span style="color: var(--text-main); font-family: monospace; background: var(--bg-main); padding: 0.1rem 0.4rem; border-radius: 4px;">
-                                ${isOwner ? '****' : (user.pin || 'N/A')}
+                                ${'****'}
                             </span>
                             ${!isOwner ? `<i class="ph ph-pencil-simple" style="color: var(--text-muted); cursor: pointer;" title="Editar PIN"></i>` : ''}
                         </div>
@@ -143,7 +143,7 @@ window.showEditUserModal = function (userId) {
                             style="width: 100%; padding: 0.7rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 8px; color: white;">
                     </div>
                     <div>
-                        <input type="number" id="edit-user-pin" value="${user.pin || ''}" class="input-modern" placeholder="PIN" maxlength="4" ${isOwner ? 'disabled' : ''}
+                        <input type="password" id="edit-user-pin" value="${user.pin || ''}" class="input-modern" placeholder="PIN" maxlength="4" ${isOwner ? 'disabled' : ''}
                             style="width: 100%; padding: 0.7rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 8px; color: white; text-align: center; font-family: monospace;">
                     </div>
                 </div>
@@ -282,7 +282,7 @@ window.showCreateUserModal = function () {
 
         <div class="form-group" style="margin-bottom: 1.5rem;">
             <label style="display: block; color: var(--text-muted); margin-bottom: 0.5rem;">PIN de Acceso (4 dígitos)</label>
-            <input type="number" id="new-user-pin" class="input-modern" placeholder="****" maxlength="4" style="width: 100%; padding: 0.8rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; color: white;">
+            <input type="password" id="new-user-pin" class="input-modern" placeholder="****" maxlength="4" style="width: 100%; padding: 0.8rem; background: var(--bg-main); border: 1px solid var(--border); border-radius: 8px; color: white;">
         </div>
 
         <div style="display: flex; gap: 1rem; justify-content: flex-end;">
