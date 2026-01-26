@@ -2161,12 +2161,15 @@ body {
     /* Clip-path clips shadow, so we rely on bg */
 }
 
-/* DaVinci Style: Square Output */
+/* DaVinci Style: Square Output (Modified to Triangle as per user reference) */
 .port-out {
     margin-right: -18px;
     /* Stick out right */
-    border-radius: 2px;
-    /* Soft square */
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+    /* Triangle Pointing Right */
+    width: 12px;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 

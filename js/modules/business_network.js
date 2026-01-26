@@ -430,7 +430,7 @@ window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
         window.networkEditorState.isDraggingConnection = true;
         window.networkEditorState.connectionSourceDetails = {
             nodeId: connToDetach.from,
-            x: sourceNode.x + 194,
+            x: sourceNode.x + 214,
             y: sourceNode.y + 72
         };
     }
@@ -456,17 +456,16 @@ function createTempLine() {
 
 function drawConnection(svg, nodeA, nodeB, connData) {
     // Port Calculation Constants
-    // Header ~42px, Padding ~12px. 
-    // Adjusted visual offset to hit center of ports.
-    const HEADER_OFFSET = 55; // Reduced from 65
+    // Header ~49px, Padding 16px, Half-Port 8px = 73px Center
+    const HEADER_OFFSET = 72;
     const PORT_HEIGHT = 16;
     const PORT_GAP = 8;
     const PORT_STEP = PORT_HEIGHT + PORT_GAP; // 24px
 
     // --- SOURCE (Output) ---
-    // Source Output is aligned with the top of the input list (flex-start)
+    // Tip of the triangle (Right) is at ~214px relative to Node Left.
     const y1 = nodeA.y + HEADER_OFFSET;
-    const x1 = nodeA.x + 195; // Push further right to center in "Output" circle
+    const x1 = nodeA.x + 214;
 
     // --- DESTINATION (Input) ---
     // Find index among incoming connections to nodeB
@@ -480,7 +479,8 @@ function drawConnection(svg, nodeA, nodeB, connData) {
     // Port has margin-left: -10px inside a padding: 1rem (16px) container.
     // Net start: +6px from border. Width 16px. Center ~14px?
     // Let's try x2 = nodeA.x + 10 to hit slightly inside.
-    const x2 = nodeB.x + 10;
+    // X Alignment: Input Triangle Base (-18px)
+    const x2 = nodeB.x - 18;
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
 
@@ -503,7 +503,7 @@ function drawConnection(svg, nodeA, nodeB, connData) {
     path.setAttribute("stroke", "#666");
     path.setAttribute("stroke-width", "3");
     path.setAttribute("fill", "none");
-    path.setAttribute("marker-end", "url(#arrowhead)");
+    // Removed marker-end per user design
     path.setAttribute("cursor", "pointer");
 
     // Deletion Handler
@@ -775,7 +775,7 @@ window.startConnectionDrag = function (e, nodeId) {
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: nodeId,
-        x: node.x + 194, // 194px Center of Output Port
+        x: node.x + 214, // 214px Tip of Output Triangle
         y: node.y + 72   // 72px Center Y
     };
 
