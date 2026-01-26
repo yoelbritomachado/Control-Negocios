@@ -59,11 +59,12 @@ window.availableModules = [
   { id: 'reportes', label: 'Reportes' },
   { id: 'cash-control', label: 'Corte de Caja' },
   { id: 'settings', label: 'Configuración' },
-  { id: 'transfer', label: 'Traslados' }
+  { id: 'transfer', label: 'Traslados' },
+  { id: 'network_editor', label: 'Mapa de Red' }
 ];
 
 window.rolePermissions = {
-  owner: ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control', 'settings'],
+  owner: ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control', 'settings', 'network_editor'],
   admin: ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control'],
   seller: ['dashboard', 'pos', 'inventory']
 };
@@ -155,7 +156,7 @@ function finalizeLoad() {
   if (!window.db.businesses) window.db.businesses = [];
   if (!window.db.settings) window.db.settings = { theme: 'dark' };
 
-  ['products', 'inventory', 'sales', 'waste', 'extraMovements', 'transactions', 'transfers'].forEach(key => {
+  ['products', 'inventory', 'sales', 'waste', 'extraMovements', 'transactions', 'transfers', 'networkLayout'].forEach(key => {
     if (!window.db[key]) window.db[key] = [];
   });
 

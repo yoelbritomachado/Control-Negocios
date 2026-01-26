@@ -389,8 +389,12 @@ function navigateTo(viewId) {
                 else throw new Error('renderSettings no definida');
                 break;
             case 'transfer':
-                if (typeof renderTransfer === 'function') renderTransfer(container);
+                if (window.renderTransfer) window.renderTransfer(container);
                 else throw new Error('renderTransfer no definida');
+                break;
+            case 'network_editor':
+                if (window.renderBusinessNetwork) window.renderBusinessNetwork(container);
+                else throw new Error('renderBusinessNetwork no definida');
                 break;
             case 'mermas':
                 if (typeof renderMermas === 'function') renderMermas(container);
