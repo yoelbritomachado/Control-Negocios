@@ -15,10 +15,124 @@ window.networkEditorState = {
     draggedNodeId: null,
     startX: 0,
     startY: 0,
-    connectionStyle: 'step' // 'bezier' or 'step' (orthogonal)
+    connectionStyle: 'step',
+    selectedNodeId: null
 };
 
-// Main Entry Point
+// ... (Toolbar remains same) ...
+
+function renderNodes() {
+    const container = document.getElementById('network-nodes');
+    if (!container) return;
+
+    container.innerHTML = window.networkEditorState.nodes.map(node => {
+        let color = '#444';
+        let icon = 'ph-square';
+        let label = node.id;
+
+        // Cubrefranco Detection
+        const incomingConnections = window.networkEditorState.connections.filter(c => c.to === node.id).length;
+        const isCubrefranco = node.type === 'user' && node.data.role === 'seller' && incomingConnections >= 2;
+        const isSelected = window.networkEditorState.selectedNodeId === node.id;
+
+        switch (node.type) {
+            case 'warehouse': color = 'var(--primary)'; icon = 'ph-warehouse'; label = node.data.name; break;
+            case 'business': color = 'var(--success)'; icon = 'ph-storefront'; label = node.data.name; break;
+            case 'user':
+                color = '#8b5cf6';
+                icon = 'ph-user-gear';
+                label = node.data.name;
+
+                if (isCubrefranco) {
+                    color = '#f59e0b';
+                    icon = 'ph-users-three';
+                }
+                break;
+            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break;
+            default: label = node.data.name || node.id;
+        }
+
+        // Selected Style: Red/Orange Border (DaVinci Style)
+        const borderStyle = isSelected ? 'border: 2px solid #ff4d4f; box-shadow: 0 0 0 4px rgba(255, 77, 79, 0.2);' : `border-top: 4px solid ${color}; ${isCubrefranco ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); border-color: #f59e0b;' : ''}`;
+
+        return `
+            <div class="network-node" id="${node.id}" 
+                 style="transform: translate(${node.x}px, ${node.y}px); ${borderStyle}"
+                 onmousedown="handleNodeMouseDown(event, '${node.id}')"
+                 ondblclick="editNodeName('${node.id}')">
+                
+                <div class="node-header" style="${isCubrefranco ? 'background: rgba(245, 158, 11, 0.1);' : ''}; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="ph ${icon}" style="color: ${color}"></i>
+                        <span>${label}</span>
+                    </div>
+                </div>
+                
+                <div class="node-ports">
+                    <!-- Input Port -->
+                    <div class="port port-in" onmouseup="completeConnection(event, '${node.id}')"></div>
+                    <!-- Output Port -->
+                    <div class="port port-out" onmousedown="startConnectionDrag(event, '${node.id}')"></div>
+                </div>
+
+                <div style="font-size: 0.75rem; color: #888; margin-top: 5px;">
+                    ${node.type === 'business' ? 'PUNTO DE VENTA' : (node.type === 'warehouse' ? 'ALMACÉN' : (node.type === 'company' ? 'EMPRESA' : (isCubrefranco ? 'CUBREFRANCO' : node.type.toUpperCase())))}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ... (renderConnections, etc) ...
+
+// --- Interaction Handlers ---
+
+window.handleCanvasMouseDown = function (e) {
+    if (e.target.closest('.network-node')) return;
+
+    // Click on empty space = Deselect
+    window.networkEditorState.selectedNodeId = null;
+    renderNodes();
+
+    window.networkEditorState.isDraggingCanvas = true;
+    window.networkEditorState.startX = e.clientX - window.networkEditorState.offsetX;
+    window.networkEditorState.startY = e.clientY - window.networkEditorState.offsetY;
+    document.getElementById('network-viewport').style.cursor = 'grabbing';
+}
+
+window.handleNodeMouseDown = function (e, nodeId) {
+    e.stopPropagation();
+
+    // Select Node
+    window.networkEditorState.selectedNodeId = nodeId;
+    renderNodes(); // Re-render to show selection border
+
+    window.networkEditorState.isDraggingNode = true;
+    window.networkEditorState.draggedNodeId = nodeId;
+}
+
+// Global Keyboard Handler for Deletion
+window.addEventListener('keydown', async (e) => {
+    // Only if a node is selected
+    if (!window.networkEditorState.selectedNodeId) return;
+
+    // Check Key
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        const nodeId = window.networkEditorState.selectedNodeId;
+
+        // Confirm? (Maybe optional for power users, but safer to keep for now)
+        // DaVinci just deletes. User said "deshacer" implies undo/delete.
+        // Let's make it instant but with a Toast to be "Pro".
+
+        window.networkEditorState.nodes = window.networkEditorState.nodes.filter(n => n.id !== nodeId);
+        window.networkEditorState.connections = window.networkEditorState.connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+        window.networkEditorState.selectedNodeId = null;
+
+        renderNodes();
+        renderConnections();
+        showToast("Nodo eliminado", "info");
+    }
+});
 window.renderBusinessNetwork = function (container) {
     if (!container) return;
 
