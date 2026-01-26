@@ -22,8 +22,17 @@ window.networkEditorState = {
 window.renderBusinessNetwork = function (container) {
     if (!container) return;
 
-    // Initialize Data if empty
+    // Initialize Data if empty OR if migration needed
     const db = window.db || {};
+
+    // [MIGRATION] Force Layout Update for v1.5 Structure
+    if (!db.networkLayoutVersion || db.networkLayoutVersion < 2) {
+        console.log("♻️ Migrating Network Layout to v2 (Default Structure)");
+        initializeDefaultLayout(db);
+        db.networkLayoutVersion = 2;
+        window.saveData();
+    }
+
     if (!db.networkLayout || db.networkLayout.length === 0) {
         initializeDefaultLayout(db);
     }
@@ -124,35 +133,45 @@ window.renderBusinessNetwork = function (container) {
 };
 
 function initializeDefaultLayout(db) {
-    const nodes = [];
-    let xBase = 100;
+    const nodes = [
+        // Level 1: Owners & Company
+        { id: 'node-owner-1', type: 'user', data: { name: 'Dueño YOEL', role: 'owner' }, x: 400, y: 50 },
+        { id: 'node-owner-2', type: 'user', data: { name: 'Dueño ARY', role: 'owner' }, x: 800, y: 50 },
+        { id: 'node-company-1', type: 'company', data: { name: 'MISS CHULERIAS' }, x: 600, y: 250 },
 
-    // Add Businesses
-    (db.businesses || []).forEach((b, index) => {
-        nodes.push({
-            id: `biz-${b.id}`,
-            type: b.type === 'warehouse' ? 'warehouse' : 'business',
-            data: b,
-            x: 400,
-            y: 100 + (index * 200)
-        });
-    });
+        // Level 2: Admin
+        { id: 'node-admin-1', type: 'user', data: { name: 'Administrador KEILA', role: 'admin' }, x: 300, y: 300 },
 
-    // Add Key Users (Admin/Owner)
-    (db.users || []).forEach((u, index) => {
-        if (u.role === 'owner' || u.role === 'admin') {
-            nodes.push({
-                id: `user-${u.id}`,
-                type: 'user',
-                data: u,
-                x: 100,
-                y: 100 + (index * 150)
-            });
-        }
-    });
+        // Level 3: Warehouse
+        { id: 'node-warehouse-1', type: 'warehouse', data: { name: 'Almacén MCH' }, x: 800, y: 450 },
+
+        // Level 4: POS
+        { id: 'node-pos-1', type: 'business', data: { name: 'MCH 1' }, x: 300, y: 650 },
+        { id: 'node-pos-2', type: 'business', data: { name: 'MCH 2' }, x: 900, y: 650 },
+
+        // Level 5: Sellers
+        { id: 'node-seller-1', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 300, y: 850 },
+        { id: 'node-seller-2', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 600, y: 850 }, // Cubrefranco
+        { id: 'node-seller-3', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 1000, y: 850 }
+    ];
+
+    const connections = [
+        { from: 'node-owner-1', to: 'node-company-1' },
+        { from: 'node-owner-2', to: 'node-company-1' },
+        { from: 'node-company-1', to: 'node-warehouse-1' },
+        { from: 'node-company-1', to: 'node-admin-1' },
+
+        { from: 'node-warehouse-1', to: 'node-pos-1' },
+        { from: 'node-warehouse-1', to: 'node-pos-2' },
+
+        { from: 'node-pos-1', to: 'node-seller-1' },
+        { from: 'node-pos-1', to: 'node-seller-2' }, // Cubrefranco Link 1
+        { from: 'node-pos-2', to: 'node-seller-2' }, // Cubrefranco Link 2
+        { from: 'node-pos-2', to: 'node-seller-3' }
+    ];
 
     db.networkLayout = nodes;
-    db.networkConnections = []; // Initialize empty connections
+    db.networkConnections = connections;
 }
 
 function renderNodes() {
@@ -191,9 +210,14 @@ function renderNodes() {
                  onmousedown="handleNodeMouseDown(event, '${node.id}')"
                  ondblclick="editNodeName('${node.id}')">
                 
-                <div class="node-header" style="${isCubrefranco ? 'background: rgba(245, 158, 11, 0.1);' : ''}">
-                    <i class="ph ${icon}" style="color: ${color}"></i>
-                    <span>${label}</span>
+                <div class="node-header" style="${isCubrefranco ? 'background: rgba(245, 158, 11, 0.1);' : ''}; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="ph ${icon}" style="color: ${color}"></i>
+                        <span>${label}</span>
+                    </div>
+                    <i class="ph ph-trash" style="color: #666; cursor: pointer; font-size: 1rem;" 
+                       onmousedown="deleteNode(event, '${node.id}')" 
+                       title="Eliminar Nodo"></i>
                 </div>
                 
                 <div class="node-ports">
@@ -582,6 +606,32 @@ window.editNodeName = async function (nodeId) {
         node.data.name = newName;
         renderNodes();
         saveNetworkLayout();
+    }
+}
+
+window.deleteNode = async function (e, nodeId) {
+    if (e) e.stopPropagation();
+
+    const confirm = await Swal.fire({
+        title: '¿Eliminar Nodo?',
+        text: "Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Sí, eliminar',
+        background: '#16191f',
+        color: '#fff'
+    });
+
+    if (confirm.isConfirmed) {
+        window.networkEditorState.nodes = window.networkEditorState.nodes.filter(n => n.id !== nodeId);
+        // Also remove connections
+        window.networkEditorState.connections = window.networkEditorState.connections.filter(c => c.from !== nodeId && c.to !== nodeId);
+
+        renderNodes();
+        renderConnections();
+        showToast("Nodo eliminado", "info");
     }
 }
 
