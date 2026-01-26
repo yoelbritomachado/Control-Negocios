@@ -408,15 +408,12 @@ function renderConnections() {
 window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
     if (e) e.stopPropagation();
 
-    // Find matching connection
-    // We need to match the logic in renderNodes:
-    // It filters "connections.filter(c => c.to === nodeId)"
-    // And uses the index of THAT filtered array.
-
+    // Find connection to detach
     const incoming = window.networkEditorState.connections.filter(c => c.to === nodeId);
     if (connIndex < 0 || connIndex >= incoming.length) return;
 
     const connToDetach = incoming[connIndex];
+    if (!connToDetach) return;
 
     // Find actual index in global array to remove
     const globalIndex = window.networkEditorState.connections.indexOf(connToDetach);
@@ -425,13 +422,16 @@ window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
     window.networkEditorState.connections.splice(globalIndex, 1);
 
     // Start dragging "new" connection from the original source
+    // We want the drag line to start from the Source's OUTPUT port
+    // Output port is at (x + 180, y + 65)
     const sourceNode = window.networkEditorState.nodes.find(n => n.id === connToDetach.from);
+
     if (sourceNode) {
         window.networkEditorState.isDraggingConnection = true;
         window.networkEditorState.connectionSourceDetails = {
             nodeId: connToDetach.from,
             x: sourceNode.x + 180,
-            y: sourceNode.y + 40
+            y: sourceNode.y + 65
         };
     }
 
@@ -764,16 +764,17 @@ window.autoLayoutNetwork = function () {
     renderConnections();
 }
 
+// Output Port Drag
 window.startConnectionDrag = function (e, nodeId) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: nodeId,
-        x: node.x + 180, // Port Out X (Approx relative to node)
-        y: node.y + 40   // Port Out Y
+        x: node.x + 180, // Port Out X
+        y: node.y + 65   // Port Out Y (Updated to ~65px)
     };
 
     // Create Temp Line (Visual feedback)
