@@ -455,45 +455,47 @@ function createTempLine() {
 }
 
 function drawConnection(svg, nodeA, nodeB, connData) {
-    // Port positions
-    const x1 = nodeA.x + 180;
-    const y1 = nodeA.y + 40;
+    // Port Calculation Constants
+    // Header ~42px, Padding ~12px. 
+    // Adjusted visual offset to hit center of ports.
+    const HEADER_OFFSET = 55; // Reduced from 65
+    const PORT_HEIGHT = 16;
+    const PORT_GAP = 8;
+    const PORT_STEP = PORT_HEIGHT + PORT_GAP; // 24px
 
-    // Destination Port Logic:
+    // --- SOURCE (Output) ---
+    // Source Output is aligned with the top of the input list (flex-start)
+    const y1 = nodeA.y + HEADER_OFFSET;
+    const x1 = nodeA.x + 195; // Push further right to center in "Output" circle
+
+    // --- DESTINATION (Input) ---
     // Find index among incoming connections to nodeB
     const incoming = window.networkEditorState.connections.filter(c => c.to === nodeB.id);
     const index = incoming.indexOf(connData);
 
-    // Calculate Y Offset
-    // Header is approx 40px?
-    // Ports start at top of .node-ports container.
-    // .node-ports is below header. Header ~40px.
-    // Port Vertical Spacing: 16px (height) + 8px (gap) = 24px
+    // Dynamic Y based on stack position
+    const y2 = nodeB.y + HEADER_OFFSET + (index * PORT_STEP);
 
-    // Base Y for first port: nodeB.y + 70 (approx offset for padding/header)
-    const portHeight = 24;
-    let y2 = nodeB.y + 70 + (index * portHeight);
-
-    const x2 = nodeB.x; // Left edge
-    // Actually, x2 should be slightly inside? No, left edge is fine if port sticks out -18px.
-    // Line should go to x=0 relative to node.
+    // X Alignment:
+    // Port has margin-left: -10px inside a padding: 1rem (16px) container.
+    // Net start: +6px from border. Width 16px. Center ~14px?
+    // Let's try x2 = nodeA.x + 10 to hit slightly inside.
+    const x2 = nodeB.x + 10;
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
 
     let d = '';
 
+    // Bezier Control Points
     if (window.networkEditorState.connectionStyle === 'bezier') {
-        const cp1x = x1 + 100;
+        const cp1x = x1 + 80;
         const cp1y = y1;
-        const cp2x = x2 - 100;
+        const cp2x = x2 - 80;
         const cp2y = y2;
         d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
     } else {
         // Orthogonal
         const midX = (x1 + x2) / 2;
-        // Step logic: Horizontal -> Vertical -> Horizontal
-        // But for multiple inputs, we want clean separation at destination.
-        // Enhance Step: Go to midX, then Y2, then X2.
         d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
     }
 
@@ -765,6 +767,7 @@ window.autoLayoutNetwork = function () {
 }
 
 // Output Port Drag
+// Output Port Drag
 window.startConnectionDrag = function (e, nodeId) {
     if (e) e.stopPropagation();
     const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
@@ -773,8 +776,8 @@ window.startConnectionDrag = function (e, nodeId) {
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: nodeId,
-        x: node.x + 180, // Port Out X
-        y: node.y + 65   // Port Out Y (Updated to ~65px)
+        x: node.x + 195, // Port Out X (Match drawConnection)
+        y: node.y + 55   // Port Out Y (Match drawConnection)
     };
 
     // Create Temp Line (Visual feedback)
