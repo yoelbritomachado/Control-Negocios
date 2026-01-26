@@ -423,15 +423,15 @@ window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
 
     // Start dragging "new" connection from the original source
     // We want the drag line to start from the Source's OUTPUT port
-    // Output port is at (x + 180, y + 65)
+    // Output port is at (x + 194, y + 72)
     const sourceNode = window.networkEditorState.nodes.find(n => n.id === connToDetach.from);
 
     if (sourceNode) {
         window.networkEditorState.isDraggingConnection = true;
         window.networkEditorState.connectionSourceDetails = {
             nodeId: connToDetach.from,
-            x: sourceNode.x + 180,
-            y: sourceNode.y + 65
+            x: sourceNode.x + 194,
+            y: sourceNode.y + 72
         };
     }
 
@@ -767,7 +767,6 @@ window.autoLayoutNetwork = function () {
 }
 
 // Output Port Drag
-// Output Port Drag
 window.startConnectionDrag = function (e, nodeId) {
     if (e) e.stopPropagation();
     const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
@@ -776,8 +775,8 @@ window.startConnectionDrag = function (e, nodeId) {
     window.networkEditorState.isDraggingConnection = true;
     window.networkEditorState.connectionSourceDetails = {
         nodeId: nodeId,
-        x: node.x + 195, // Port Out X (Match drawConnection)
-        y: node.y + 55   // Port Out Y (Match drawConnection)
+        x: node.x + 194, // 194px Center of Output Port
+        y: node.y + 72   // 72px Center Y
     };
 
     // Create Temp Line (Visual feedback)
