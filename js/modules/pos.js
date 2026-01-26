@@ -176,12 +176,12 @@ window.handlePOSSearch = function (query) {
     let filtered = [];
     if (query.length < 1) {
         filtered = availableProducts.slice(0, 50); // Show initials
-    } else {
+        // Limit to 50 results to prevent grid explosion on broad queries like "a"
         filtered = availableProducts.filter(p =>
             p.name.toLowerCase().includes(query.toLowerCase()) ||
             (p.alias && p.alias.toLowerCase().includes(query.toLowerCase())) ||
             String(p.price).startsWith(query)
-        );
+        ).slice(0, 50);
     }
 
     if (filtered.length === 0) {
