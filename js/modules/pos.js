@@ -242,9 +242,15 @@ window.addToPOSCart = function (productId) {
     }
 
     renderCart();
-    document.getElementById('pos-search').value = '';
-    document.getElementById('pos-results').style.display = 'none';
-    document.getElementById('pos-search').focus();
+    renderCart();
+
+    // Clear search and reset grid
+    const searchInput = document.getElementById('pos-search');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+        handlePOSSearch(''); // Reset grid to default
+    }
 }
 
 window.renderCart = function () {
