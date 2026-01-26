@@ -2368,4 +2368,22 @@ input:checked+.slider:before {
 
 .permission-row:last-child {
     border-bottom: none;
+}/* Check for swal2-select */
+
+/* --- SWEETALERT DROP-DOWN FIX --- */
+.swal2-select {
+    background-color: #333 !important;
+    color: white !important;
+    border: 1px solid #555 !important;
+}
+
+.swal2-select option {
+    background-color: #333 !important;
+    color: white !important;
+}
+
+.swal2-input[disabled] {
+    background-color: #222 !important;
+    color: #aaa !important;
+    border-color: #444 !important;
 }
