@@ -329,14 +329,14 @@ function renderNodes() {
                         <i class="ph ${icon}" style="color: ${color}"></i>
                         <span>${label}</span>
                     </div>
-                    <i class="ph ph-trash" style="color: #666; cursor: pointer; font-size: 1rem;" 
-                       onmousedown="deleteNode(event, '${node.id}')" 
-                       title="Eliminar Nodo"></i>
                 </div>
                 
                 <div class="node-ports">
                     <!-- Input Port -->
-                    <div class="port port-in" onmouseup="completeConnection(event, '${node.id}')"></div>
+                    <div class="port port-in" 
+                         onmouseup="completeConnection(event, '${node.id}')"
+                         onmousedown="startConnectionDragFromInput(event, '${node.id}')">
+                    </div>
                     <!-- Output Port -->
                     <div class="port port-out" onmousedown="startConnectionDrag(event, '${node.id}')"></div>
                 </div>
@@ -586,6 +586,38 @@ window.startConnectionDrag = function (e, nodeId) {
     };
 
     // Create Temp Line (Visual feedback)
+    createTempLine();
+}
+
+// NEW: Detach connection by dragging from Input
+window.startConnectionDragFromInput = function (e, nodeId) {
+    e.stopPropagation();
+
+    // Find connection entering this node
+    const connIndex = window.networkEditorState.connections.findIndex(c => c.to === nodeId);
+    if (connIndex === -1) return; // Nothing to detach
+
+    const conn = window.networkEditorState.connections[connIndex];
+    const sourceNode = window.networkEditorState.nodes.find(n => n.id === conn.from);
+
+    if (!sourceNode) return;
+
+    // Remove existing connection (Detach)
+    window.networkEditorState.connections.splice(connIndex, 1);
+
+    // Start dragging "new" connection from the original source
+    window.networkEditorState.isDraggingConnection = true;
+    window.networkEditorState.connectionSourceDetails = {
+        nodeId: conn.from,
+        x: sourceNode.x + 180,
+        y: sourceNode.y + 40
+    };
+
+    renderConnections(); // Permanent line gone
+    createTempLine();    // Temp line appears
+}
+
+function createTempLine() {
     const svg = document.getElementById('network-connections');
     let tempLine = document.getElementById('temp-connection-line');
     if (!tempLine) {
