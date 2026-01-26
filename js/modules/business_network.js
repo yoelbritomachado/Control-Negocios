@@ -365,6 +365,11 @@ function renderNodes() {
                         <i class="ph ${icon}" style="color: ${color}"></i>
                         <span>${label}</span>
                     </div>
+                    <!-- Edit Button -->
+                    <div class="node-action-btn" onmousedown="event.stopPropagation()" onclick="openNodeEditor('${node.id}')" 
+                         style="cursor: pointer; opacity: 0.6; padding: 2px 6px; border-radius: 4px; transition: all 0.2s;">
+                        <i class="ph ph-pencil-simple" style="font-size: 1rem; color: #fff;"></i>
+                    </div>
                 </div>
                 
                 <div class="node-ports" style="align-items: flex-start;">
