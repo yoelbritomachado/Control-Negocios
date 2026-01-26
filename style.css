@@ -2153,3 +2153,33 @@ body {
     margin-right: -18px; /* Stick out right */
 }
 
+
+/* --- Network Palette --- */
+.network-palette {
+    /* Styles inline mostly, but scrollbar logic here */
+}
+
+.palette-item {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.palette-item:hover {
+    background: rgba(255,255,255,0.1);
+    transform: translateX(5px);
+    border-color: var(--primary);
+}
+
+.palette-item:active {
+    cursor: grabbing;
+}
+

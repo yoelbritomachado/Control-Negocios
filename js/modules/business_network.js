@@ -47,40 +47,73 @@ window.renderBusinessNetwork = function (container) {
                 </div>
             </div>
 
-            <!-- Canvas Container -->
-            <div id="network-viewport" style="flex: 1; position: relative; overflow: hidden; cursor: grab; background: radial-gradient(#2c2d31 1px, transparent 1px) 0 0 / 20px 20px;"
-                 onmousedown="handleCanvasMouseDown(event)"
-                 onmousemove="handleCanvasMouseMove(event)"
-                 onmouseup="handleCanvasMouseUp(event)"
-                 onwheel="handleCanvasWheel(event)">
-                 
-                <!-- Transform Container -->
-                <div id="network-canvas" style="transform-origin: 0 0; width: 100%; height: 100%; position: absolute;">
-                    
-                    <!-- SVG Layer for Wires -->
-                    <svg id="network-connections" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; overflow: visible; pointer-events: none; z-index: 0;">
-                        <defs>
-                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                                <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
-                            </marker>
-                        </defs>
-                    </svg>
-                    
-                    <!-- HTML Layer for Nodes -->
-                    <div id="network-nodes" style="position: absolute; top:0; left:0; width:100%; height:100%; z-index: 1;"></div>
+            <div style="flex: 1; display: flex; overflow: hidden;">
                 
+                <!-- 🎨 Creation Palette -->
+                <div class="network-palette" style="width: 250px; background: var(--bg-card); border-right: 1px solid var(--border); padding: 1rem; overflow-y: auto; z-index: 50;">
+                    <h4 style="margin-top: 0; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;">Estructura</h4>
+                    
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'company')">
+                        <i class="ph ph-buildings" style="color: #f59e0b;"></i> Empresa
+                    </div>
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'warehouse')">
+                        <i class="ph ph-warehouse" style="color: var(--primary);"></i> Almacén
+                    </div>
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'business')">
+                        <i class="ph ph-storefront" style="color: var(--success);"></i> Punto de Venta
+                    </div>
+
+                    <h4 style="margin-top: 1.5rem; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px;">Personal</h4>
+                    
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'user-owner')">
+                        <i class="ph ph-crown" style="color: #ffd700;"></i> Dueño
+                    </div>
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'user-admin')">
+                        <i class="ph ph-key" style="color: #8b5cf6;"></i> Administrador
+                        <span style="font-size:0.7rem; color: #666; display:block;">Gestor Local</span>
+                    </div>
+                    <div class="palette-item" draggable="true" ondragstart="handlePaletteDragStart(event, 'user-seller')">
+                        <i class="ph ph-tag" style="color: #3b82f6;"></i> Vendedor
+                        <span style="font-size:0.7rem; color: #666; display:block;">Cubrefranco Auto</span>
+                    </div>
                 </div>
 
-                <!-- HUD / Minimap Controls -->
-                <div style="position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 5px; background: var(--bg-card); padding: 5px; border-radius: 8px; border: 1px solid var(--border);">
-                    <button onclick="zoomNetwork(0.1)" class="btn-icon-small"><i class="ph ph-plus"></i></button>
-                    <div id="zoom-level" style="text-align: center; font-size: 0.8rem; padding: 2px;">100%</div>
-                    <button onclick="zoomNetwork(-0.1)" class="btn-icon-small"><i class="ph ph-minus"></i></button>
-                    <button onclick="resetNetworkView()" class="btn-icon-small"><i class="ph ph-arrows-out"></i></button>
-                </div>
+                <!-- Canvas Container -->
+                <div id="network-viewport" style="flex: 1; position: relative; overflow: hidden; cursor: grab; background: radial-gradient(#2c2d31 1px, transparent 1px) 0 0 / 20px 20px;"
+                     onmousedown="handleCanvasMouseDown(event)"
+                     onmousemove="handleCanvasMouseMove(event)"
+                     onmouseup="handleCanvasMouseUp(event)"
+                     onwheel="handleCanvasWheel(event)"
+                     ondragover="handleCanvasDragOver(event)"
+                     ondrop="handleCanvasDrop(event)">
+                     
+                    <!-- Transform Container -->
+                    <div id="network-canvas" style="transform-origin: 0 0; width: 100%; height: 100%; position: absolute;">
+                        
+                        <!-- SVG Layer for Wires -->
+                        <svg id="network-connections" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; overflow: visible; pointer-events: none; z-index: 0;">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                    <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
+                                </marker>
+                            </defs>
+                        </svg>
+                        
+                        <!-- HTML Layer for Nodes -->
+                        <div id="network-nodes" style="position: absolute; top:0; left:0; width:100%; height:100%; z-index: 1;"></div>
+                    
+                    </div>
 
+                    <!-- HUD / Minimap Controls -->
+                    <div style="position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 5px; background: var(--bg-card); padding: 5px; border-radius: 8px; border: 1px solid var(--border);">
+                        <button onclick="zoomNetwork(0.1)" class="btn-icon-small"><i class="ph ph-plus"></i></button>
+                        <div id="zoom-level" style="text-align: center; font-size: 0.8rem; padding: 2px;">100%</div>
+                        <button onclick="zoomNetwork(-0.1)" class="btn-icon-small"><i class="ph ph-minus"></i></button>
+                        <button onclick="resetNetworkView()" class="btn-icon-small"><i class="ph ph-arrows-out"></i></button>
+                    </div>
+
+                </div>
             </div>
-        </div>
     `;
 
     renderNodes();
@@ -393,6 +426,65 @@ function cancelConnectionDrag() {
     window.networkEditorState.connectionSourceDetails = null;
     const tempLine = document.getElementById('temp-connection-line');
     if (tempLine) tempLine.remove();
+}
+
+// --- Drag & Drop for New Nodes ---
+
+window.handlePaletteDragStart = function (e, type) {
+    e.dataTransfer.setData('nodeType', type);
+    e.dataTransfer.effectAllowed = 'copy';
+}
+
+window.handleCanvasDragOver = function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+}
+
+window.handleCanvasDrop = function (e) {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('nodeType');
+    if (!type) return;
+
+    // Calculate Drop Position in Canvas Space
+    const rect = document.getElementById('network-viewport').getBoundingClientRect();
+    const mouseX = (e.clientX - rect.left - window.networkEditorState.offsetX) / window.networkEditorState.scale;
+    const mouseY = (e.clientY - rect.top - window.networkEditorState.offsetY) / window.networkEditorState.scale;
+
+    createNewNode(type, mouseX, mouseY);
+}
+
+function createNewNode(type, x, y) {
+    const defaultData = {
+        name: 'Nuevo Nodo',
+        description: 'Sin configurar'
+    };
+
+    let mappedType = type;
+    if (type.startsWith('user-')) {
+        mappedType = 'user';
+        const role = type.split('-')[1]; // owner, admin, seller
+        defaultData.role = role;
+        defaultData.name = role === 'owner' ? 'Dueño' : (role === 'admin' ? 'Administrador' : 'Vendedor');
+    }
+
+    const newNode = {
+        id: `node-${Date.now()}`,
+        type: mappedType,
+        x: x - 90, // Center approx
+        y: y - 50,
+        data: { ...defaultData }
+    };
+
+    if (type === 'company' || type === 'warehouse' || type === 'business') {
+        newNode.data.name = type === 'company' ? 'Nueva Empresa' : (type === 'warehouse' ? 'Nuevo Almacén' : 'Nuevo POS');
+        newNode.type = type; // Ensure specific type sticks
+    }
+
+    window.networkEditorState.nodes.push(newNode);
+    renderNodes();
+    showToast(`Nodo creado: ${newNode.data.name}`, "success");
+
+    // Auto-save logic could go here
 }
 
 console.log('🗺️ Business Network Module Loaded');
