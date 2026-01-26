@@ -147,7 +147,7 @@ function renderNodes() {
                 
                 <div class="node-ports">
                     <!-- Input Port -->
-                    <div class="port port-in"></div>
+                    <div class="port port-in" onmouseup="completeConnection(event, '${node.id}')"></div>
                     <!-- Output Port -->
                     <div class="port port-out" onmousedown="startConnectionDrag(event, '${node.id}')"></div>
                 </div>
@@ -229,24 +229,55 @@ window.handleCanvasMouseMove = function (e) {
         e.preventDefault();
         const node = window.networkEditorState.nodes.find(n => n.id === window.networkEditorState.draggedNodeId);
         if (node) {
-            // Calculate Delta adjusted by Scale
             const deltaX = e.movementX / window.networkEditorState.scale;
             const deltaY = e.movementY / window.networkEditorState.scale;
-
             node.x += deltaX;
             node.y += deltaY;
 
-            // Update Visuals
             const el = document.getElementById(node.id);
             if (el) el.style.transform = `translate(${node.x}px, ${node.y}px)`;
 
-            // Re-render wires (optimized: could just update specific paths)
             renderConnections();
+        }
+    }
+
+    // Drag Connection (Temp Line)
+    if (window.networkEditorState.isDraggingConnection) {
+        e.preventDefault();
+        const tempLine = document.getElementById('temp-connection-line');
+        if (tempLine) {
+            // Screen to Canvas Coordinates
+            const rect = document.getElementById('network-viewport').getBoundingClientRect();
+            const mouseX = (e.clientX - rect.left - window.networkEditorState.offsetX) / window.networkEditorState.scale;
+            const mouseY = (e.clientY - rect.top - window.networkEditorState.offsetY) / window.networkEditorState.scale;
+
+            const createTempNode = (x, y) => ({ x: x - 20, y: y - 40 }); // Adjust to point tip
+            const sourceDummy = createTempNode(window.networkEditorState.connectionSourceDetails.x, window.networkEditorState.connectionSourceDetails.y);
+
+            // Draw dummy bezier
+            // We reuse drawBezier logic but for manual path setting
+            const x1 = window.networkEditorState.connectionSourceDetails.x;
+            const y1 = window.networkEditorState.connectionSourceDetails.y;
+            const x2 = mouseX;
+            const y2 = mouseY;
+
+            const cp1x = x1 + 100;
+            const cp1y = y1;
+            const cp2x = x2 - 100;
+            const cp2y = y2;
+
+            const d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+            tempLine.setAttribute("d", d);
         }
     }
 }
 
 window.handleCanvasMouseUp = function (e) {
+    if (window.networkEditorState.isDraggingConnection) {
+        // If released on empty space, cancel
+        cancelConnectionDrag();
+    }
+
     window.networkEditorState.isDraggingCanvas = false;
     window.networkEditorState.isDraggingNode = false;
     window.networkEditorState.draggedNodeId = null;
@@ -306,6 +337,62 @@ window.autoLayoutNetwork = function () {
     });
     renderNodes();
     renderConnections();
+}
+
+window.startConnectionDrag = function (e, nodeId) {
+    e.stopPropagation();
+    const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    window.networkEditorState.isDraggingConnection = true;
+    window.networkEditorState.connectionSourceDetails = {
+        nodeId: nodeId,
+        x: node.x + 180, // Port Out X (Approx relative to node)
+        y: node.y + 40   // Port Out Y
+    };
+
+    // Create Temp Line (Visual feedback)
+    const svg = document.getElementById('network-connections');
+    let tempLine = document.getElementById('temp-connection-line');
+    if (!tempLine) {
+        tempLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        tempLine.setAttribute("id", "temp-connection-line");
+        tempLine.setAttribute("stroke", "#666");
+        tempLine.setAttribute("stroke-width", "2");
+        tempLine.setAttribute("stroke-dasharray", "5,5");
+        tempLine.setAttribute("fill", "none");
+        svg.appendChild(tempLine);
+    }
+}
+
+window.completeConnection = function (e, targetNodeId) {
+    e.stopPropagation();
+    if (!window.networkEditorState.isDraggingConnection) return;
+
+    const sourceId = window.networkEditorState.connectionSourceDetails.nodeId;
+
+    // Prevent self-connection
+    if (sourceId === targetNodeId) {
+        cancelConnectionDrag();
+        return;
+    }
+
+    // Check if connection already exists
+    const exists = window.networkEditorState.connections.some(c => c.from === sourceId && c.to === targetNodeId);
+    if (!exists) {
+        window.networkEditorState.connections.push({ from: sourceId, to: targetNodeId });
+        renderConnections();
+        showToast("Conexión Creada", "success");
+    }
+
+    cancelConnectionDrag();
+}
+
+function cancelConnectionDrag() {
+    window.networkEditorState.isDraggingConnection = false;
+    window.networkEditorState.connectionSourceDetails = null;
+    const tempLine = document.getElementById('temp-connection-line');
+    if (tempLine) tempLine.remove();
 }
 
 console.log('🗺️ Business Network Module Loaded');
