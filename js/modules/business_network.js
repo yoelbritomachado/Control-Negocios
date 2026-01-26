@@ -305,6 +305,9 @@ function renderNodes() {
         // Identify Incoming Connections
         const incoming = window.networkEditorState.connections.filter(c => c.to === node.id);
 
+        // Identify Outgoing Connections
+        const outgoing = window.networkEditorState.connections.filter(c => c.from === node.id);
+
         // Cubrefranco Detection
         const isCubrefranco = node.type === 'user' && node.data.role === 'seller' && incoming.length >= 2;
 
@@ -370,7 +373,10 @@ function renderNodes() {
                     </div>
 
                     <!-- Output Port -->
-                    <div class="port port-out" onmousedown="startConnectionDrag(event, '${node.id}')"></div>
+                    <div class="port port-out" 
+                         style="${outgoing.length > 0 ? 'background: #10b981; border-color: #10b981;' : ''}"
+                         onmousedown="startConnectionDrag(event, '${node.id}')">
+                    </div>
                 </div>
 
                 <div style="font-size: 0.75rem; color: #888; margin-top: 5px;">
