@@ -217,7 +217,7 @@ function renderSidebar(activeView) {
             items: [
                 { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
                 { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' },
-                { id: 'users', icon: 'ph-users', label: 'Gestión Equipo' },
+                // { id: 'users', icon: 'ph-users', label: 'Gestión Equipo' }, // REMOVED V2
                 { id: 'network_editor', icon: 'ph-share-network', label: 'Mapa de Red' }
             ]
         }

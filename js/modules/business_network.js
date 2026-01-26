@@ -357,7 +357,8 @@ function renderNodes() {
             <div class="network-node ${window.networkEditorState.selectedNodeId === node.id ? 'selected' : ''}" id="${node.id}" 
                  style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color}; ${isCubrefranco ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); border-color: #f59e0b;' : ''}"
                  onmousedown="handleNodeMouseDown(event, '${node.id}')"
-                 ondblclick="editNodeName('${node.id}')">
+                 onmousedown="handleNodeMouseDown(event, '${node.id}')"
+                 ondblclick="openNodeEditor('${node.id}')">
                 
                 <div class="node-header" style="${isCubrefranco ? 'background: rgba(245, 158, 11, 0.1);' : ''}; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -929,25 +930,163 @@ function createNewNode(type, x, y) {
     // Auto-save logic could go here
 }
 
-window.editNodeName = async function (nodeId) {
+window.injectNodeEditorModal = function () {
+    if (document.getElementById('node-editor-modal')) return;
+
+    const modalHtml = `
+    <div id="node-editor-modal" class="editor-modal-overlay">
+        <div class="editor-modal">
+            <div class="editor-header">
+                <h3 id="editor-title" style="margin:0; font-size:1.1rem; color:#fff;">Editar Nodo</h3>
+            </div>
+            <div class="editor-body">
+                <div class="editor-section-title">Credenciales</div>
+                <div style="display:flex; flex-direction:column; gap:1rem;">
+                    <div>
+                        <label style="font-size:0.8rem; color:#94a3b8; display:block; margin-bottom:0.4rem;">Nombre</label>
+                        <input type="text" id="editor-name" class="editor-input" placeholder="Nombre del Usuario/Nodo">
+                    </div>
+                    <div id="editor-pin-group">
+                        <label style="font-size:0.8rem; color:#94a3b8; display:block; margin-bottom:0.4rem;">PIN de Acceso</label>
+                        <input type="text" id="editor-pin" class="editor-input" placeholder="0000" maxlength="4" style="letter-spacing: 2px;">
+                    </div>
+                </div>
+
+                <div id="editor-permissions-section" style="margin-top:2rem;">
+                    <div class="editor-section-title">Permisos del Sistema</div>
+                    <div id="editor-permissions-list" style="display:flex; flex-direction:column;">
+                        <!-- Checkboxes injected here -->
+                    </div>
+                </div>
+            </div>
+            <div class="editor-footer">
+                <button onclick="confirmDeleteNodeFromEditor()" class="btn-ghost" style="color:var(--danger); padding:0.5rem;"><i class="ph ph-trash" style="font-size:1.2rem;"></i></button>
+                <div style="display:flex; gap:1rem;">
+                    <button onclick="closeNodeEditor()" class="btn-ghost" style="color:#94a3b8;">Cancelar</button>
+                    <button onclick="saveNodeEditor()" class="btn-primary" style="background:var(--primary); border:none; color:white; padding:0.6rem 1.2rem; border-radius:8px; cursor:pointer;">Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+window.currentEditingNodeId = null;
+
+window.openNodeEditor = function (nodeId) {
     const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    const { value: newName } = await Swal.fire({
-        title: 'Renombrar Nodo',
-        input: 'text',
-        inputValue: node.data.name || '',
-        showCancelButton: true,
-        confirmButtonText: 'Guardar',
-        cancelButtonText: 'Cancelar',
-        background: '#16191f',
-        color: '#fff'
-    });
+    window.currentEditingNodeId = nodeId;
+    const modal = document.getElementById('node-editor-modal');
+    if (!modal) { injectNodeEditorModal(); return openNodeEditor(nodeId); }
 
-    if (newName) {
-        node.data.name = newName;
-        renderNodes();
-        saveNetworkLayout();
+    // Populate Fields
+    document.getElementById('editor-title').innerText = `Editando perfil de ${node.data.name}`;
+    document.getElementById('editor-name').value = node.data.name || '';
+
+    // Check if User Node (Has detailed props)
+    const isUser = node.type === 'user';
+    const pinGroup = document.getElementById('editor-pin-group');
+    const permSection = document.getElementById('editor-permissions-section');
+
+    if (isUser) {
+        pinGroup.style.display = 'block';
+        permSection.style.display = 'block';
+
+        // Find real user data if unified
+        const dbUser = (window.db.users || []).find(u => u.role === node.data.role); // Match by Role for now
+
+        if (dbUser) {
+            document.getElementById('editor-pin').value = dbUser.pin || '0000';
+            renderPermissionsList(dbUser.role, dbUser.permissions);
+        } else {
+            // Fallback default
+            document.getElementById('editor-pin').value = '0000';
+            renderPermissionsList(node.data.role, []);
+        }
+    } else {
+        pinGroup.style.display = 'none';
+        permSection.style.display = 'none';
+    }
+
+    modal.style.display = 'flex';
+}
+
+function renderPermissionsList(role, currentPerms) {
+    // Defined in app.js availableModules, but allow all for editing
+    const modules = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'pos', label: 'Punto de Venta' },
+        { id: 'ventas', label: 'Historial Ventas' },
+        { id: 'inventory', label: 'Inventario' },
+        { id: 'mermas', label: 'Mermas y Devoluciones' },
+        { id: 'reportes', label: 'Reportes' },
+        { id: 'cash-control', label: 'Control Efectivo' },
+        { id: 'settings', label: 'Configuración' }
+    ];
+
+    const container = document.getElementById('editor-permissions-list');
+    container.innerHTML = modules.map(mod => {
+        const isActive = (currentPerms || []).includes(mod.id);
+        // Owner always has all, maybe disable edit? keeping editable for flexibility
+        return `
+        <div class="permission-row">
+            <span style="font-size:0.9rem; color:#cbd5e1;">${mod.label}</span>
+            <label class="pink-switch">
+                <input type="checkbox" class="perm-checkbox" data-id="${mod.id}" ${isActive ? 'checked' : ''}>
+                <span class="slider"></span>
+            </label>
+        </div>`;
+    }).join('');
+}
+
+window.closeNodeEditor = function () {
+    document.getElementById('node-editor-modal').style.display = 'none';
+    window.currentEditingNodeId = null;
+}
+
+window.saveNodeEditor = function () {
+    if (!window.currentEditingNodeId) return;
+
+    const node = window.networkEditorState.nodes.find(n => n.id === window.currentEditingNodeId);
+    if (!node) return;
+
+    const newName = document.getElementById('editor-name').value;
+    const newPin = document.getElementById('editor-pin').value;
+
+    // Update Node Data
+    node.data.name = newName;
+
+    // If User, update DB User
+    if (node.type === 'user') {
+        let dbUser = window.db.users.find(u => u.role === node.data.role);
+
+        if (dbUser) {
+            dbUser.name = newName;
+            dbUser.pin = newPin;
+
+            // Collect Permissions
+            const checkboxes = document.querySelectorAll('.perm-checkbox');
+            const newPerms = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) newPerms.push(cb.dataset.id);
+            });
+            dbUser.permissions = newPerms;
+        }
+    }
+
+    closeNodeEditor();
+    renderNodes();
+    saveNetworkLayout();
+    showToast("Perfil Actualizado", "success");
+}
+
+window.confirmDeleteNodeFromEditor = function () {
+    if (window.currentEditingNodeId) {
+        closeNodeEditor();
+        deleteNode(null, window.currentEditingNodeId);
     }
 }
 
