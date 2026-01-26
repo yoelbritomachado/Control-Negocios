@@ -165,13 +165,16 @@ function renderNodes() {
         switch (node.type) {
             case 'warehouse': color = 'var(--primary)'; icon = 'ph-warehouse'; label = node.data.name; break;
             case 'business': color = 'var(--success)'; icon = 'ph-storefront'; label = node.data.name; break;
-            case 'user': color = '#8b5cf6'; icon = 'ph-user-gear'; label = node.data.name; break; // Violet
+            case 'user': color = '#8b5cf6'; icon = 'ph-user-gear'; label = node.data.name; break;
+            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break; // Added company
+            default: label = node.data.name || node.id; // Fallback to data.name
         }
 
         return `
             <div class="network-node" id="${node.id}" 
                  style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color};"
-                 onmousedown="handleNodeMouseDown(event, '${node.id}')">
+                 onmousedown="handleNodeMouseDown(event, '${node.id}')"
+                 ondblclick="editNodeName('${node.id}')">
                 
                 <div class="node-header">
                     <i class="ph ${icon}" style="color: ${color}"></i>
@@ -186,7 +189,7 @@ function renderNodes() {
                 </div>
 
                 <div style="font-size: 0.75rem; color: #888; margin-top: 5px;">
-                    ${node.type.toUpperCase()}
+                    ${node.type === 'business' ? 'PUNTO DE VENTA' : (node.type === 'warehouse' ? 'ALMACÉN' : (node.type === 'company' ? 'EMPRESA' : node.type.toUpperCase()))}
                 </div>
             </div>
         `;
@@ -485,6 +488,28 @@ function createNewNode(type, x, y) {
     showToast(`Nodo creado: ${newNode.data.name}`, "success");
 
     // Auto-save logic could go here
+}
+
+window.editNodeName = async function (nodeId) {
+    const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    const { value: newName } = await Swal.fire({
+        title: 'Renombrar Nodo',
+        input: 'text',
+        inputValue: node.data.name || '',
+        showCancelButton: true,
+        confirmButtonText: 'Guardar',
+        cancelButtonText: 'Cancelar',
+        background: '#16191f',
+        color: '#fff'
+    });
+
+    if (newName) {
+        node.data.name = newName;
+        renderNodes();
+        saveNetworkLayout();
+    }
 }
 
 console.log('🗺️ Business Network Module Loaded');
