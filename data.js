@@ -48,6 +48,26 @@ window.populateFromRealInventory = async function () {
   await window.saveData();
 };
 
+// --- GLOBAL CONFIGURATION ---
+window.availableModules = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'pos', label: 'Punto de Venta' },
+  { id: 'ventas', label: 'Historial Ventas' },
+  { id: 'inventory', label: 'Inventario' },
+  { id: 'mermas', label: 'Mermas/Dev' },
+  { id: 'users', label: 'Usuarios' },
+  { id: 'reportes', label: 'Reportes' },
+  { id: 'cash-control', label: 'Corte de Caja' },
+  { id: 'settings', label: 'Configuración' },
+  { id: 'transfer', label: 'Traslados' }
+];
+
+window.rolePermissions = {
+  owner: ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control', 'settings'],
+  admin: ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control'],
+  seller: ['dashboard', 'pos', 'inventory']
+};
+
 // Initialize DB immediately to prevent ReferenceErrors in app.js
 window.db = {
   products: [],
@@ -57,7 +77,8 @@ window.db = {
   notifications: [],
   businesses: [],
   settings: { theme: 'dark' },
-  logs: []
+  logs: [],
+  transfers: []
 };
 
 // --- GLOBAL PERSISTENCE FUNCTIONS (DEFINED EARLY) ---
@@ -134,20 +155,25 @@ function finalizeLoad() {
   if (!window.db.businesses) window.db.businesses = [];
   if (!window.db.settings) window.db.settings = { theme: 'dark' };
 
-  ['products', 'inventory', 'sales', 'waste', 'extraMovements', 'transactions'].forEach(key => {
+  ['products', 'inventory', 'sales', 'waste', 'extraMovements', 'transactions', 'transfers'].forEach(key => {
     if (!window.db[key]) window.db[key] = [];
   });
 
   const requiredUsers = [
-    { id: 1, name: 'Dueño', role: 'owner', pin: '1234' },
-    { id: 2, name: 'Administrador', role: 'admin', pin: '5678' },
+    { id: 1, name: 'Dueño', role: 'owner', pin: '0000' },
+    { id: 2, name: 'Administrador', role: 'admin', pin: '0000' },
     { id: 3, name: 'Vendedor', role: 'seller', pin: '0000' }
   ];
 
   if (!window.db.users) window.db.users = [];
   requiredUsers.forEach(ru => {
     const existing = window.db.users.find(u => u.role === ru.role);
-    if (!existing) window.db.users.push(ru);
+    if (!existing) {
+      window.db.users.push(ru);
+    } else {
+      // [REQUESTED] Force Update PINs to 0000
+      existing.pin = '0000';
+    }
   });
 
   if (!window.db.businessFund) window.db.businessFund = { cash: 100000, transfer: 0, usd: 0, eur: 0 };

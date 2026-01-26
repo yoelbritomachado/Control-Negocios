@@ -26,12 +26,31 @@ let currentUser = null;
 
 // --- PERMISSIONS CONFIGURATION ---
 const rolePermissions = {
-    'owner': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'reportes', 'financials', 'cash-control', 'logs', 'settings'],
+    'owner': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'financials', 'cash-control', 'logs', 'settings'],
     'admin': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'reportes', 'cash-control', 'settings'],
     'seller': ['pos', 'ventas', 'inventory', 'mermas']
 };
 
+const availableModules = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'pos', label: 'Punto de Venta' },
+    { id: 'ventas', label: 'Historial Ventas' },
+    { id: 'inventory', label: 'Inventario' },
+    { id: 'mermas', label: 'Mermas y Devoluciones' },
+    { id: 'users', label: 'Gestión de Equipo' },
+    { id: 'reportes', label: 'Reportes' },
+    { id: 'cash-control', label: 'Control de Efectivo' },
+    { id: 'settings', label: 'Configuración' }
+];
+
+window.availableModules = availableModules;
+
 function getPermissions(role) {
+    // If checking for the currently logged-in user, favor their custom permissions
+    if (window.currentUser && window.currentUser.role === role && window.currentUser.permissions) {
+        return window.currentUser.permissions;
+    }
+    // Fallback to role-based defaults
     return rolePermissions[role] || [];
 }
 
@@ -173,12 +192,17 @@ function renderSidebar(activeView) {
 
     // 🛠️ Navigation Sections Logic
     const navSections = [
-        { title: 'GENERAL', items: [{ id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' }] },
+        {
+            title: 'GENERAL', items: [
+                { id: 'dashboard', icon: 'ph-chart-pie', label: 'Dashboard' }
+            ]
+        },
         {
             title: 'OPERACIONES',
             items: [
                 { id: 'pos', icon: 'ph-calculator', label: 'Punto de Venta' },
-                { id: 'ventas', icon: 'ph-receipt', label: 'Historial Ventas' }
+                { id: 'ventas', icon: 'ph-receipt', label: 'Historial Ventas' },
+                { id: 'transfer', icon: 'ph-arrows-left-right', label: 'Traslados' }
             ]
         },
         {
@@ -192,7 +216,8 @@ function renderSidebar(activeView) {
             title: 'ADMINISTRACIÓN',
             items: [
                 { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
-                { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' }
+                { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' },
+                { id: 'users', icon: 'ph-users', label: 'Gestión Equipo' }
             ]
         }
     ];
@@ -340,6 +365,10 @@ function navigateTo(viewId) {
             case 'pos':
                 if (typeof renderPOS === 'function') renderPOS(container);
                 else throw new Error('renderPOS no definida');
+                break;
+            case 'users':
+                if (typeof renderUsersView === 'function') renderUsersView(container);
+                else throw new Error('renderUsersView no definida');
                 break;
             case 'inventory':
                 if (typeof renderInventory === 'function') renderInventory(container);
@@ -489,9 +518,12 @@ function renderLogin(container) {
 window.selectUserLogin = function (role) {
     const user = db.users.find(u => u.role === role);
     if (user) {
-        // [BYPASS] PIN removed as requested by user
-        // initiateLogin(role); 
-        completeLogin(user);
+        // [FEATURE] Auto-login if PIN is default '0000'
+        if (user.pin === '0000') {
+            completeLogin(user);
+        } else {
+            initiateLogin(role);
+        }
     }
 };
 
@@ -523,9 +555,19 @@ window.closeLoginModal = function () {
 
 window.processLogin = function () {
     const user = db.users.find(u => u.role === selectedLoginRole);
-    if (user) {
-        completeLogin(user);
+    if (!user) return;
+
+    const inputPin = document.getElementById('modal-pin-input').value;
+
+    // [SECURITY] Validate PIN
+    if (user.pin !== inputPin) {
+        // Shake animation or toast could be added here
+        alert("⚠️ PIN Incorrecto");
+        document.getElementById('modal-pin-input').value = '';
+        return;
     }
+
+    completeLogin(user);
 };
 
 
@@ -1428,547 +1470,9 @@ function renderLogs(container) {
     container.innerHTML = `<div class="card"><h3>Logs de Auditoría</h3><table style="width: 100%; font-size: 0.8rem;"><thead><tr><th>Fecha</th><th>User</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 // Eliminado duplicado de renderCashControl (la versión real está al final del archivo)
-/* =============================================================
-   MÓDULO DE TRANSFERENCIAS (ESTILO POS)
-   ============================================================= */
+// [REMOVED] Legacy Transfer Module & Notifications - Replaced by js/modules/transfer.js and new Notification Logic
 
-// --- LOGÍSTICA: TRANSFERENCIAS DE ALMACÉN ---
 
-function showTransferModal() {
-    if (posCart.length === 0) return alert("Agrega productos para transferir.");
-
-    const destinations = db.businesses.filter(b => b.type === 'kiosk');
-    if (destinations.length === 0) return alert("No hay kioscos de destino configurados.");
-
-    const modal = document.createElement('div');
-    modal.id = 'transferConfirmModal';
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-        <div class="biz-modal" style="max-width:450px; background:var(--bg-card); color:white; padding:2rem; border-radius:20px; border:1px solid var(--border);">
-            <h3 style="margin-top:0;"><i class="ph ph-package" style="color:var(--primary);"></i> Crear Transferencia</h3>
-            <p style="font-size:0.9rem; color:var(--text-muted); margin-bottom:1.5rem;">Selecciona el kiosco de destino para esta mercancía de Almacén.</p>
-            
-            <div class="form-group" style="margin-bottom:1.5rem;">
-                <label style="display:block; margin-bottom:0.5rem; font-size:0.8rem;">Kiosco Destino</label>
-                <select id="transfer-modal-dest" class="biz-input" style="width:100%; padding:0.75rem; background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; color:white;">
-                    ${destinations.map(d => `<option value="${d.id}">${d.name}</option>`).join('')}
-                </select>
-            </div>
-
-            <div style="display:flex; gap:1rem;">
-                <button class="biz-btn outline" onclick="document.getElementById('transferConfirmModal').remove()" style="flex:1; padding:0.75rem; border:1px solid var(--border); border-radius:8px; background:transparent; color:white; cursor:pointer;">Cancelar</button>
-                <button class="biz-btn primary" onclick="confirmPendingTransfer()" style="flex:2; padding:0.75rem; border:none; border-radius:8px; background:var(--primary); color:white; font-weight:bold; cursor:pointer;">CREAR LISTA PENDIENTE</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-}
-
-async function confirmPendingTransfer() {
-    const destId = document.getElementById('transfer-modal-dest').value;
-    const destName = db.businesses.find(b => b.id === destId)?.name;
-
-    const newTransfer = {
-        id: Date.now(),
-        fromId: selectedBusinessId || 'alm',
-        toId: destId,
-        items: posCart.map(item => ({
-            productId: item.id,
-            name: item.name,
-            qty: item.qty,
-            delivered: false,
-            received: false
-        })),
-        status: 'pending',
-        createdBy: currentUser.name,
-        date: new Date().toLocaleString()
-    };
-
-    if (!db.transfers) db.transfers = [];
-    db.transfers.push(newTransfer);
-
-    // Notificación
-    db.notifications.unshift({
-        id: Date.now() + 1,
-        type: 'transfer_pending',
-        targetBusinessId: destId,
-        message: `Nueva transferencia de Almacén pendiente para ${destName}`,
-        data: { transferId: newTransfer.id },
-        status: 'pending',
-        date: new Date().toLocaleString()
-    });
-
-    await window.saveData();
-    posCart = [];
-    const modal = document.getElementById('transferConfirmModal');
-    if (modal) modal.remove();
-
-    alert("✅ Lista de transferencia guardada como PENDIENTE.\nLa mercancía NO se moverá del stock hasta la confirmación física en el kiosco.");
-    renderPOS(document.getElementById('content-area'));
-}
-
-function renderTransfer(container) {
-    const originId = selectedBusinessId || 'alm';
-    const isWarehouse = isWarehouseContext();
-
-    // Filtrar transferencias relevantes (Enviadas o Recibidas)
-    const pendingTransfers = db.transfers.filter(t =>
-        t.status === 'pending' && (String(t.fromId) === String(originId) || String(t.toId) === String(originId))
-    );
-
-    container.innerHTML = `
-        <div class="fade-in" style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0; padding-bottom:2rem;">
-            
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h2 style="margin:0;"><i class="ph ph-arrows-left-right"></i> Logística y Transferencias</h2>
-                ${isWarehouse ? `
-                    <button class="btn-primary" onclick="navigateTo('pos')">
-                        <i class="ph ph-plus-circle"></i> Nueva Salida de Almacén
-                    </button>
-                ` : ''}
-            </div>
-
-            <div class="card" style="padding:0; overflow:hidden;">
-                <div style="padding:1.5rem; background:var(--bg-dark); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0; font-size:1.1rem;"><i class="ph ph-clock-counter-clockwise"></i> Transferencias Pendientes de Confirmación</h3>
-                    <span class="badge" style="background:var(--primary); color:white;">${pendingTransfers.length} Pendientes</span>
-                </div>
-                
-                <div id="pending-transfers-list" style="padding:1.5rem;">
-                    ${pendingTransfers.length === 0 ? `
-                        <div style="text-align:center; padding:3rem; color:var(--text-muted);">
-                            <i class="ph ph-check-circle" style="font-size:3rem; display:block; margin-bottom:1rem; opacity:0.2;"></i>
-                            No hay transferencias pendientes en este contexto.
-                        </div>
-                    ` : pendingTransfers.map(t => renderTransferItem(t)).join('')}
-                </div>
-            </div>
-
-            <div class="card" style="padding:0; overflow:hidden;">
-              <div style="padding:1rem; background:var(--bg-dark); border-bottom:1px solid var(--border);">
-                <h3 style="margin:0; font-size:0.9rem; color:var(--text-muted);">Historial Reciente (Últimas 10)</h3>
-              </div>
-              <div style="padding:1rem;">
-                <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-                    <thead>
-                        <tr style="text-align:left; color:var(--text-muted);">
-                            <th style="padding:0.5rem;">Fecha</th>
-                            <th style="padding:0.5rem;">Origen</th>
-                            <th style="padding:0.5rem;">Destino</th>
-                            <th style="padding:0.5rem;">Items</th>
-                            <th style="padding:0.5rem;">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${db.transfers.filter(t => t.status !== 'pending').slice(-10).reverse().map(t => `
-                            <tr style="border-top:1px solid var(--border);">
-                                <td style="padding:0.5rem;">${t.date.split(',')[0]}</td>
-                                <td style="padding:0.5rem;">${db.businesses.find(b => b.id === t.fromId)?.name || t.fromId}</td>
-                                <td style="padding:0.5rem;">${db.businesses.find(b => b.id === t.toId)?.name || t.toId}</td>
-                                <td style="padding:0.5rem;">${t.items.length}</td>
-                                <td style="padding:0.5rem;">
-                                    <span style="color:${t.status === 'completed' ? 'var(--success)' : 'var(--danger)'}">
-                                        ${t.status.toUpperCase()}
-                                    </span>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-              </div>
-            </div>
-        </div>
-    `;
-
-    updateTitle('Logística y Transferencias');
-}
-
-function renderTransferItem(t) {
-    const fromName = db.businesses.find(b => b.id === t.fromId)?.name;
-    const toName = db.businesses.find(b => b.id === t.toId)?.name;
-    const canConfirm = t.items.every(i => i.delivered && i.received);
-
-    return `
-        <div class="transfer-card" style="background:var(--bg-dark); border:1px solid var(--border); border-radius:12px; margin-bottom:1.5rem; overflow:hidden;">
-            <div style="padding:1rem 1.5rem; background:rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border);">
-                <div>
-                    <strong style="color:var(--primary); font-size:1.1rem;">#TR-${t.id.toString().slice(-6)}</strong>
-                    <span style="margin-left:1rem; color:var(--text-muted); font-size:0.85rem;">Creado por: ${t.createdBy} (${t.date})</span>
-                </div>
-                <div style="text-align:right;">
-                    <div style="display:flex; align-items:center; gap:0.5rem; font-weight:bold;">
-                        <span>${fromName}</span> <i class="ph ph-arrow-right"></i> <span>${toName}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div style="padding:1.5rem;">
-                <table style="width:100%; border-collapse:collapse;">
-                    <thead>
-                        <tr style="text-align:left; color:var(--text-muted); font-size:0.8rem; border-bottom:1px solid var(--border);">
-                            <th style="padding:0.5rem;">Producto</th>
-                            <th style="padding:0.5rem; text-align:center;">Cant.</th>
-                            <th style="padding:0.5rem; text-align:center;">Entregado (Alm)</th>
-                            <th style="padding:0.5rem; text-align:center;">Recibido (Kio)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${t.items.map((item, idx) => `
-                            <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                                <td style="padding:0.75rem 0.5rem; font-weight:500;">${item.name}</td>
-                                <td style="padding:0.75rem 0.5rem; text-align:center; font-weight:bold;">${item.qty}</td>
-                                <td style="padding:0.75rem 0.5rem; text-align:center;">
-                                    <input type="checkbox" ${item.delivered ? 'checked' : ''} 
-                                           ${currentUser.role === 'seller' ? 'disabled' : ''}
-                                           onchange="toggleTransferCheck(${t.id}, ${idx}, 'delivered', this.checked)"
-                                           style="width:20px; height:20px; cursor:pointer;">
-                                </td>
-                                <td style="padding:0.75rem 0.5rem; text-align:center;">
-                                    <input type="checkbox" ${item.received ? 'checked' : ''} 
-                                           ${(currentUser.role !== 'seller' && currentUser.role !== 'owner') ? 'disabled' : ''}
-                                           onchange="toggleTransferCheck(${t.id}, ${idx}, 'received', this.checked)"
-                                           style="width:20px; height:20px; cursor:pointer;">
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-
-                <div style="margin-top:1.5rem; display:flex; justify-content:space-between; align-items:center;">
-                    <button class="btn-ghost" onclick="cancelTransfer(${t.id})" style="color:var(--danger);">
-                        <i class="ph ph-x-circle"></i> Cancelar Transferencia
-                    </button>
-                    
-                    <button class="btn-primary" 
-                            ${!canConfirm ? 'disabled' : ''} 
-                            style="padding:0.75rem 2rem; ${!canConfirm ? 'opacity:0.3; cursor:not-allowed;' : ''}"
-                            onclick="completeTransfer(${t.id})">
-                        <i class="ph ph-check-square"></i> FINALIZAR Y EJECUTAR STOCK
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function toggleTransferCheck(transferId, itemIdx, field, value) {
-    const t = db.transfers.find(tr => tr.id === transferId);
-    if (t) {
-        t.items[itemIdx][field] = value;
-        window.saveData();
-        renderTransfer(document.getElementById('content-area'));
-    }
-}
-
-async function cancelTransfer(id) {
-    if (!confirm("¿Seguro que deseas cancelar esta transferencia? No se ha movido stock todavía.")) return;
-    const t = db.transfers.find(tr => tr.id === id);
-    if (t) {
-        t.status = 'cancelled';
-        await window.saveData();
-        alert("Transferencia cancelada.");
-        renderTransfer(document.getElementById('content-area'));
-    }
-}
-
-async function completeTransfer(id) {
-    const t = db.transfers.find(tr => tr.id === id);
-    if (!t) return;
-
-    if (!confirm("¿Confirmar recepción total? Se actualizará el inventario del Almacén y del Kiosco.")) return;
-
-    // Ejecutar movimientos reales de inventario
-    for (const item of t.items) {
-        // 1. Restar de Almacén (o Business Original)
-        let sourceInv = db.inventory.find(i => String(i.productId) === String(item.productId) && String(i.businessId) === String(t.fromId));
-        if (sourceInv) {
-            sourceInv.quantity -= item.qty;
-        } else {
-            // Si por alguna razón no existe el registro en inventario del origen
-            db.inventory.push({ businessId: t.fromId, productId: item.productId, quantity: -item.qty });
-        }
-
-        // 2. Sumar a Kiosco Destino
-        let destInv = db.inventory.find(i => String(i.productId) === String(item.productId) && String(i.businessId) === String(t.toId));
-        if (!destInv) {
-            destInv = { businessId: t.toId, productId: item.productId, quantity: 0 };
-            db.inventory.push(destInv);
-        }
-        destInv.quantity += item.qty;
-    }
-
-    t.status = 'completed';
-    t.confirmedBy = currentUser.name;
-    t.completionDate = new Date().toLocaleString();
-
-    // Limpiar notificación
-    const notif = db.notifications.find(n => n.data && n.data.transferId === id);
-    if (notif) notif.status = 'completed';
-
-    await window.saveData();
-    addLog(`Transferencia #${t.id} completada. Stock movido de ${t.fromId} a ${t.toId}`, 'success');
-
-    alert("✅ Operación completada con éxito. El inventario ha sido actualizado.");
-    renderTransfer(document.getElementById('content-area'));
-}
-
-// --- BUSCADOR ESPECÍFICO PARA TRANSFERENCIAS ---
-function handleTransferSearch(val) {
-    const results = document.getElementById('transfer-results');
-    if (!val) { results.style.display = 'none'; return; }
-
-    const originId = selectedBusinessId || 'alm';
-
-    // Buscar productos
-    const matches = db.products.filter(p => p.name.toLowerCase().includes(val.toLowerCase())).slice(0, 8);
-
-    if (matches.length === 0) {
-        results.innerHTML = '<div style="padding:1rem; color:var(--text-muted);">No encontrado.</div>';
-        results.style.display = 'block';
-        return;
-    }
-
-    results.innerHTML = matches.map(p => {
-        // Buscar stock en el origen
-        const inv = db.inventory.find(i => String(i.productId) === String(p.id) && String(i.businessId) === String(originId));
-        const stock = inv ? inv.quantity : 0;
-
-        // Solo permitir clic si hay stock (o dejarlo libre si quieres permitir negativos)
-        const canAdd = stock > 0;
-
-        return `
-            <div class="pos-search-item" onclick="${canAdd ? `addToTransferCart(${p.id})` : ''}" 
-                 style="display:flex; align-items:center; gap:1rem; padding:0.75rem 1rem; cursor:${canAdd ? 'pointer' : 'not-allowed'}; border-bottom:1px solid var(--border); opacity: ${canAdd ? 1 : 0.5};">
-                
-                <div style="width: 35px; height: 35px; border-radius: 4px; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; overflow:hidden;">
-                    ${p.image ? `<img src="${p.image}" style="width:100%; height:100%; object-fit:cover;">` : `<i class="ph ph-cube"></i>`}
-                </div>
-                
-                <div style="flex:1;">
-                    <div style="font-weight:bold; font-size: 0.9rem;">${p.name}</div>
-                    <div style="font-size:0.75rem; color:${stock > 0 ? 'var(--success)' : 'var(--danger)'};">
-                        Stock en origen: ${stock}
-                    </div>
-                </div>
-
-                ${canAdd ? '<i class="ph ph-plus-circle" style="color:var(--primary); font-size:1.2rem;"></i>' : '<i class="ph ph-prohibit" style="color:var(--text-muted);"></i>'}
-            </div>
-        `;
-    }).join('');
-
-    results.style.display = 'block';
-}
-
-function addToTransferCart(id) {
-    const p = db.products.find(prod => prod.id === id);
-    if (!p) return;
-
-    // Verificar si ya está en la lista
-    const existing = transferCart.find(i => i.id === id);
-
-    // Verificar stock disponible en origen
-    const originId = selectedBusinessId || 'alm';
-    const inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(originId));
-    const maxStock = inv ? inv.quantity : 0;
-
-    const currentQty = existing ? existing.qty : 0;
-
-    if (currentQty + 1 > maxStock) {
-        alert(`Stock insuficiente en origen.Solo tienes ${maxStock} unidades.`);
-        return;
-    }
-
-    if (existing) {
-        existing.qty++;
-    } else {
-        transferCart.push({ id: p.id, name: p.name, qty: 1, max: maxStock, image: p.image });
-    }
-
-    // Limpiar buscador
-    document.getElementById('transfer-search').value = '';
-    document.getElementById('transfer-results').style.display = 'none';
-    renderTransferCart();
-}
-
-function renderTransferCart() {
-    const container = document.getElementById('transfer-cart-items');
-    const summary = document.getElementById('transfer-summary');
-    if (!container || !summary) return;
-
-    if (transferCart.length === 0) {
-        container.innerHTML = `
-            <div style="padding: 3rem; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center;">
-                <i class="ph ph-arrows-left-right" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.2;"></i>
-                <span>La lista de transferencia está vacía</span>
-            </div> `;
-        summary.innerHTML = '<div style="text-align:center; color:var(--text-muted);">Agrega productos para ver el resumen.</div>';
-        return;
-    }
-
-    container.innerHTML = transferCart.map((item, index) => `
-            <div style="display:flex; align-items:center; gap:1rem; padding:1rem; border-bottom:1px solid var(--border);">
-            <div style="width: 40px; height: 40px; border-radius: 4px; background: var(--bg-dark); overflow:hidden; display:flex; align-items:center; justify-content:center;">
-                 ${item.image ? `<img src="${item.image}" style="width:100%; height:100%; object-fit:cover;">` : `<i class="ph ph-cube"></i>`}
-            </div>
-            <div style="flex:1;">
-                <div style="font-weight:bold; font-size: 0.9rem;">${item.name}</div>
-                <div style="font-size:0.75rem; color:var(--text-muted);">Máx Disp: ${item.max}</div>
-            </div>
-            
-            <div style="display:flex; align-items:center; gap:0.5rem; background:var(--bg-dark); padding:0.25rem; border-radius:6px;">
-                <button class="btn-icon" onclick="adjustTransferQty(${index}, -1)" style="padding:0.25rem;"><i class="ph ph-minus"></i></button>
-                <input type="number" value="${item.qty}" onchange="manualTransferQty(${index}, this.value)" 
-                       style="width: 40px; text-align:center; background:transparent; border:none; color:white; font-weight:bold;">
-                <button class="btn-icon" onclick="adjustTransferQty(${index}, 1)" style="padding:0.25rem;"><i class="ph ph-plus"></i></button>
-            </div>
-            
-            <button class="btn-icon" onclick="removeFromTransferCart(${index})" style="color:var(--danger);"><i class="ph ph-trash"></i></button>
-        </div>
-            `).join('');
-
-    const totalItems = transferCart.reduce((sum, i) => sum + i.qty, 0);
-    summary.innerHTML = `
-            < div style = "padding: 1rem; background: var(--bg-dark); border-radius: 12px; border: 1px solid var(--border);" >
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                <span style="color: var(--text-muted);">Productos distintos:</span>
-                <strong>${transferCart.length}</strong>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 1.2rem; font-weight: bold; color: var(--primary);">
-                <span>Total Unidades:</span>
-                <span>${totalItems}</span>
-            </div>
-        </div>
-            `;
-}
-
-function adjustTransferQty(idx, delta) {
-    const item = transferCart[idx];
-    const newQty = item.qty + delta;
-
-    if (newQty > item.max) {
-        alert("No puedes transferir más de lo que hay en existencia.");
-        return;
-    }
-    if (newQty < 1) return; // Mínimo 1
-
-    item.qty = newQty;
-    renderTransferCart();
-}
-
-function removeFromTransferCart(index) {
-    transferCart.splice(index, 1);
-    renderTransferCart();
-}
-
-async function executeTransfer() {
-    if (transferCart.length === 0) return alert("La lista está vacía.");
-
-    const originId = selectedBusinessId || 'alm';
-    const destSelect = document.getElementById('transfer-destination');
-    if (!destSelect) return;
-    const destId = destSelect.value;
-
-    const originName = db.businesses.find(b => String(b.id) === String(originId))?.name;
-    const destName = db.businesses.find(b => String(b.id) === String(destId))?.name;
-
-    if (!confirm(`¿Confirmar transferencia de ${transferCart.length} productos ?\n\nDe: ${originName} \nPara: ${destName} `)) return;
-
-    // Ejecutar movimientos
-    const now = new Date();
-    const dateString = now.toLocaleString();
-    const timestamp = Date.now();
-
-    for (const item of transferCart) {
-        // 1. Restar de Origen
-        const sourceInv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(originId));
-        if (sourceInv) sourceInv.quantity -= item.qty;
-
-        // 2. Sumar a Destino
-        let destInv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(destId));
-        if (!destInv) {
-            destInv = { businessId: destId, productId: item.id, quantity: 0 };
-            db.inventory.push(destInv);
-        }
-        destInv.quantity += item.qty;
-
-        // 3. Registrar Log
-        db.extraMovements.unshift({
-            id: timestamp + Math.random(),
-            date: dateString,
-            productId: item.id,
-            fromId: originId,
-            toId: destId,
-            quantity: item.qty,
-            user: currentUser.name,
-            type: 'transfer'
-        });
-    }
-
-    await window.saveData();
-    addLog(`Transferencia masiva realizada: ${transferCart.length} items de ${originName} a ${destName} `, 'info');
-
-    alert("✅ Transferencia realizada con éxito.");
-    transferCart = []; // Limpiar lista
-    renderTransfer(document.getElementById('content-area')); // Recargar vista
-}
-
-function setupNotifications() {
-    const notifBtn = document.getElementById('notifBtn');
-    if (notifBtn) {
-        notifBtn.onclick = (e) => {
-            e.stopPropagation();
-            const dropdown = document.getElementById('notifDropdown');
-            dropdown.classList.toggle('show');
-            if (dropdown.classList.contains('show')) {
-                renderNotifications();
-            }
-        };
-    }
-
-    document.addEventListener('click', (e) => {
-        const dropdown = document.getElementById('notifDropdown');
-        const btn = document.getElementById('notifBtn');
-        if (dropdown && dropdown.classList.contains('show') && !dropdown.contains(e.target) && !btn.contains(e.target)) {
-            dropdown.classList.remove('show');
-        }
-    });
-}
-
-function renderNotifications() {
-    const dropdown = document.getElementById('notifDropdown');
-    if (!dropdown) return;
-
-    const notifs = db.notifications || [];
-    const unseenCount = notifs.filter(n => !n.seen).length;
-    const badge = document.getElementById('notif-count');
-    if (badge) {
-        badge.innerText = unseenCount;
-        badge.style.display = unseenCount > 0 ? 'block' : 'none';
-    }
-
-    if (notifs.length === 0) {
-        dropdown.innerHTML = '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No hay notificaciones</div>';
-        return;
-    }
-
-    dropdown.innerHTML = `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-            <h4 style="margin: 0;">Notificaciones</h4>
-            <button class="btn-ghost" style="font-size: 0.75rem;" onclick="markAllNotificationsAsSeen()">Marcar todas como leídas</button>
-        </div>
-        <div style="max-height: 400px; overflow-y: auto;">
-            ${notifs.map(n => `
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); cursor: pointer; background: ${n.seen ? 'transparent' : 'rgba(88, 166, 255, 0.05)'};" onclick="handleNotificationClick(${n.id})">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-                        <span style="font-weight: 600; font-size: 0.9rem;">${n.title}</span>
-                        <span style="font-size: 0.7rem; color: var(--text-muted);">${n.date.split(' ')[0]}</span>
-                    </div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">${n.message}</div>
-                </div>
-            `).join('')}
-        </div>
-    `;
-}
 
 async function markAllNotificationsAsSeen() {
     if (db.notifications) {
@@ -2338,86 +1842,8 @@ async function saveNewProduct() {
 
 
 
-function showEditProductModal(id) {
-    const p = db.products.find(prod => String(prod.id) === String(id));
-    if (!p) return;
-    alert("Editando: " + p.name);
-    // (Restaurar modal completo después de verificar que el sistema carga)
-}
-function handleImageUploadEdit(input) { console.log("Imagen subida"); }
-async function updateProduct(id) {
-    try {
-        if (currentUser.role === 'seller') {
-            alert("No tienes permisos para editar productos.");
-            return;
-        }
-
-        const form = document.getElementById('edit-product-form');
-        const formData = new FormData(form);
-        const name = formData.get('name');
-        const price = formData.get('price');
-        const cost = formData.get('cost');
-
-        if (!name || !price || !cost) {
-            alert('Por favor completa Nombre, Costo y Precio.');
-            return;
-        }
-
-        const pIndex = db.products.findIndex(prod => String(prod.id) === String(id));
-        if (pIndex === -1) {
-            alert('Error: Producto no encontrado.');
-            return;
-        }
-
-        db.products[pIndex].name = name;
-        db.products[pIndex].cost = parseFloat(cost);
-        db.products[pIndex].price = parseFloat(price);
-        db.products[pIndex].category = formData.get('category');
-        db.products[pIndex].image = formData.get('image');
-        db.products[pIndex].thumbnail = formData.get('thumbnail');
-        db.products[pIndex].minStock = parseFloat(formData.get('min_stock')) || 10;
-
-        // Inventory Update Logic
-        const newQty = parseFloat(formData.get('stock') || 0);
-
-        // Target: Selected Business or 'alm' (Warehouse)
-        const targetBusinessId = selectedBusinessId || 'alm';
-
-        let inv = db.inventory.find(i => String(i.productId) === String(id) && String(i.businessId) === String(targetBusinessId));
-        const currentQty = inv ? inv.quantity : 0;
-
-        // Warning if stock changed manually
-        if (newQty !== currentQty) {
-            const warningMsg = `⚠️ ¡ADVERTENCIA CRÍTICA! ⚠️\n\nEstás modificando el inventario MANUALMENTE de ${currentQty} a ${newQty} en: ${(selectedBusinessId ? 'SEDE ACTUAL' : 'ALMACÉN CENTRAL')}.\n\nEsta acción NO es una venta, ni entrada de mercancía, ni merma oficial.\nUse este método solo para CORRECCIONES de errores.\n\n¿Estás 100% seguro de que quieres forzar este cambio en el inventario?`;
-
-            if (!confirm(warningMsg)) {
-                return;
-            }
-        }
-
-        if (!inv) {
-            inv = { businessId: targetBusinessId, productId: id, quantity: newQty };
-            db.inventory.push(inv);
-        } else {
-            inv.quantity = newQty;
-        }
-
-        // Fire and forget persistence
-        window.saveData().catch(e => console.error("Background save warning:", e));
-
-        addLog(`Producto actualizado: ${db.products[pIndex].name}`);
-        closeModal('edit-product-modal');
-
-        setTimeout(() => {
-            const container = document.getElementById('content-area');
-            if (container) renderInventory(container);
-        }, 50);
-
-    } catch (e) {
-        console.error("Error updating product:", e);
-        alert('Error inesperado al guardar: ' + e.message);
-    }
-}
+// [REMOVED] Modals moved to inventory.js for modularization
+// showEditProductModal and updateProduct are now in js/modules/inventory.js
 
 // REDUNDANT FUNCTIONS REMOVED FOR CLEANUP
 
@@ -3907,6 +3333,10 @@ window.addEventListener('DOMContentLoaded', () => {
                 const hashView = window.location.hash.replace('#', '') || 'dashboard';
                 navigateTo(hashView);
 
+                // 5. Setup Notifications
+                setupNotificationHandler();
+
+
             } catch (error) {
                 console.error('❌ Fallo crítico en el arranque:', error);
                 alert("Error técnico al iniciar la aplicación. Revise su conexión.");
@@ -4036,3 +3466,112 @@ window.showToast = function (message, type = 'info') {
         if (toast.parentElement) toast.remove();
     }, 3000);
 }
+
+// --- NOTIFICATION SYSTEM ---
+window.setupNotificationHandler = function () {
+    const btn = document.getElementById('notifBtn');
+    const dropdown = document.getElementById('notifDropdown');
+
+    if (btn) {
+        // Clear old listeners to be safe (though cloning is better, this is simple)
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+
+        newBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isOpen = dropdown.style.display === 'block';
+            dropdown.style.display = isOpen ? 'none' : 'block';
+            if (!isOpen) renderNotificationsDropdown();
+        });
+    }
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+        if (dropdown && dropdown.style.display === 'block' && !dropdown.contains(e.target) && !document.getElementById('notifBtn').contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    // Update count periodically
+    setInterval(updateNotificationBadge, 5000);
+    updateNotificationBadge();
+};
+
+window.updateNotificationBadge = function () {
+    if (!window.db || !window.db.notifications) return;
+
+    // Filter for current user role and context
+    // Admin/Owner see everything or specific? 
+    // Seller sees only their business transfers?
+
+    const relevant = getRelevantNotifications();
+    const count = relevant.length;
+
+    const badges = document.querySelectorAll('#notif-count');
+    badges.forEach(b => {
+        b.innerText = count;
+        b.style.display = count > 0 ? 'block' : 'none';
+    });
+};
+
+window.getRelevantNotifications = function () {
+    if (!currentUser) return [];
+    return (db.notifications || []).filter(n => {
+        if (n.status !== 'pending') return false;
+
+        // Target Logic
+        if (currentUser.role === 'owner') return true; // Owner sees all
+        if (n.targetRole && n.targetRole !== currentUser.role) return false;
+
+        // Business Context Check
+        // If n.targetBusinessId is set, user must be in that context or have access to it?
+        // User rule: "recivira una notificacion para que sepa que le va a entrar...".
+        // Assuming Seller is logged in to a specific business (e.g. MCH1).
+        // If notification is for MCH1, and user context is MCH1 (or global if invalid context), show it.
+        // But context switch happens in UI. Seller usually has one context.
+        // Let's match targetBusinessId with selectedBusinessId (if set) OR check if user has access.
+        if (n.targetBusinessId) {
+            // If user is Seller, they are usually bound to a store. 
+            // In this app, context is flexible. Let's check against ALL businesses? No.
+            // Simplification: If I am in MCH1 context, I see MCH1 notifications.
+            if (selectedBusinessId && String(n.targetBusinessId) !== String(selectedBusinessId)) return false;
+        }
+
+        return true;
+    });
+};
+
+window.renderNotificationsDropdown = function () {
+    const container = document.getElementById('notifDropdown');
+    const notifs = getRelevantNotifications();
+
+    if (notifs.length === 0) {
+        container.innerHTML = '<div style="padding: 1rem; color: var(--text-muted); text-align: center;">Sin notificaciones</div>';
+        return;
+    }
+
+    container.innerHTML = notifs.map(n => `
+        <div class="notif-item" onclick="handleNotificationClick(${n.id})" style="padding: 1rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.2s;">
+            <div style="font-weight: bold; font-size: 0.9rem; margin-bottom: 0.25rem;">${n.title}</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">${n.message}</div>
+            <div style="font-size: 0.7rem; color: var(--primary); margin-top: 0.5rem;">Hace un momento</div>
+        </div>
+    `).join('');
+};
+
+window.handleNotificationClick = function (id) {
+    const notif = db.notifications.find(n => n.id === id);
+    if (!notif) return;
+
+    if (notif.type === 'transfer_request') {
+        const transfer = db.transfers.find(t => t.id === notif.transferId);
+        if (transfer) {
+            renderTransferApprovalModal(transfer);
+        } else {
+            alert("El traslado asociado no existe.");
+        }
+    }
+
+    // Close dropdown
+    document.getElementById('notifDropdown').style.display = 'none';
+};

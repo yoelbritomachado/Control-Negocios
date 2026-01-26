@@ -24,6 +24,9 @@
 > * **Agente Finanzas (Izquierda):** "Tu identidad es **Especialista Administrativo**. Tu prioridad es el backend, la gestión de permisos, los reportes y el control de los saldos en USD, EUR, MN y Transferencias."
 > * **Agente Ventas (Derecha):** "Tu identidad es **Especialista de POS**. Tu prioridad es el frontend, el carrito de compras, la interfaz de cobro y asegurar que el vendedor pueda seleccionar la divisa correcta al cerrar la venta."
 
+### 6. Estándares de UX/UI (Leyes de Interfaz)
+*   **Búsqueda de Productos:** JAMÁS utilizar listas desplegables (`<select>`) para seleccionar productos si existen más de 10 items. Siempre se debe implementar una **Barra de Búsqueda Predictiva** (Input tipo texto con lista de resultados filtrada en tiempo real), similar a la del POS. Esto aplica a Mermas, Ventas, Ajustes, etc.
+
 ---
 
 ## ⚖️ LEY 1: Jerarquía de Cierre de Ventas
@@ -56,6 +59,26 @@
 **"Toda eliminación de producto en una venta debe retornar el stock."**
 
 -   Si un Administrador elimina un item de una venta ya registrada o cerrada, el sistema debe devolver automáticamente esas unidades al inventario del negocio correspondiente.
+
+---
+
+### 6. Estructura de Permisos y Roles (Estandarización)
+**"Cada módulo del sistema tiene un ID único de permiso que debe respetarse en todo el código."**
+
+| ID Permiso       | Nombre Interfaz       | Acceso Estándar                  | Descripción                                      |
+| ---------------- | --------------------- | -------------------------------- | ------------------------------------------------ |
+| **`dashboard`**  | Dashboard             | Dueño, Admin, Vendedor           | Vista general, métricas y accesos rápidos.       |
+| **`pos`**        | Punto de Venta        | Dueño, Admin, Vendedor           | Interfaz de facturación y carrito de compras.    |
+| **`ventas`**     | Historial Ventas      | Dueño, Admin, Vendedor           | Lista de operaciones del día y cierres.          |
+| **`inventory`**  | Inventario            | Dueño, Admin, Vendedor           | Gestión de stock, productos y precios.           |
+| **`mermas`**     | Mermas/Dev            | Dueño, Admin, Vendedor           | Registro de pérdidas y devoluciones.             |
+| **`users`**      | Gestión Equipo        | **Dueño, Admin**                 | Alta/Baja de usuarios y asignación de permisos.  |
+| **`reportes`**   | Reportes              | **Dueño, Admin**                 | Análisis financiero y estadísticas avanzadas.    |
+| **`cash-control`**| Control Efectivo     | **Dueño, Admin**                 | Arqueo de caja, diferencias y movimientos manuales.|
+| **`settings`**   | Configuración         | **Dueño**                        | Ajustes globales del sistema.                    |
+
+*   **Regla de Oro**: Al crear nuevas secciones, debe registrarse su ID y asignar el acceso a los roles correspondientes en `data.js` (`window.rolePermissions`) y no alterar nombres arbitrariamente.
+*   **Validación**: El archivo `app.js` usa estos IDs exactos para renderizar el Sidebar. Si un ID no coincide, la sección será invisible.
 
 ---
 
@@ -263,3 +286,26 @@
     1. Se redujo el límite mínimo de caracteres de 2 a 1.
     2. Se agregó condición para buscar también por precio (comienza con...).
     3. Validación de input sanitizado mantenida.
+
+### 2026-01-24 - v10.22 - Gestión de Empleados (God Mode)
+- **Cambio:** Nuevo módulo para administración de perfiles (Dueño explícito).
+- **Archivos:** `js/modules/users.js`, `app.js`, `index.html`.
+- **Detalle:** CRUD completo de usuarios, validación de PIN único, integración en sidebar.
+
+## 🏁 PUNTO DE CONTROL (HITO ESTABLE)
+### 2026-01-24 - Restauración v10.21 (`tag: restauracion-v10.21-estable`)
+- **Estado**: Sistema Estable.
+- **Validado**: Flujo completo de POS (Apertura -> Búsqueda -> Venta -> Cierre).
+- **Componentes**: Todos los módulos cargan sin errores.
+### 2026-01-25 - Feature: Editor de Imágenes y Fix de "Código Fantasma" (`v11.2`)
+- **Feature**: Implementado **Editor de Recorte (Crop Modal)** en el módulo de Inventario. Permite Pan & Zoom en un canvas de 300x300 y guarda una versión optimizada de 512x512.
+- **Lección Aprendida (CRÍTICO)**: Se detectó un fallo recurrente donde funciones antiguas (ej. `handleProductImageSelect`) quedan "zombie" en el archivo sobrescribiendo las nuevas implementaciones si no se borran explícitamente. **REGLA**: Al refactorizar una función, buscar y destruir todas sus definiciones anteriores en el mismo archivo.
+- **UX/Fix**: 
+    1. Se movieron los botones de acción (Editar/Eliminar) al header de la tarjeta.
+    2. La imagen del producto ahora es un trigger limpio para el **Lightbox** (Full Screen).
+    3. Se mejoró la calidad de los thumbnails generados (de 50px a 200px) para evitar pixelado en grid.
+
+### 2026-01-25 - Mejora UI Traslados y Logística Inversa (`v11.7`)
+- **UI**: Refactorización de la lista "Traslados Recientes" para separar visualmente los **Pendientes de Aprobación** del **Historial Completo**.
+- **Feature**: Implementación de la función `rejectTransfer` que permite rechazar traslados pendientes.
+- **Lógica de Negocio**: Al rechazar un traslado, el sistema ahora **devuelve automáticmante el stock** al negocio de origen para mantener la integridad del inventario.

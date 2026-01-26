@@ -96,10 +96,10 @@ window.renderPOS = function (container) {
                     
                     ${!isWarehouseContext() ? `
                         <div class="pos-management-actions" style="padding: 1rem;">
-                            <button class="btn-secondary btn-expense" onclick="openExpenseModal()">
+                            <button class="btn-secondary btn-expense" onclick="showExpenseModal()">
                                 <i class="ph ph-receipt"></i> Registrar Gasto
                             </button>
-                            <button class="btn-secondary btn-merma" onclick="openIncidentModal()">
+                            <button class="btn-secondary btn-merma" onclick="showIncidentModal()">
                                 <i class="ph ph-warning-circle"></i> Incidencias / Dev
                             </button>
                         </div>
@@ -763,3 +763,78 @@ window.isWarehouseContext = function () {
     const biz = db.businesses.find(b => String(b.id) === String(selectedBusinessId));
     return biz && biz.type === 'warehouse';
 }
+
+window.showExpenseModal = function () {
+    // Basic Expense Modal using SweetAlert2
+    if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
+
+    Swal.fire({
+        title: 'Registrar Gasto',
+        html: `
+            <div style="text-align: left;">
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
+                <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Almuerzo" style="margin:0 0 1rem 0; width:100%;">
+                
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto</label>
+                <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
+
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Moneda</label>
+                <select id="expense-currency" class="swal2-select" style="margin:0 0 1rem 0; width:100%; display:flex;">
+                    <option value="mn" selected>MN</option>
+                    <option value="usd">USD</option>
+                    <option value="eur">EUR</option>
+                </select>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Registrar',
+        confirmButtonColor: 'var(--danger)',
+        background: 'var(--bg-card)',
+        color: 'var(--text-main)',
+        preConfirm: () => {
+            const desc = document.getElementById('expense-desc').value;
+            const amount = document.getElementById('expense-amount').value;
+            const currency = document.getElementById('expense-currency').value;
+            if (!desc || !amount) {
+                Swal.showValidationMessage('Todos los campos son obligatorios');
+                return false;
+            }
+            return { desc, amount, currency };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            registerExpense(result.value);
+        }
+    });
+};
+
+window.registerExpense = function (data) {
+    const saleData = {
+        id: Date.now(),
+        date: new Date().toISOString().replace('T', ' ').split('.')[0],
+        timestamp: Date.now(),
+        businessId: selectedBusinessId || 'mch1',
+        seller: currentUser ? currentUser.name : 'Sistema',
+        sellerId: currentUser ? currentUser.id : 0,
+        type: 'EXPENSE',
+        items: [],
+        details: Security.sanitize(data.desc),
+        total: -parseFloat(data.amount), // Negative for expense
+        payment: { cash: 0, transfer: 0, currency: data.currency }, // Simplification
+        status: 'registered'
+    };
+
+    // Adjust balance if function exists
+    if (typeof window.actualizarSaldo === 'function') {
+        window.actualizarSaldo(data.currency, -parseFloat(data.amount));
+    }
+
+    db.sales.unshift(saleData);
+    window.saveData();
+    window.renderTodaySalesList();
+    if (window.showToast) window.showToast('💸 Gasto registrado', 'info');
+};
+
+window.showIncidentModal = function () {
+    if (window.showToast) window.showToast('Esta función estará disponible en la próxima actualización.', 'info');
+};

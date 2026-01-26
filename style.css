@@ -1327,6 +1327,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     border-color: var(--warning) !important;
     background: rgba(0, 0, 0, 0.3) !important;
 }
+
 /* PROJET POS STYLES - REVISIÓN JUNIO */
 .pos-fullscreen-overlay {
     position: fixed;
@@ -1375,7 +1376,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .pos-search-input-wrapper {
     display: flex;
     align-items: center;
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
     border-bottom: 1px solid var(--text-muted);
     padding: 0.5rem;
     gap: 0.5rem;
@@ -1393,7 +1394,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .pos-direct-item-card {
     margin: 1rem;
     padding: 1.5rem;
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
     border-radius: 12px;
     border: 1px solid var(--border);
 }
@@ -1404,7 +1405,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     margin-bottom: 0.5rem;
 }
 
-.pos-item-meta > div {
+.pos-item-meta>div {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -1427,7 +1428,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .pos-control-input-wrapper {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 6px;
     display: flex;
     align-items: center;
@@ -1476,7 +1477,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .pos-section-tile {
     margin: 0.5rem 1rem;
     padding: 1rem;
-    background: rgba(255,255,255,0.03);
+    background: rgba(255, 255, 255, 0.03);
     border-radius: 8px;
     display: flex;
     align-items: center;
@@ -1508,7 +1509,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     z-index: 2010;
     max-height: 250px;
     overflow-y: auto;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .pos-search-item {
@@ -1550,7 +1551,8 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 /* TABLET & MOBILE OVERRIDES (< 1024px) */
 @media (max-width: 1024px) {
     .app-container {
-        position: relative; /* Context for absolute sidebar */
+        position: relative;
+        /* Context for absolute sidebar */
     }
 
     /* Sidebar Hidden by Default */
@@ -1559,13 +1561,15 @@ input[type="time"]::-webkit-calendar-picker-indicator {
         left: 0;
         top: 0;
         bottom: 0;
-        transform: translateX(-100%); /* Hide off-screen */
+        transform: translateX(-100%);
+        /* Hide off-screen */
         z-index: 1000;
-        box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
     }
 
     .sidebar.show-sidebar {
-        transform: translateX(0); /* Slide in */
+        transform: translateX(0);
+        /* Slide in */
     }
 
     /* Overlay when sidebar is open */
@@ -1576,7 +1580,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
         left: 0;
         width: 100vw;
         height: 100vh;
-        background: rgba(0,0,0,0.5);
+        background: rgba(0, 0, 0, 0.5);
         backdrop-filter: blur(4px);
         z-index: 999;
     }
@@ -1594,16 +1598,17 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     .top-bar {
         padding: 0 1rem;
     }
-    
+
     .top-bar h1 {
-        font-size: 1.1rem; 
+        font-size: 1.1rem;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
     }
 
     /* Grids: Auto-Flow (2 columns usually) */
-    .grid-3, .pos-management-actions {
+    .grid-3,
+    .pos-management-actions {
         grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     }
 }
@@ -1611,7 +1616,8 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 /* MOBILE SPECIFIC (< 768px) */
 @media (max-width: 768px) {
     #content-area {
-        padding: 1rem; /* Less padding */
+        padding: 1rem;
+        /* Less padding */
     }
 
     /* Cards: Stack items */
@@ -1638,9 +1644,10 @@ input[type="time"]::-webkit-calendar-picker-indicator {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }
-    
+
     table {
-        min-width: 600px; /* Ensure table keeps shape and triggers scroll */
+        min-width: 600px;
+        /* Ensure table keeps shape and triggers scroll */
     }
 
     /* POS Search Grid */
@@ -1651,7 +1658,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     .pos-search-item .img-box {
         height: 100px !important;
     }
-    
+
     /* Modals */
     .modal-content {
         width: 95%;
@@ -1662,6 +1669,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
         font-size: 1.25rem;
     }
 }
+
 /* --- EMERGENCY MOBILE FIXES --- */
 @media screen and (max-width: 1024px) {
 
@@ -1710,13 +1718,15 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 /* --- GLOBAL MOBILE CONTAINMENT FIX --- */
-html, body {
+html,
+body {
     overflow-x: hidden !important;
     width: 100% !important;
     max-width: 100vw !important;
 }
 
 @media screen and (max-width: 768px) {
+
     /* Prevent any element from exceeding viewport width */
     * {
         max-width: 100vw !important;
@@ -1724,13 +1734,14 @@ html, body {
     }
 
     /* Fix Flex Wraps */
-    .top-bar, 
-    .card[style*="display:flex"], 
+    .top-bar,
+    .card[style*="display:flex"],
     .card[style*="display: flex"],
-    div[style*="display:flex"], 
+    div[style*="display:flex"],
     div[style*="display: flex"] {
         flex-wrap: wrap !important;
-        height: auto !important; /* Allow growing */
+        height: auto !important;
+        /* Allow growing */
     }
 
     /* Exception for scrollable tables and specialized rows */
@@ -1741,9 +1752,12 @@ html, body {
     }
 
     /* Inputs shouldn't force width */
-    input, select, textarea {
+    input,
+    select,
+    textarea {
         width: 100% !important;
-        min-width: 0 !important; /* Allow shrinking */
+        min-width: 0 !important;
+        /* Allow shrinking */
     }
 
     /* Modal Fixes */
@@ -1753,12 +1767,12 @@ html, body {
         max-height: 90vh !important;
         overflow-y: auto !important;
     }
-    
+
     /* Login Fix */
     .login-container {
         padding: 1rem !important;
     }
-    
+
     /* Stats Grid */
     .grid-3 {
         display: flex !important;
@@ -1766,6 +1780,7 @@ html, body {
         gap: 1rem !important;
     }
 }
+
 /* --- POS MOBILE LAYOUT FIXES (< 768px) --- */
 @media screen and (max-width: 768px) {
 
@@ -1914,15 +1929,21 @@ html, body {
 }
 
 .product-card-v2:hover {
-   transform: translateY(-5px);
-   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
-   border-color: var(--primary);
+    transform: translateY(-5px);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+    border-color: var(--primary);
 }
 
 .pc-header {
     margin-bottom: 0.5rem;
-    padding-right: 2rem; 
-    height: 1.5rem; /* fixed height for alignment */
+    padding-left: 1.5rem;
+    /* Space for semaphore */
+    padding-right: 0;
+    height: 2.2rem;
+    /* Increased for buttons */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .pc-title {
@@ -1938,16 +1959,29 @@ html, body {
 .pc-semaphore {
     position: absolute;
     top: 1.25rem;
-    right: 1.25rem;
-    width: 16px;
-    height: 16px;
+    left: 1.25rem;
+    /* Moved to Left */
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
+    z-index: 10;
     /* box-shadow handled by modifiers */
 }
 
-.pc-semaphore.green { background: #10b981; box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
-.pc-semaphore.yellow { background: #f59e0b; box-shadow: 0 0 12px rgba(245, 158, 11, 0.6); }
-.pc-semaphore.red { background: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.6); }
+.pc-semaphore.green {
+    background: #10b981;
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+
+.pc-semaphore.yellow {
+    background: #f59e0b;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+}
+
+.pc-semaphore.red {
+    background: #ef4444;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+}
 
 .pc-image-container {
     flex: 1;
@@ -1959,7 +1993,8 @@ html, body {
     background: var(--bg-hover);
     border-radius: 16px;
     border: 1px solid var(--border);
-    position: relative; 
+    position: relative;
+    z-index: 1;
 }
 
 .pc-image {
@@ -1998,7 +2033,8 @@ html, body {
 .pc-qty-value {
     font-size: 1.4rem;
     font-weight: 700;
-    color: var(--primary); /* Blue/Purple per sketch? Sketch used blue for qty */
+    color: var(--primary);
+    /* Blue/Purple per sketch? Sketch used blue for qty */
 }
 
 .pc-price-label {
@@ -2013,7 +2049,8 @@ html, body {
 .pc-price-value {
     font-size: 1.2rem;
     font-weight: 700;
-    color: var(--success); /* Green per sketch */
+    color: var(--success);
+    /* Green per sketch */
 }
 
 .pc-actions {
@@ -2023,22 +2060,22 @@ html, body {
     transform: translate(-50%, -50%);
     display: flex;
     gap: 0.5rem;
-    opacity: 0;
+    opacity: 1;
+    /* [FIX] Always visible */
     transition: all 0.3s ease;
-    z-index: 5;
+    z-index: 20;
+    /* High z-index */
 }
 
-.product-card-v2:hover .pc-actions {
-    opacity: 1;
-}
+/* Removed hover dependency for visibility */
 
 .pc-action-btn {
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    background: rgba(0,0,0,0.7);
+    background: rgba(0, 0, 0, 0.7);
     color: white;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2050,4 +2087,3 @@ html, body {
     background: var(--primary);
     transform: scale(1.1);
 }
-
