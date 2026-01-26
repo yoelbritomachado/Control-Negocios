@@ -309,3 +309,8 @@
 - **UI**: Refactorización de la lista "Traslados Recientes" para separar visualmente los **Pendientes de Aprobación** del **Historial Completo**.
 - **Feature**: Implementación de la función `rejectTransfer` que permite rechazar traslados pendientes.
 - **Lógica de Negocio**: Al rechazar un traslado, el sistema ahora **devuelve automáticmante el stock** al negocio de origen para mantener la integridad del inventario.
+
+### 2026-01-25 - Sincronización Global de Catálogo (`v11.8`)
+- **Feature**: Implementada la creación de productos "Multisede" por defecto.
+- **Lógica**: Al crear un nuevo producto (generalmente en Almacén), el sistema genera automáticamente entradas de inventario para **TODAS** las sedes en el grupo (`alm`, `mch1`, `mch2`).
+- **Estado**: La sede de origen recibe el stock inicial definido; el resto se inicializa en `0`, esperando traslado. Esto garantiza consistencia de Nombre/Foto.

@@ -1808,15 +1808,26 @@ async function saveNewProduct() {
 
         // Initial Stock Handling
         const initialQty = parseFloat(fd.get('initial_stock') || 0);
+        const originBusinessId = selectedBusinessId || 'alm';
 
-        if (selectedBusinessId) {
-            db.inventory.push({ businessId: selectedBusinessId, productId: newProduct.id, quantity: initialQty });
-        } else {
-            // En vista global, inicializar en Almacén por defecto
-            db.inventory.push({ businessId: 'alm', productId: newProduct.id, quantity: initialQty });
-        }
+        // [SYNC] Create Inventory Entries for ALL businesses in the group
+        // If db.businesses is empty, fallback to critical set
+        const allBusinesses = (db.businesses && db.businesses.length > 0)
+            ? db.businesses
+            : [{ id: 'alm', name: 'Almacén Central' }, { id: 'mch1', name: 'MCH 1' }, { id: 'mch2', name: 'MCH 2' }];
 
-        addLog(`Producto añadido: ${newProduct.name}`, 'success');
+        allBusinesses.forEach(biz => {
+            // Only assign stock to the origin (where it was created)
+            const qty = (biz.id === originBusinessId) ? initialQty : 0;
+
+            db.inventory.push({
+                businessId: biz.id,
+                productId: newProduct.id,
+                quantity: qty
+            });
+        });
+
+        addLog(`Producto añadido: ${newProduct.name} (Global sync)`, 'success');
 
         // Fire and forget persistence
         window.saveData().catch(e => console.error("Background save warning:", e));
