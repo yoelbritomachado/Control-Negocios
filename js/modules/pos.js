@@ -1005,54 +1005,48 @@ window.showExpenseModal = function () {
     });
 }
 
+
 window.showIncidentModal = function () {
     if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
 
-    // Check if cart has items to "discard"
-    const hasItems = window.posCart && window.posCart.length > 0;
-
-    let htmlContent = '';
-    if (hasItems) {
-        const total = window.posCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
-        htmlContent = `
-            <div style="text-align: left;">
-                <p style="color:var(--text-muted); margin-bottom:1rem;">
-                    Se registrarán <b>${window.posCart.length} productos</b> como merma/rotura.
-                    <br>Valor Total (Pérdida): <b>$${total.toFixed(2)}</b>
-                </p>
-                <div style="background:rgba(239, 68, 68, 0.1); padding:0.8rem; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; color:var(--danger);">
-                    <i class="ph ph-warning"></i> Estos productos se descontarán del inventario.
-                </div>
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo</label>
-                <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Caducado, Roto, Robo" style="margin:0 0 1rem 0; width:100%;">
-            </div>
-        `;
-    } else {
-        htmlContent = `
-            <div style="text-align: left;">
-                <p style="color:var(--warning); margin-bottom:1rem; font-size:0.9rem;">
-                    <i class="ph ph-magnifying-glass"></i> <b>Para Merma de Productos:</b><br>
-                    1. Búscalos en el panel principal.<br>
-                    2. Agrégalos al carrito.<br>
-                    3. Presiona nuevamente este botón "Merma".
-                </p>
-                <hr style="border-color:var(--border); margin: 1rem 0;">
-                <p style="color:var(--text-muted); margin-bottom:0.5rem; font-size:0.9rem;">
-                    <b>Para Pérdida de Dinero (Error de Caja):</b>
-                </p>
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
-                <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Pérdida de efectivo" style="margin:0 0 1rem 0; width:100%;">
-                
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto Perdido</label>
-                <input type="number" id="incident-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
-            </div>
-        `;
-    }
+    // Internal state for the modal
+    let mermaItems = [];
 
     Swal.fire({
         title: 'Registrar Merma',
-        html: htmlContent,
-        icon: 'warning',
+        width: '700px',
+        html: `
+            <div style="text-align: left; min-height: 400px; display: flex; flex-direction: column;">
+                <!-- SEARCH SECTION -->
+                <div style="position: relative; margin-bottom: 1rem;">
+                     <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Buscar Producto a Mermar</label>
+                     <input type="text" id="merma-search" class="swal2-input" placeholder="Escribe para buscar..." style="margin:0; width:100%;">
+                     <div id="merma-results" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                     </div>
+                </div>
+
+                <!-- LIST SECTION -->
+                <div style="flex: 1; background: var(--bg-dark); border-radius: 8px; padding: 1rem; border: 1px solid var(--border);">
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; display:flex; justify-content:space-between;">
+                        <span>Productos Seleccionados</span>
+                        <span id="merma-total-qty">0 ítems</span>
+                    </div>
+                    <div id="merma-list" style="max-height: 200px; overflow-y: auto;">
+                        <div style="text-align: center; color: var(--text-muted); padding: 2rem; font-style: italic;">
+                            No hay productos seleccionados
+                        </div>
+                    </div>
+                </div>
+
+                <!-- REASON SECTION -->
+                 <div style="margin-top: 1rem;">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo General</label>
+                    <div style="display:flex; gap:0.5rem;">
+                        <input type="text" id="merma-reason" class="swal2-input" placeholder="Ej. Caducado, Roto, Robo" style="margin:0; flex:1;">
+                    </div>
+                 </div>
+            </div>
+        `,
         showCancelButton: true,
         confirmButtonText: 'Registrar Merma',
         confirmButtonColor: 'var(--warning)',
