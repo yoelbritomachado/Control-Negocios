@@ -87,54 +87,54 @@ window.renderPOS = function (container) {
                 </div>
             </div>
 
-            <!-- RIGHT PANEL: Cart & Actions -->
-            <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; height: 100%; border: 1px solid var(--border);">
-                <!-- Cart Header -->
-                <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
-                    <div style="font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
-                        <i class="ph ph-shopping-cart"></i> Carrito
-                        <span id="cart-count-badge" style="background: var(--primary); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem;">0</span>
+            <!-- RIGHT PANEL: Cart (Top) + History (Bottom) -->
+            <div style="display: flex; flex-direction: column; gap: 1rem; min-height: 0; height: 100%;">
+                
+                <!-- CART SECTION (Top Half) -->
+                <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; flex: 1; border: 1px solid var(--border);">
+                    <div style="padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+                        <div style="font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="ph ph-shopping-cart"></i> Carrito
+                            <span id="cart-count-badge" style="background: var(--primary); color: white; padding: 1px 6px; border-radius: 8px; font-size: 0.75rem;">0</span>
+                        </div>
+                        <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 4px;" title="Vaciar"><i class="ph ph-trash"></i></button>
                     </div>
-                    <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 5px;" title="Vaciar"><i class="ph ph-trash"></i></button>
+                    <div id="pos-cart-items" style="flex: 1; overflow-y: auto; background: var(--bg-dark);"></div>
                 </div>
 
-                <!-- Cart Items (Scrollable) -->
-                <div id="pos-cart-items" style="flex: 1; overflow-y: auto; background: var(--bg-dark);"></div>
+                <!-- HISTORY SECTION (Middle - Restored) -->
+                <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; height: 30%; min-height: 150px; border: 1px solid var(--border);">
+                    <div style="padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark); font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="ph ph-clock-counter-clockwise"></i> Movimientos Hoy</span>
+                    </div>
+                    <div id="today-sales-list" style="flex: 1; overflow-y: auto;"></div>
+                </div>
 
-                <!-- Footer Summary & Actions (Fixed) -->
-                <div style="padding: 1.5rem; background: var(--bg-card); border-top: 1px solid var(--border); box-shadow: 0 -10px 40px rgba(0,0,0,0.3);">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1rem;">
-                        <span style="color: var(--text-muted);">Total</span>
-                        <span id="cart-total-display" style="font-size: 2.5rem; font-weight: 800; color: var(--primary); line-height: 1;">$0.00</span>
+                <!-- FOOTER ACTIONS (Fixed Bottom) -->
+                <div class="card" style="padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); box-shadow: 0 -4px 20px rgba(0,0,0,0.2);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.8rem;">
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">Total</span>
+                        <span id="cart-total-display" style="font-size: 2rem; font-weight: 800; color: var(--primary); line-height: 1;">$0.00</span>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <button class="btn-secondary" onclick="showExpenseModal()" style="padding: 0.8rem;">
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+                         <button class="btn-secondary" onclick="showExpenseModal()" style="flex: 1; padding: 0.6rem; font-size: 0.9rem; border-color: var(--danger); color: var(--danger);">
                             <i class="ph ph-receipt"></i> Gasto
-                        </button>
-                        <button class="btn-secondary" onclick="showIncidentModal()" style="padding: 0.8rem;">
-                            <i class="ph ph-warning-circle"></i> Merma
                         </button>
                     </div>
 
                     <button id="payBtn" class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" 
-                            style="width: 100%; font-size: 1.2rem; padding: 1rem; opacity: 0.5; pointer-events: none;">
+                            style="width: 100%; font-size: 1.1rem; padding: 0.8rem; opacity: 0.5; pointer-events: none;">
                         ${isWarehouseContext() ? 'TRANSFERIR' : 'COBRAR'} <i class="ph ph-arrow-right" style="margin-left: 0.5rem;"></i>
                     </button>
                 </div>
             </div>
         </div>
-
-        <!-- History Toggle (Bottom Left, unobtrusive) -->
-        <div style="position: absolute; bottom: 1.5rem; left: 1.5rem;">
-            <button class="btn-ghost" onclick="toggleTodaySales(true)" style="border: 1px solid var(--border); background: var(--bg-card);">
-                <i class="ph ph-clock-counter-clockwise"></i> Ver Ventas Hoy
-            </button>
-        </div>
         `;
 
         requestAnimationFrame(() => {
             renderCart();
+            renderTodaySalesList(); // Render immediately in the panel
             document.getElementById('pos-search').focus();
         });
 
@@ -186,10 +186,10 @@ window.handlePOSSearch = function (query) {
         return;
     }
 
-    // RENDER AS GRID CARDS
+    // RENDER AS GRID CARDS (No Borders to fix "lines" complaint)
     resultsArea.innerHTML = filtered.map(p => `
         <div class="pos-product-card fade-in" onclick="addToPOSCart(${p.id})" 
-             style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column;">
+             style="background: var(--bg-card); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s; display: flex; flex-direction: column; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
             
             <div style="height: 100px; background: var(--bg-dark); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden;">
                 ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 2rem; color: var(--text-muted); opacity:0.5;"></i>`}
