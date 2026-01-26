@@ -978,95 +978,175 @@ window.registerExpense = function (data) {
 /* --- END OF DAY CLOSURE WORKFLOW --- */
 
 window.confirmCloseDay = function () {
-    // 1. Calculate Totals
     const today = new Date().toISOString().split('T')[0];
     const todaySales = db.sales.filter(s => s.date.startsWith(today) && s.businessId === (selectedBusinessId || 'mch1'));
 
-    // Filter by type
-    const salesTotal = todaySales.filter(s => !s.type || s.type === 'SALE').reduce((sum, s) => sum + s.total, 0);
+    // 1. Calculate Financials
+    const salesTotal = todaySales.filter(s => (!s.type || s.type === 'SALE') && s.status === 'registered').reduce((sum, s) => sum + s.total, 0);
     const expensesTotal = todaySales.filter(s => s.type === 'EXPENSE').reduce((sum, s) => sum + Math.abs(s.total), 0);
     const mermasTotal = todaySales.filter(s => s.type === 'MERMA').reduce((sum, s) => sum + s.lossValue, 0);
-    const finalCash = salesTotal - expensesTotal; // Simplified
 
-    // 2. Show Modal with Salary Switch
-    if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
+    // Estimate Cost (For Profit Calculation)
+    // Map items to get cost
+    let totalCost = 0;
+    todaySales.filter(s => (!s.type || s.type === 'SALE')).forEach(s => {
+        if (s.items) {
+            s.items.forEach(item => {
+                const p = db.products.find(prod => prod.id === (item.productId || item.id));
+                if (p && p.cost) totalCost += (p.cost * item.qty);
+            });
+        }
+    });
 
-    let comm = 0; // Default commission
+    const grossProfit = salesTotal - totalCost;
+    const salaryAvailable = Math.max(0, grossProfit * 0.05); // 5% of Profit
+
+    const theoreticalCash = salesTotal - expensesTotal; // Simplified Cash Flow
+
+    // Move List HTML
+    const movesHtml = todaySales.map(s => {
+        const isExp = s.type === 'EXPENSE';
+        const color = isExp ? 'var(--danger)' : 'var(--success)';
+        return `
+            <div style="display:flex; justify-content:space-between; padding:0.5rem; border-bottom:1px solid var(--border); font-size:0.85rem;">
+                <span>${s.date.split(' ')[1]} ${s.type === 'EXPENSE' ? '(Gasto)' : ''}</span>
+                <span style="color:${color}; font-weight:bold;">${isExp ? '-' : ''}$${Math.abs(s.total).toFixed(2)}</span>
+            </div>`;
+    }).join('') || '<div style="padding:1rem; text-align:center; color:var(--text-muted)">Sin movimientos hoy</div>';
 
     Swal.fire({
-        title: 'Cerrar el Día',
+        title: 'Cierre de Caja',
+        width: '600px',
         html: `
-            <div style="text-align: left;">
-                <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:1.5rem;">
-                    Se enviará el reporte diario al Administrador/Dueño para su revisión.
-                </p>
+            <div style="text-align: left; max-height: 70vh; overflow-y: auto; padding-right: 5px;">
                 
-                <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; margin-bottom:1.5rem;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                        <span>Ventas Totales:</span>
-                        <span style="color:var(--success); font-weight:bold;">$${salesTotal.toFixed(2)}</span>
+                <!-- SUMMARY CARDS -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
+                        <div style="font-size:0.8rem; color:var(--text-muted);">Ventas Totales</div>
+                        <div style="font-size:1.5rem; font-weight:bold; color:var(--success);">$${salesTotal.toFixed(2)}</div>
                     </div>
-                    <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-                        <span>Gastos:</span>
-                        <span style="color:var(--danger); font-weight:bold;">-$${expensesTotal.toFixed(2)}</span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.5rem;">
-                        <span>Balance Caja:</span>
-                        <span style="color:var(--primary); font-weight:900;">$${finalCash.toFixed(2)}</span>
+                     <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
+                        <div style="font-size:0.8rem; color:var(--text-muted);">Gastos del Día</div>
+                        <div style="font-size:1.5rem; font-weight:bold; color:var(--danger);">$${expensesTotal.toFixed(2)}</div>
                     </div>
                 </div>
 
-                <div style="display:flex; align-items:center; gap:1rem; background:rgba(255,255,255,0.05); padding:1rem; border-radius:8px;">
-                    <label class="switch">
-                        <input type="checkbox" id="salary-request-switch">
-                        <span class="slider round"></span>
-                    </label>
-                    <div>
-                        <div style="font-weight:600;">Solicitar Pago de Salario</div>
-                        <div style="font-size:0.8rem; color:var(--text-muted);">
-                            Acumulado est.: <span id="est-salary">$0.00</span> (Pendiente de cálculo)
+                <!-- MOVEMENT LIST -->
+                <div style="margin-bottom: 1.5rem;">
+                     <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">Movimientos del Día</div>
+                     <div style="background:var(--bg-dark); border-radius:8px; max-height:150px; overflow-y:auto; border:1px solid var(--border);">
+                        ${movesHtml}
+                     </div>
+                </div>
+
+                <!-- CASH COUNT -->
+                <div style="margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding:1rem; border-radius:12px;">
+                     <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">Arqueo de Caja (Conteo)</div>
+                     
+                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+                        <div>
+                            <label style="font-size:0.8rem; color:var(--text-muted);">Efectivo en Caja</label>
+                            <input type="number" id="close-cash-real" class="swal2-input" placeholder="0.00" style="width:100%; margin:0;">
                         </div>
+                         <div>
+                            <label style="font-size:0.8rem; color:var(--text-muted);">Transferencias</label>
+                            <input type="number" id="close-transfer-real" class="swal2-input" placeholder="0.00" style="width:100%; margin:0;">
+                        </div>
+                     </div>
+                     <div id="close-diff-display" style="margin-top:0.5rem; font-size:0.9rem; text-align:right; color:var(--text-muted);">
+                        Diferencia: <span>---</span>
+                     </div>
+                </div>
+
+                <!-- SALARY SECTION -->
+                <div style="background: rgba(16, 185, 129, 0.1); padding:1rem; border-radius:12px; border:1px solid rgba(16, 185, 129, 0.2);">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:700; color:var(--success);">Solicitar Salario (Hoy)</div>
+                            <div style="font-size:0.8rem; color:var(--text-muted);">
+                                Disponible (5% Ganancia): <b>$${salaryAvailable.toFixed(2)}</b>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="salary-request-switch">
+                            <span class="slider round"></span>
+                        </label>
                     </div>
                 </div>
+
             </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Confirmar Cierre',
+        confirmButtonText: 'Cerrar y Enviar',
+        cancelButtonText: 'Cancelar',
         background: 'var(--bg-card)',
         color: 'var(--text-main)',
+        didOpen: () => {
+            // Real-time Diff Calculation
+            const inputs = [document.getElementById('close-cash-real'), document.getElementById('close-transfer-real')];
+            const diffDisplay = document.querySelector('#close-diff-display span');
+
+            inputs.forEach(i => i.addEventListener('input', () => {
+                const realCash = parseFloat(inputs[0].value) || 0;
+                const realTrans = parseFloat(inputs[1].value) || 0;
+                const totalReal = realCash + realTrans;
+                const diff = totalReal - theoreticalCash;
+
+                diffDisplay.innerText = `$${diff.toFixed(2)}`;
+                diffDisplay.style.color = diff >= -1 ? 'var(--success)' : 'var(--danger)';
+                diffDisplay.style.fontWeight = 'bold';
+            }));
+        },
         preConfirm: () => {
-            return document.getElementById('salary-request-switch').checked;
+            const realCash = parseFloat(document.getElementById('close-cash-real').value) || 0;
+            const realTrans = parseFloat(document.getElementById('close-transfer-real').value) || 0;
+            const requestSalary = document.getElementById('salary-request-switch').checked;
+
+            return { realCash, realTrans, requestSalary, salaryAvailable };
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            processDayClosure(result.value, { salesTotal, expensesTotal, finalCash });
+            processDayClosure(result.value, { salesTotal, expensesTotal, finalCash, grossProfit });
         }
     });
 }
 
-window.processDayClosure = function (requestSalary, totals) {
+window.processDayClosure = function (modalResult, totals) {
+    const { realCash, realTrans, requestSalary, salaryAvailable } = modalResult;
     const today = new Date().toISOString().split('T')[0];
     const timestamp = Date.now();
     const businessId = selectedBusinessId || 'mch1';
 
-    // Mark today's sales
+    // Calculate final discrepancy for record
+    const totalReal = realCash + realTrans;
+    const disparity = totalReal - totals.finalCash;
+
+    // 1. Mark Sales as Pending Review
     db.sales.forEach(s => {
         if (s.date.startsWith(today) && s.businessId === businessId && s.status === 'registered') {
             s.status = 'pending_review';
         }
     });
 
-    // 2. Create Notification for Owners/Admins
+    // 2. Create detailed Notification
     const notification = {
         id: timestamp,
         type: 'daily_closure',
         title: `Cierre del Día (${today})`,
-        message: `El empleado ${currentUser.name} ha cerrado caja. Ventas: $${totals.salesTotal.toFixed(2)}. ${requestSalary ? 'SOLICITA PAGO SALARIO.' : ''}`,
+        message: `Cierre por ${currentUser.name}. Ventas: $${totals.salesTotal.toFixed(2)}. ${requestSalary ? 'SOLICITUD SALARIO.' : ''} ${disparity !== 0 ? `Diferencia: $${disparity.toFixed(2)}` : 'Cuadre Perfecto.'}`,
         timestamp: timestamp,
         read: false,
         data: {
             salesTotal: totals.salesTotal,
+            expensesTotal: totals.expensesTotal,
+            theoreticalCash: totals.finalCash,
+            realCash: realCash,
+            realTransfer: realTrans,
+            disparity: disparity,
             requestSalary: requestSalary,
+            salaryAmount: requestSalary ? salaryAvailable : 0,
+            grossProfit: totals.grossProfit,
             employeeId: currentUser.id,
             date: today
         },
@@ -1076,17 +1156,16 @@ window.processDayClosure = function (requestSalary, totals) {
 
     // 3. Log Salary Request
     if (requestSalary) {
-        addLog(`Solicitud de Salario generada por ${currentUser.name}`, 'info');
+        addLog(`Solicitud de Salario ($${salaryAvailable.toFixed(2)}) por ${currentUser.name}`, 'info');
     }
 
-    // 4. Close Session locally
+    // 4. Close Session
     window.isSessionActive = false;
     window.saveData();
 
-    // 5. Show Success
     Swal.fire({
-        title: 'Día Cerrado',
-        text: 'La información ha sido enviada al Administrador.',
+        title: 'Día Cerrado Correctamente',
+        html: `Reporte enviado.<br>Diferencia registrada: <b style="color:${disparity >= 0 ? 'var(--success)' : 'var(--danger)'}">$${disparity.toFixed(2)}</b>`,
         icon: 'success',
         background: 'var(--bg-card)',
         color: 'var(--text-main)'
