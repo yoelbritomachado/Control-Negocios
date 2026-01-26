@@ -62,6 +62,26 @@
 
 ---
 
+## ⚖️ LEY 4: Protocolo de Devoluciones y Mermas (Reglas de Negocio)
+**"La clasificación del incidente dicta el movimiento de dinero y stock."**
+
+1.  **Rotura Interna (Merma Pura)**:
+    -   *Causa*: Accidente del personal, caducidad, robo.
+    -   *Acción*: **Disminuye Stock** (-1).
+    -   *Dinero*: **Sin cambio** ($0). (Es una pérdida interna).
+
+2.  **Devolución con Producto Nuevo**:
+    -   *Causa*: Cliente devuelve producto intacto por cambio de opinión.
+    -   *Acción*: **Aumenta Stock** (+1) (Reingresa al inventario).
+    -   *Dinero*: **Disminuye Caja** (-Precio). (Se devuelve dinero al cliente).
+
+3.  **Devolución con Producto Roto**:
+    -   *Causa*: Cliente devuelve producto defectuoso/dañado (Garantía).
+    -   *Acción*: **Stock Neutral** (0). (El cliente lo devuelve, pero se tira a la basura. Efectivamente sale del inventario vendido y no vuelve). *Técnicamente: Entra (+1) y Sale por Merma (-1) al instante.*
+    -   *Dinero*: **Disminuye Caja** (-Precio). (Se devuelve dinero al cliente).
+
+---
+
 ### 6. Estructura de Permisos y Roles (Estandarización)
 **"Cada módulo del sistema tiene un ID único de permiso que debe respetarse en todo el código."**
 

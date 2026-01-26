@@ -1006,107 +1006,259 @@ window.showExpenseModal = function () {
 }
 
 
+
 window.showIncidentModal = function () {
     if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
 
-    // Internal state for the modal
+    // Internal state
     let mermaItems = [];
 
     Swal.fire({
-        title: 'Registrar Merma',
-        width: '700px',
+        title: 'Registrar Incidencia / Devolución',
+        width: '750px',
         html: `
-            <div style="text-align: left; min-height: 400px; display: flex; flex-direction: column;">
+            <div style="text-align: left; min-height: 450px; display: flex; flex-direction: column;">
+                
+                <!-- TYPE SELECTOR -->
+                <div style="background:var(--bg-dark); padding:1rem; border-radius:8px; margin-bottom:1rem; border:1px solid var(--border);">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted); font-size:0.9rem;">Tipo de Incidencia</label>
+                    <select id="incident-type" class="swal2-select" style="margin:0; width:100%; display:flex; font-weight:bold;">
+                        <option value="rotura_interna">🛑 Rotura Interna / Merma (Stock -1, Caja $0)</option>
+                        <option value="devolucion_nuevo">🔄 Devolución - Producto Nuevo (Stock +1, Caja -$)</option>
+                        <option value="devolucion_roto">⚠️ Devolución - Producto Roto (Stock 0, Caja -$)</option>
+                    </select>
+                </div>
+
                 <!-- SEARCH SECTION -->
                 <div style="position: relative; margin-bottom: 1rem;">
-                     <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Buscar Producto a Mermar</label>
+                     <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Buscar Producto</label>
                      <input type="text" id="merma-search" class="swal2-input" placeholder="Escribe para buscar..." style="margin:0; width:100%;">
-                     <div id="merma-results" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                     <!-- Results Area -->
+                     <div id="merma-results" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 9999; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
                      </div>
                 </div>
 
                 <!-- LIST SECTION -->
                 <div style="flex: 1; background: var(--bg-dark); border-radius: 8px; padding: 1rem; border: 1px solid var(--border);">
                     <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; display:flex; justify-content:space-between;">
-                        <span>Productos Seleccionados</span>
+                        <span>Productos Afectados</span>
                         <span id="merma-total-qty">0 ítems</span>
                     </div>
-                    <div id="merma-list" style="max-height: 200px; overflow-y: auto;">
-                        <div style="text-align: center; color: var(--text-muted); padding: 2rem; font-style: italic;">
-                            No hay productos seleccionados
-                        </div>
+                    <div id="merma-list" style="max-height: 180px; overflow-y: auto;">
+                        <!-- Render Items Here -->
                     </div>
                 </div>
 
                 <!-- REASON SECTION -->
                  <div style="margin-top: 1rem;">
-                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo General</label>
-                    <div style="display:flex; gap:0.5rem;">
-                        <input type="text" id="merma-reason" class="swal2-input" placeholder="Ej. Caducado, Roto, Robo" style="margin:0; flex:1;">
-                    </div>
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo / Nota</label>
+                    <input type="text" id="merma-reason" class="swal2-input" placeholder="Ej. Cliente solicitó reembolso, se cayó al limpiar..." style="margin:0; width:100%;">
                  </div>
             </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Registrar Merma',
-        confirmButtonColor: 'var(--warning)',
+        confirmButtonText: 'Registrar',
+        confirmButtonColor: 'var(--primary)',
+        cancelButtonText: 'Cancelar',
         background: 'var(--bg-card)',
         color: 'var(--text-main)',
-        preConfirm: () => {
-            const desc = document.getElementById('incident-desc').value;
-            const amount = document.getElementById('incident-amount') ? document.getElementById('incident-amount').value : 0;
 
-            if (!desc) {
-                Swal.showValidationMessage('El motivo es obligatorio');
+        didOpen: () => {
+            const searchInput = document.getElementById('merma-search');
+            const resultsArea = document.getElementById('merma-results');
+            const listArea = document.getElementById('merma-list');
+            const qtyLabel = document.getElementById('merma-total-qty');
+            const incidentType = document.getElementById('incident-type');
+
+            // --- RENDER FUNCTION ---
+            const renderList = () => {
+                if (mermaItems.length === 0) {
+                    listArea.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 2rem; font-style: italic;">No hay productos seleccionados</div>';
+                    qtyLabel.innerText = '0 ítems';
+                    return;
+                }
+
+                listArea.innerHTML = mermaItems.map((item, index) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="flex:1;">
+                            <div style="font-weight: 600; font-size: 0.9rem;">${item.name}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted);">$${item.price.toFixed(2)}</div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                             <div style="background:var(--bg-card); border-radius:4px; border:1px solid var(--border); display:flex;">
+                                <button type="button" class="btn-icon-small" id="dec-${index}" style="padding:2px 8px; border:none; background:transparent;">-</button>
+                                <span style="font-weight:bold; min-width:24px; text-align:center; padding-top:2px;">${item.qty}</span>
+                                <button type="button" class="btn-icon-small" id="inc-${index}" style="padding:2px 8px; border:none; background:transparent;">+</button>
+                             </div>
+                             <button type="button" class="btn-icon-small" id="del-${index}" style="color:var(--danger); border:none; background:transparent;"><i class="ph ph-trash"></i></button>
+                        </div>
+                    </div>
+                `).join('');
+                qtyLabel.innerText = `${mermaItems.reduce((s, i) => s + i.qty, 0)} ítems`;
+
+                // Bind list buttons safely using closures (avoid global pollution)
+                mermaItems.forEach((_, idx) => {
+                    document.getElementById(`inc-${idx}`).onclick = () => { mermaItems[idx].qty++; renderList(); };
+                    document.getElementById(`dec-${idx}`).onclick = () => { if (mermaItems[idx].qty > 1) mermaItems[idx].qty--; renderList(); };
+                    document.getElementById(`del-${idx}`).onclick = () => { mermaItems.splice(idx, 1); renderList(); };
+                });
+            };
+
+            // --- SEARCH FUNCTION ---
+            const searchProducts = (q) => {
+                if (q.length < 1) { resultsArea.style.display = 'none'; return; }
+
+                const businessId = selectedBusinessId || 'mch1';
+                // Only products that exist in this business
+                const storeInventory = db.inventory.filter(i => String(i.businessId) === String(businessId));
+
+                const matches = storeInventory.map(inv => {
+                    const p = db.products.find(prod => prod.id === inv.productId);
+                    return p ? { ...p, stock: inv.quantity } : null;
+                }).filter(p => p && (p.name.toLowerCase().includes(q.toLowerCase()) || String(p.price).startsWith(q))).slice(0, 10);
+
+                if (matches.length > 0) {
+                    resultsArea.innerHTML = matches.map((p, idx) => `
+                        <div id="res-${p.id}" class="search-result-item" 
+                             style="padding: 0.8rem; border-bottom: 1px solid var(--border); cursor: pointer; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-weight:600;">${p.name}</div>
+                                <div style="font-size:0.8rem; color:var(--text-muted);">Stock: ${p.stock}</div>
+                            </div>
+                            <div style="color:var(--primary); font-weight:bold;">+ Agregar</div>
+                        </div>
+                    `).join('');
+                    resultsArea.style.display = 'block';
+
+                    // Bind Add Clicks
+                    matches.forEach(p => {
+                        const el = document.getElementById(`res-${p.id}`);
+                        if (el) el.onclick = () => {
+                            const existing = mermaItems.find(i => i.id === p.id);
+                            if (existing) existing.qty++;
+                            else mermaItems.push({ id: p.id, name: p.name, price: p.price, qty: 1 });
+
+                            renderList();
+                            searchInput.value = '';
+                            resultsArea.style.display = 'none';
+                            searchInput.focus();
+                        };
+                    });
+                } else {
+                    resultsArea.innerHTML = '<div style="padding:1rem; text-align:center; color:var(--text-muted);">Sin resultados</div>';
+                    resultsArea.style.display = 'block';
+                }
+            };
+
+            // --- LISTENERS ---
+            searchInput.addEventListener('input', (e) => searchProducts(e.target.value));
+
+            // Initial Render
+            renderList();
+        },
+
+        preConfirm: () => {
+            const type = document.getElementById('incident-type').value;
+            const reason = document.getElementById('merma-reason').value;
+
+            if (mermaItems.length === 0) {
+                Swal.showValidationMessage('No has seleccionado productos');
                 return false;
             }
-            return { desc, amount };
+            if (!reason && type === 'rotura_interna') {
+                // For Merma, reason is important. For Returns, maybe optional? Let's enforce it.
+                // But user might want speed. Let's enforce.
+                Swal.showValidationMessage('Ingresa un motivo');
+                return false;
+            }
+            return { items: mermaItems, reason, type };
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            const { desc, amount } = result.value;
-            const businessId = selectedBusinessId || 'mch1';
-
-            // Deduct Stock if Cart Items
-            if (hasItems) {
-                window.posCart.forEach(item => {
-                    const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
-                    if (inv) inv.quantity -= item.qty;
-                });
-            }
-
-            const totalLoss = hasItems
-                ? window.posCart.reduce((sum, i) => sum + (i.price * i.qty), 0)
-                : parseFloat(amount) || 0;
-
-            const saleData = {
-                id: Date.now(),
-                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
-                timestamp: Date.now(),
-                businessId: businessId,
-                seller: currentUser ? currentUser.name : 'Vendedor',
-                items: hasItems ? window.posCart : [],
-                total: 0, // No revenue
-                lossValue: totalLoss,
-                type: 'MERMA',
-                details: desc,
-                status: 'registered'
-            };
-
-            db.sales.unshift(saleData);
-            window.saveData();
-
-            if (hasItems) {
-                window.posCart = [];
-                renderCart();
-            }
-
-            showToast("Merma registrada", "warning");
-
-            // Refresh
-            if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+            processIncident(result.value); // Generic processor
         }
     });
+}
+
+// Logic to process
+window.processIncident = function (data) {
+    const { items, reason, type } = data;
+    const businessId = selectedBusinessId || 'mch1';
+
+    // Calculate total value (at retail price)
+    const totalValue = items.reduce((s, i) => s + (i.price * i.qty), 0);
+
+    // LOGIC BY TYPE
+    // 1. ROtura Interna: Stock -1, Cash 0.
+    // 2. Dev Nuevo: Stock +1, Cash -Price.
+    // 3. Dev Roto: Stock 0, Cash -Price.
+
+    items.forEach(item => {
+        const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+        if (inv) {
+            if (type === 'rotura_interna') {
+                inv.quantity -= item.qty;
+            } else if (type === 'devolucion_nuevo') {
+                inv.quantity += item.qty;
+            } else if (type === 'devolucion_roto') {
+                // No change to stock (Lost in battle)
+            }
+        }
+    });
+
+    // Register Sale Record (Negative Sale or Merma)
+    let saleType = 'MERMA';
+    let saleTotal = 0; // Revenue impact
+    let lossValue = 0; // Pure loss tracking
+
+    if (type === 'rotura_interna') {
+        saleType = 'MERMA';
+        saleTotal = 0;
+        lossValue = totalValue; // Pure internal loss
+    } else {
+        // Returns (refund money)
+        saleType = 'RETURN'; // Or Sale with negative total? Let's use 'RETURN' for clarity if allowed, or 'REFUND'.
+        // Existing types: SALE, EXPENSE, MERMA. Let's add 'RETURN' or use negative SALE.
+        // If we use negative SALE, it affects Cash Control automatically.
+        saleTotal = -totalValue; // Cash Out
+        lossValue = (type === 'devolucion_roto') ? totalValue : 0; // If broken, it's also a product loss
+    }
+
+    const saleData = {
+        id: Date.now(),
+        date: new Date().toISOString().replace('T', ' ').split('.')[0],
+        timestamp: Date.now(),
+        businessId: businessId,
+        seller: currentUser ? currentUser.name : 'Sistema',
+        sellerId: currentUser ? currentUser.id : 0,
+        type: saleType,
+        items: items.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
+        total: saleTotal,
+        lossValue: lossValue,
+        payment: { cash: 0, transfer: 0, currency: 'mn' }, // Assuming refund in cash? Or mixed?
+        // Ideally prompt for refund method, but let's assume Cash for now or MN default.
+        details: `[${type}] ${reason}`,
+        status: 'registered'
+    };
+
+    // For Returns, we need to affect cash balance.
+    // If we rely on 'total' being negative, cash control might pick it up.
+    // But 'payment' object needs to reflect where the money went.
+    // Let's assume Cash Refund for simplicity unless user wants advanced return.
+    if (saleTotal < 0) {
+        saleData.payment.cash = saleTotal; // Negative cash
+    }
+
+    db.sales.unshift(saleData);
+
+    // Update Cash Balance if needed
+    if (saleTotal !== 0 && typeof window.actualizarSaldo === 'function') {
+        window.actualizarSaldo('mn', saleTotal); // Deduct from MN
+    }
+
+    window.saveData();
+    showToast("Incidencia registrada correctamente", "success");
+    if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
 }
 
 window.registerExpense = function (data) {
