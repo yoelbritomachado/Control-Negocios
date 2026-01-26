@@ -14,7 +14,8 @@ window.networkEditorState = {
     isDraggingNode: false,
     draggedNodeId: null,
     startX: 0,
-    startY: 0
+    startY: 0,
+    connectionStyle: 'step' // 'bezier' or 'step' (orthogonal)
 };
 
 // Main Entry Point
@@ -42,6 +43,7 @@ window.renderBusinessNetwork = function (container) {
             <div style="padding: 1rem; background: var(--bg-card); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; z-index: 100;">
                 <h3 style="margin: 0;">🗺️ Mapa de Red Operativa</h3>
                 <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn-secondary" onclick="toggleConnectionStyle()" id="btn-line-style">🔀 Líneas: Rectas</button>
                     <button class="btn-secondary" onclick="autoLayoutNetwork()">⚡ Auto-Distribución</button>
                     <button class="btn-primary" onclick="saveNetworkLayout()">💾 Guardar Distribución</button>
                 </div>
@@ -91,7 +93,7 @@ window.renderBusinessNetwork = function (container) {
                     <div id="network-canvas" style="transform-origin: 0 0; width: 100%; height: 100%; position: absolute;">
                         
                         <!-- SVG Layer for Wires -->
-                        <svg id="network-connections" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; overflow: visible; pointer-events: none; z-index: 0;">
+                        <svg id="network-connections" style="position: absolute; top: 0; left: 0; width: 5000px; height: 5000px; overflow: visible; pointer-events: visibleStroke; z-index: 0;">
                             <defs>
                                 <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                                     <polygon points="0 0, 10 3.5, 0 7" fill="#666" />
@@ -208,14 +210,13 @@ function renderConnections() {
         const toNode = window.networkEditorState.nodes.find(n => n.id === conn.to);
 
         if (fromNode && toNode) {
-            drawBezier(svg, fromNode, toNode);
+            drawConnection(svg, fromNode, toNode, conn);
         }
     });
 }
 
-function drawBezier(svg, nodeA, nodeB) {
-    // Port positions (Approximate based on node dimensions 180x100)
-    // Output is Right, Input is Left
+function drawConnection(svg, nodeA, nodeB, connData) {
+    // Port positions
     const x1 = nodeA.x + 180;
     const y1 = nodeA.y + 40;
     const x2 = nodeB.x;
@@ -223,21 +224,67 @@ function drawBezier(svg, nodeA, nodeB) {
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
 
-    // Bezier Control Points
-    const cp1x = x1 + 100;
-    const cp1y = y1;
-    const cp2x = x2 - 100;
-    const cp2y = y2;
+    let d = '';
 
-    const d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+    if (window.networkEditorState.connectionStyle === 'bezier') {
+        const cp1x = x1 + 100;
+        const cp1y = y1;
+        const cp2x = x2 - 100;
+        const cp2y = y2;
+        d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
+    } else {
+        // Orthogonal (Step) - Simple Midpoint
+        const midX = (x1 + x2) / 2;
+        d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+    }
 
     path.setAttribute("d", d);
     path.setAttribute("stroke", "#666");
-    path.setAttribute("stroke-width", "2");
+    path.setAttribute("stroke-width", "3"); // Thicker for easier clicking
     path.setAttribute("fill", "none");
-    path.setAttribute("marker-end", "url(#arrowhead)"); // Need to def marker
+    path.setAttribute("marker-end", "url(#arrowhead)");
+    path.setAttribute("cursor", "pointer");
+
+    // Deletion Handler
+    path.onclick = (e) => {
+        e.stopPropagation(); // Select?
+    };
+    path.ondblclick = (e) => {
+        e.stopPropagation();
+        deleteConnection(connData);
+    };
+
+    // Hover effect via class or inline
+    path.onmouseover = () => path.setAttribute("stroke", "var(--primary)");
+    path.onmouseout = () => path.setAttribute("stroke", "#666");
 
     svg.appendChild(path);
+}
+
+window.deleteConnection = async function (connData) {
+    const confirm = await Swal.fire({
+        title: '¿Eliminar Conexión?',
+        text: "Se desconectará el flujo operativo.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Sí, desconectar',
+        background: '#16191f',
+        color: '#fff'
+    });
+
+    if (confirm.isConfirmed) {
+        window.networkEditorState.connections = window.networkEditorState.connections.filter(c => c !== connData);
+        renderConnections();
+        showToast("Conexión eliminada", "info");
+    }
+}
+
+window.toggleConnectionStyle = function () {
+    window.networkEditorState.connectionStyle = window.networkEditorState.connectionStyle === 'bezier' ? 'step' : 'bezier';
+    document.getElementById('btn-line-style').innerText = window.networkEditorState.connectionStyle === 'bezier' ? '🔀 Líneas: Curvas' : '🔀 Líneas: Rectas';
+    renderConnections();
 }
 
 // --- Interaction Handlers ---
@@ -411,6 +458,19 @@ window.completeConnection = function (e, targetNodeId) {
     if (sourceId === targetNodeId) {
         cancelConnectionDrag();
         return;
+    }
+
+    // Check rules:
+    // 1. Owner/Admin -> Only to Company
+    const fromNode = window.networkEditorState.nodes.find(n => n.id === sourceId);
+    const toNode = window.networkEditorState.nodes.find(n => n.id === targetNodeId);
+
+    if (fromNode && (fromNode.type === 'user' && (fromNode.data.role === 'owner' || fromNode.data.role === 'admin'))) {
+        if (toNode.type !== 'company') {
+            showToast("Admin/Dueño solo se conecta a EMPRESA", "error");
+            cancelConnectionDrag();
+            return;
+        }
     }
 
     // Check if connection already exists
