@@ -569,7 +569,10 @@ window.processPOSPayment = async function () {
                 s.businessId = businessId;
                 s.date = dateString;
                 s.timestamp = timestamp;
+                s.date = dateString;
+                s.timestamp = timestamp;
                 s.openingTime = posOpeningTime;
+                s.status = 'registered'; // Ensure status is set to registered upon payment (fix for saved sales)
 
                 // Keep session if exists
                 if (!s.sessionId) s.sessionId = (typeof window.currentSessionStartTime !== 'undefined' ? window.currentSessionStartTime : Date.now());
@@ -697,32 +700,46 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
         return;
     }
 
-    container.innerHTML = todaySales.map(s => {
+    let html = '';
+    todaySales.forEach(s => {
         const isExpense = s.type === 'EXPENSE';
-        const detailsHtml = isExpense
-            ? `<div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; italic">${s.details || 'Sin descripción'}</div>`
-            : `<div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-muted);">${(s.items || []).map(item => `<div>• ${item.name} (${item.qty})</div>`).join('')}</div>`;
+        const isMerma = s.type === 'MERMA';
+        const isSaved = s.status === 'saved'; // Check if pending/saved
 
-        return `
-        <div class="card" style="margin: 0.5rem; padding: 1.2rem; border-left: 4px solid ${isExpense ? 'var(--danger)' : 'var(--primary)'}; background: var(--bg-card);">
-             <div style="display: flex; justify-content: space-between;">
-                 <span style="font-weight: bold;">#${s.id.toString().slice(-4)}</span>
-                 <span style="color: ${isExpense ? 'var(--danger)' : 'var(--primary)'}; font-weight: 900;">${isExpense ? '-' : ''}$${Math.abs(s.total).toFixed(2)}</span>
+        let icon = 'ph-check-circle';
+        let color = 'var(--success)';
+
+        if (isSaved) { icon = 'ph-clock'; color = 'var(--warning)'; }
+        if (isExpense) { icon = 'ph-trend-down'; color = 'var(--danger)'; }
+        if (isMerma) { icon = 'ph-trash'; color = 'var(--text-muted)'; }
+
+        html += `
+        <div class="sale-item fade-in" style="background: var(--bg-hover); padding: 0.8rem; border-radius: 8px; border-left: 3px solid ${color};">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
+                 <span style="font-weight: 700; font-size: 0.95rem; color:white;">#${s.id}</span>
+                 <span style="font-weight: 700; color: ${color};">$${isExpense ? '-' : ''}${Math.abs(s.total).toFixed(2)}</span>
+            </div>
+             <div style="font-size: 0.8rem; color: var(--text-muted); display:flex; gap:0.5rem;">
+                 ${(s.items || []).map(i => `<div>• ${i.name} (${i.qty})</div>`).join('')}
              </div>
-             ${detailsHtml}
-             <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.5rem;">
-                ${s.date.split(' ')[1]} | ${s.seller}
+             <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 0.4rem;">
+                ${s.date.split(' ')[1]} | ${s.seller || 'Sistema'}  ${isSaved ? '<b style="color:var(--warning)">(GUARDADA)</b>' : ''}
              </div>
-             ${(!isExpense && (currentUser.role !== 'seller' || s.status === 'registered')) ? `
+             ${(!isExpense && !isMerma && (currentUser.role !== 'seller' || s.status === 'registered' || isSaved)) ? `
                  <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-                    <button class="btn-icon" onclick="editSale(${s.id})" title="Editar Venta" style="color:var(--primary); border-color:var(--primary); opacity:0.8;">
-                        <i class="ph ph-pencil-simple"></i> Editar
+                    <button class="btn-icon" onclick="editSale(${s.id})" title="${isSaved ? 'Reanudar Venta' : 'Editar Venta'}" style="color:var(--primary); border-color:var(--primary); opacity:0.8;">
+                        <i class="ph ${isSaved ? 'ph-play' : 'ph-pencil-simple'}"></i> ${isSaved ? 'Reanudar' : 'Editar'}
+                    </button>
+                    <!-- DELETE BUTTON (Void Sale) -->
+                    <button class="btn-icon" onclick="deleteSale(${s.id})" title="Eliminar Venta (Restaurar Stock)" style="color:var(--danger); border-color:var(--danger); opacity:0.8;">
+                        <i class="ph ph-trash"></i>
                     </button>
                  </div>
              ` : ''}
         </div>
         `;
-    }).join('');
+    });
+    container.innerHTML = html;
 }
 
 window.editSale = function (saleId) {
@@ -750,6 +767,117 @@ window.editSale = function (saleId) {
 
     // Scroll to cart
     // document.getElementById('pos-cart-panel').scrollIntoView({ behavior: 'smooth' });
+}
+
+window.savePendingSale = function () {
+    if (!window.posCart || window.posCart.length === 0) {
+        showToast("El carrito está vacío", "error");
+        return;
+    }
+
+    const businessId = selectedBusinessId || 'mch1';
+    const totalValue = window.posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    const timestamp = Date.now();
+    const dateString = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString();
+
+    // 1. Deduct Stock (Same as normal sale)
+    // Validate if we are editing or new
+    if (window.editingSaleId) {
+        // Revert old before deducting new?
+        // Logic: If editing 'saved', we treat it like an update.
+        // We must REVERT the stock of the OLD saved version, then deduct the NEW cart.
+        const oldSale = db.sales.find(s => s.id === window.editingSaleId);
+        if (oldSale && oldSale.items) {
+            oldSale.items.forEach(oldItem => {
+                const inv = db.inventory.find(i => String(i.productId) === String(oldItem.productId || oldItem.id) && String(i.businessId) === String(oldSale.businessId));
+                if (inv) inv.quantity += oldItem.qty;
+            });
+        }
+        // Deduct New
+        window.posCart.forEach(item => {
+            const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+            if (inv) inv.quantity -= item.qty;
+        });
+
+        // Update Record
+        const saleIndex = db.sales.findIndex(s => s.id === window.editingSaleId);
+        if (saleIndex !== -1) {
+            const s = db.sales[saleIndex];
+            s.items = window.posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price }));
+            s.total = totalValue;
+            s.date = dateString;
+            s.status = 'saved'; // Keep as saved
+        }
+        showToast("Venta actualizada y guardada", "warning");
+
+    } else {
+        // New Saved Sale
+        window.posCart.forEach(item => {
+            const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+            if (inv) inv.quantity -= item.qty;
+        });
+
+        const saleData = {
+            id: timestamp,
+            date: dateString,
+            timestamp: timestamp,
+            businessId: businessId,
+            seller: currentUser ? currentUser.name : 'Vendedor',
+            items: window.posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
+            total: totalValue,
+            payment: { cash: 0, transfer: 0, currency: 'mn' }, // No payment yet
+            status: 'saved'
+        };
+        db.sales.unshift(saleData);
+        showToast("Venta guardada (Pendiente)", "warning");
+    }
+
+    window.editingSaleId = null;
+    window.posCart = [];
+    renderCart();
+    window.saveData();
+    if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+}
+
+window.deleteSale = function (saleId) {
+    Swal.fire({
+        title: '¿Eliminar Venta?',
+        text: "Esto revertirá el stock de los productos. Esta acción no se puede deshacer.",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: 'var(--danger)',
+        cancelButtonColor: 'var(--text-muted)',
+        confirmButtonText: 'Sí, eliminar',
+        background: 'var(--bg-card)',
+        color: 'var(--text-main)'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const sale = db.sales.find(s => s.id === saleId);
+            if (!sale) return;
+
+            // 1. Revert Stock
+            if (sale.items) {
+                sale.items.forEach(item => {
+                    const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(sale.businessId));
+                    if (inv) inv.quantity += item.qty;
+                });
+            }
+
+            // 2. Remove Sale
+            db.sales = db.sales.filter(s => s.id !== saleId);
+
+            // 3. Clear editing if matching
+            if (window.editingSaleId === saleId) {
+                window.editingSaleId = null;
+                window.posCart = [];
+                renderCart();
+            }
+
+            window.saveData();
+            if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+            showToast("Venta eliminada y stock restaurado", "success");
+        }
+    });
 }
 
 console.log('🛒 POS Module Loaded');
