@@ -817,10 +817,10 @@ window.showExpenseModal = function () {
                 <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Luz" style="margin:0 0 1rem 0; width:100%;">
                 
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto</label>
-                <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
-
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Moneda</label>
-                <input type="text" class="swal2-input" value="MN (Moneda Nacional)" disabled style="margin:0 0 1rem 0; width:100%; bg: #333;">
+                <div style="position:relative;">
+                    <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-muted);">MN</span>
+                    <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%; padding-left: 2.5rem;">
+                </div>
             </div>
         `,
         showCancelButton: true,
@@ -841,31 +841,7 @@ window.showExpenseModal = function () {
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            const { cat, desc, amount, currency } = result.value;
-            console.log("Registrando Gasto:", result.value);
-
-            const saleData = {
-                id: Date.now(),
-                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
-                timestamp: Date.now(),
-                businessId: selectedBusinessId || 'mch1',
-                seller: currentUser ? currentUser.name : 'Vendedor',
-                items: [], // No products
-                total: parseFloat(amount) * -1, // Negative for expense
-                payment: { cash: 0, transfer: 0, currency: currency },
-                type: 'EXPENSE',
-                category: cat,
-                details: desc,
-                status: 'registered'
-            };
-
-            db.sales.unshift(saleData);
-            window.saveData();
-            showToast("Gasto registrado correctamente", "success");
-
-            // Refresh
-            if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
-            if (typeof renderPOS === 'function') renderPOS(document.getElementById('content-area'));
+            registerExpense(result.value);
         }
     });
 }
@@ -882,9 +858,12 @@ window.showIncidentModal = function () {
         htmlContent = `
             <div style="text-align: left;">
                 <p style="color:var(--text-muted); margin-bottom:1rem;">
-                    Se registrarán <b>${window.posCart.length} productos</b> como merma/pérdida.
-                    <br>Valor Total: <b>$${total.toFixed(2)}</b>
+                    Se registrarán <b>${window.posCart.length} productos</b> como merma/rotura.
+                    <br>Valor Total (Pérdida): <b>$${total.toFixed(2)}</b>
                 </p>
+                <div style="background:rgba(239, 68, 68, 0.1); padding:0.8rem; border-radius:8px; margin-bottom:1rem; font-size:0.85rem; color:var(--danger);">
+                    <i class="ph ph-warning"></i> Estos productos se descontarán del inventario.
+                </div>
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo</label>
                 <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Caducado, Roto, Robo" style="margin:0 0 1rem 0; width:100%;">
             </div>
@@ -893,12 +872,19 @@ window.showIncidentModal = function () {
         htmlContent = `
             <div style="text-align: left;">
                 <p style="color:var(--warning); margin-bottom:1rem; font-size:0.9rem;">
-                    <i class="ph ph-info"></i> Para mermar productos específicos, agrégalos al carrito primero.
+                    <i class="ph ph-magnifying-glass"></i> <b>Para Merma de Productos:</b><br>
+                    1. Búscalos en el panel principal.<br>
+                    2. Agrégalos al carrito.<br>
+                    3. Presiona nuevamente este botón "Merma".
+                </p>
+                <hr style="border-color:var(--border); margin: 1rem 0;">
+                <p style="color:var(--text-muted); margin-bottom:0.5rem; font-size:0.9rem;">
+                    <b>Para Pérdida de Dinero (Error de Caja):</b>
                 </p>
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
                 <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Pérdida de efectivo" style="margin:0 0 1rem 0; width:100%;">
                 
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto Estimado</label>
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto Perdido</label>
                 <input type="number" id="incident-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
             </div>
         `;
