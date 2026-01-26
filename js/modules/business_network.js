@@ -237,6 +237,11 @@ window.renderBusinessNetwork = function (container) {
                         <button onclick="resetNetworkView()" class="btn-icon-small"><i class="ph ph-arrows-out"></i></button>
                     </div>
 
+                    <!-- 🗑️ Trash Can Drop Zone -->
+                    <div id="network-trash" style="position: absolute; bottom: 20px; left: 20px; width: 60px; height: 60px; background: rgba(220, 38, 38, 0.2); border: 2px dashed #ef4444; border-radius: 50%; display: flex; justify-content: center; align-items: center; transition: all 0.2s; z-index: 10;">
+                        <i class="ph ph-trash" style="font-size: 24px; color: #ef4444;"></i>
+                    </div>
+
                 </div>
             </div>
     `;
@@ -508,14 +513,98 @@ window.handleCanvasMouseMove = function (e) {
 
 window.handleCanvasMouseUp = function (e) {
     if (window.networkEditorState.isDraggingConnection) {
-        // If released on empty space, cancel
         cancelConnectionDrag();
+    }
+
+    // CHECK TRASH DROP
+    if (window.networkEditorState.isDraggingNode && window.networkEditorState.draggedNodeId) {
+        const trash = document.getElementById('network-trash');
+        if (trash) {
+            const trashRect = trash.getBoundingClientRect();
+            // Simple logic: dragging over the trash can icon
+            // e.clientX is global, trashRect is global
+            if (e.clientX >= trashRect.left && e.clientX <= trashRect.right &&
+                e.clientY >= trashRect.top && e.clientY <= trashRect.bottom) {
+
+                handleTrashDrop(window.networkEditorState.draggedNodeId);
+            }
+        }
     }
 
     window.networkEditorState.isDraggingCanvas = false;
     window.networkEditorState.isDraggingNode = false;
     window.networkEditorState.draggedNodeId = null;
     document.getElementById('network-viewport').style.cursor = 'grab';
+}
+
+window.handleTrashDrop = async function (nodeId) {
+    const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    // 1. Strict Disconnect Check
+    const hasConnections = window.networkEditorState.connections.some(c => c.from === nodeId || c.to === nodeId);
+    if (hasConnections) {
+        showToast("⚠️ Debes desconectar el nodo antes de eliminarlo.", "warning");
+        return;
+    }
+
+    // 2. Type-Specific Logic
+    if (node.type === 'business') {
+        const { isConfirmed, value } = await Swal.fire({
+            title: 'Eliminar Punto de Venta',
+            text: "¿Qué hacer con el inventario?",
+            icon: 'question',
+            input: 'select',
+            inputOptions: {
+                'return': 'Regresar a Almacén Origen',
+                'archive': 'Archivar (Backup)',
+                'delete': 'Borrar Todo (Peligroso)'
+            },
+            showCancelButton: true,
+            confirmButtonText: 'Procesar',
+            background: '#16191f', color: '#fff'
+        });
+
+        if (isConfirmed) {
+            // Mock Logic
+            showToast(`POS Eliminado: Acción ${value}`, "success");
+            confirmDeleteNode(nodeId);
+        }
+    } else {
+        // Normal User / Generic Node
+        const confirm = await Swal.fire({
+            title: '¿Archivar Usuario?',
+            text: "Se guardará el historial de ventas.",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, archivar',
+            confirmButtonColor: '#d33',
+            background: '#16191f', color: '#fff'
+        });
+
+        if (confirm.isConfirmed) {
+            confirmDeleteNode(nodeId);
+        }
+    }
+}
+
+function confirmDeleteNode(nodeId) {
+    // Move to Archive (Mock)
+    const node = window.networkEditorState.nodes.find(n => n.id === nodeId);
+    const db = window.db || {};
+    if (!db.archivedNodes) db.archivedNodes = [];
+
+    db.archivedNodes.push({
+        ...node,
+        deletedAt: new Date().toISOString(),
+        usageStats: 'Mock Usage: 120 hours'
+    });
+
+    // Remove from Live
+    window.networkEditorState.nodes = window.networkEditorState.nodes.filter(n => n.id !== nodeId);
+    window.networkEditorState.selectedNodeId = null;
+    renderNodes();
+    saveNetworkLayout();
 }
 
 window.handleCanvasWheel = function (e) {
