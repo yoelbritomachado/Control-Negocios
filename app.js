@@ -224,6 +224,12 @@ function renderSidebar(activeView) {
     ];
 
     const perms = rolePermissions[currentUser.role] || [];
+
+    // [HOTFIX] Ensure Owner always has network_editor even if data.js is cached old version
+    if (currentUser.role === 'owner' && !perms.includes('network_editor')) {
+        perms.push('network_editor');
+    }
+
     let navHtml = '';
 
     navSections.forEach(section => {
