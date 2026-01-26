@@ -354,7 +354,7 @@ function renderNodes() {
         }
 
         return `
-            <div class="network-node" id="${node.id}" 
+            <div class="network-node ${window.networkEditorState.selectedNodeId === node.id ? 'selected' : ''}" id="${node.id}" 
                  style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color}; ${isCubrefranco ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); border-color: #f59e0b;' : ''}"
                  onmousedown="handleNodeMouseDown(event, '${node.id}')"
                  ondblclick="editNodeName('${node.id}')">
@@ -448,7 +448,7 @@ function createTempLine() {
         tempLine.setAttribute("id", "temp-connection-line");
         tempLine.setAttribute("stroke", "#666");
         tempLine.setAttribute("stroke-width", "2");
-        tempLine.setAttribute("stroke-dasharray", "5,5");
+        tempLine.setAttribute("stroke-dasharray", "5,5"); // Matches Permanent Lines
         tempLine.setAttribute("fill", "none");
         svg.appendChild(tempLine);
     }
@@ -500,6 +500,7 @@ function drawConnection(svg, nodeA, nodeB, connData) {
     path.setAttribute("stroke", "#666");
     path.setAttribute("stroke-width", "3");
     path.setAttribute("fill", "none");
+    path.setAttribute("stroke-dasharray", "5,5"); // Dashed Line (User Request)
     // Removed marker-end per user design
     path.setAttribute("cursor", "pointer");
 
@@ -722,6 +723,10 @@ window.handleNodeMouseDown = function (e, nodeId) {
     e.stopPropagation(); // Stop canvas drag
     window.networkEditorState.isDraggingNode = true;
     window.networkEditorState.draggedNodeId = nodeId;
+
+    // Select Node
+    window.networkEditorState.selectedNodeId = nodeId;
+    renderNodes(); // Re-render to show selection frame
 }
 
 function updateTransform() {
