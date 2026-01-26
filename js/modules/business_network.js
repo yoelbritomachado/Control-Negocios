@@ -302,26 +302,36 @@ function renderNodes() {
         let icon = 'ph-square';
         let label = node.id;
 
+        // Identify Incoming Connections
+        const incoming = window.networkEditorState.connections.filter(c => c.to === node.id);
+
         // Cubrefranco Detection
-        const incomingConnections = window.networkEditorState.connections.filter(c => c.to === node.id).length;
-        const isCubrefranco = node.type === 'user' && node.data.role === 'seller' && incomingConnections >= 2;
+        const isCubrefranco = node.type === 'user' && node.data.role === 'seller' && incoming.length >= 2;
 
-        switch (node.type) {
-            case 'warehouse': color = 'var(--primary)'; icon = 'ph-warehouse'; label = node.data.name; break;
-            case 'business': color = 'var(--success)'; icon = 'ph-storefront'; label = node.data.name; break;
-            case 'user':
-                color = '#8b5cf6'; // Default Violet
-                icon = 'ph-user-gear';
-                label = node.data.name;
+        let inputPortsHtml = '';
 
-                if (isCubrefranco) {
-                    color = '#f59e0b'; // Amber/Orange
-                    icon = 'ph-users-three'; // Multi-user icon
-                }
-                break;
-            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break;
-            default: label = node.data.name || node.id;
-        }
+        // 1. Existing Connections (Dedicated Ports)
+        incoming.forEach((conn, index) => {
+            // We use the CONNECTION ID (or index) to identify which port this is
+            // For simplicity, we'll rely on the connection object reference or index matching
+            // Ideally connections should have IDs. For now, we use index in the filter array.
+
+            inputPortsHtml += `
+                <div class="port port-in existing-connection" 
+                     style="background: #ef4444; border-color: #ef4444;"
+                     title="Desconectar"
+                     onmousedown="startConnectionDragFromInput(event, '${node.id}', ${index})">
+                </div>
+             `;
+        });
+
+        // 2. Main Input Port (For NEW connections)
+        inputPortsHtml += `
+            <div class="port port-in main-input" 
+                 title="Conectar aquí"
+                 onmouseup="completeConnection(event, '${node.id}')">
+            </div>
+        `;
 
         return `
             <div class="network-node" id="${node.id}" 
@@ -336,12 +346,12 @@ function renderNodes() {
                     </div>
                 </div>
                 
-                <div class="node-ports">
-                    <!-- Input Port -->
-                    <div class="port port-in" 
-                         onmouseup="completeConnection(event, '${node.id}')"
-                         onmousedown="startConnectionDragFromInput(event, '${node.id}')">
+                <div class="node-ports" style="align-items: flex-start;">
+                    <!-- Input Ports Stack -->
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-left: -10px;">
+                        ${inputPortsHtml}
                     </div>
+
                     <!-- Output Port -->
                     <div class="port port-out" onmousedown="startConnectionDrag(event, '${node.id}')"></div>
                 </div>
@@ -371,12 +381,79 @@ function renderConnections() {
     });
 }
 
+// NEW: Detach connection by dragging from SPECIFIC Input Port
+window.startConnectionDragFromInput = function (e, nodeId, connIndex) {
+    if (e) e.stopPropagation();
+
+    // Find matching connection
+    // We need to match the logic in renderNodes:
+    // It filters "connections.filter(c => c.to === nodeId)"
+    // And uses the index of THAT filtered array.
+
+    const incoming = window.networkEditorState.connections.filter(c => c.to === nodeId);
+    if (connIndex < 0 || connIndex >= incoming.length) return;
+
+    const connToDetach = incoming[connIndex];
+
+    // Find actual index in global array to remove
+    const globalIndex = window.networkEditorState.connections.indexOf(connToDetach);
+    if (globalIndex === -1) return;
+
+    window.networkEditorState.connections.splice(globalIndex, 1);
+
+    // Start dragging "new" connection from the original source
+    const sourceNode = window.networkEditorState.nodes.find(n => n.id === connToDetach.from);
+    if (sourceNode) {
+        window.networkEditorState.isDraggingConnection = true;
+        window.networkEditorState.connectionSourceDetails = {
+            nodeId: connToDetach.from,
+            x: sourceNode.x + 180,
+            y: sourceNode.y + 40
+        };
+    }
+
+    renderConnections();
+    renderNodes(); // Update ports
+    createTempLine();
+}
+
+function createTempLine() {
+    const svg = document.getElementById('network-connections');
+    let tempLine = document.getElementById('temp-connection-line');
+    if (!tempLine) {
+        tempLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        tempLine.setAttribute("id", "temp-connection-line");
+        tempLine.setAttribute("stroke", "#666");
+        tempLine.setAttribute("stroke-width", "2");
+        tempLine.setAttribute("stroke-dasharray", "5,5");
+        tempLine.setAttribute("fill", "none");
+        svg.appendChild(tempLine);
+    }
+}
+
 function drawConnection(svg, nodeA, nodeB, connData) {
     // Port positions
     const x1 = nodeA.x + 180;
     const y1 = nodeA.y + 40;
-    const x2 = nodeB.x;
-    const y2 = nodeB.y + 40;
+
+    // Destination Port Logic:
+    // Find index among incoming connections to nodeB
+    const incoming = window.networkEditorState.connections.filter(c => c.to === nodeB.id);
+    const index = incoming.indexOf(connData);
+
+    // Calculate Y Offset
+    // Header is approx 40px?
+    // Ports start at top of .node-ports container.
+    // .node-ports is below header. Header ~40px.
+    // Port Vertical Spacing: 16px (height) + 8px (gap) = 24px
+
+    // Base Y for first port: nodeB.y + 70 (approx offset for padding/header)
+    const portHeight = 24;
+    let y2 = nodeB.y + 70 + (index * portHeight);
+
+    const x2 = nodeB.x; // Left edge
+    // Actually, x2 should be slightly inside? No, left edge is fine if port sticks out -18px.
+    // Line should go to x=0 relative to node.
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
 
@@ -389,28 +466,30 @@ function drawConnection(svg, nodeA, nodeB, connData) {
         const cp2y = y2;
         d = `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`;
     } else {
-        // Orthogonal (Step) - Simple Midpoint
+        // Orthogonal
         const midX = (x1 + x2) / 2;
+        // Step logic: Horizontal -> Vertical -> Horizontal
+        // But for multiple inputs, we want clean separation at destination.
+        // Enhance Step: Go to midX, then Y2, then X2.
         d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
     }
 
     path.setAttribute("d", d);
     path.setAttribute("stroke", "#666");
-    path.setAttribute("stroke-width", "3"); // Thicker for easier clicking
+    path.setAttribute("stroke-width", "3");
     path.setAttribute("fill", "none");
     path.setAttribute("marker-end", "url(#arrowhead)");
     path.setAttribute("cursor", "pointer");
 
     // Deletion Handler
     path.onclick = (e) => {
-        e.stopPropagation(); // Select?
+        e.stopPropagation();
     };
     path.ondblclick = (e) => {
         e.stopPropagation();
         deleteConnection(connData);
     };
 
-    // Hover effect via class or inline
     path.onmouseover = () => path.setAttribute("stroke", "var(--primary)");
     path.onmouseout = () => path.setAttribute("stroke", "#666");
 
