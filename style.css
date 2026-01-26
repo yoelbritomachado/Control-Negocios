@@ -2112,10 +2112,14 @@ body {
 }
 
 .network-node.selected {
-    box-shadow: 0 0 0 2px var(--primary), 0 8px 30px rgba(0, 0, 0, 0.7);
-    border-color: var(--primary);
-    z-index: 100;
-    /* Bring to front */
+    /* Use outline to allow spacing and avoid conflict with inline Cubrefranco styles */
+    outline: 2px dashed #666;
+    /* Color of connection lines */
+    outline-offset: 5px;
+    /* 5px away from node */
+    z-index: 100 !important;
+    /* Ensure visibility */
+    /* Previous box-shadow/border removed to respect node-specific coloring */
 }
 
 .node-header {
