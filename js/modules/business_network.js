@@ -333,6 +333,23 @@ function renderNodes() {
             </div>
         `;
 
+        switch (node.type) {
+            case 'warehouse': color = 'var(--primary)'; icon = 'ph-warehouse'; label = node.data.name; break;
+            case 'business': color = 'var(--success)'; icon = 'ph-storefront'; label = node.data.name; break;
+            case 'user':
+                color = '#8b5cf6'; // Default Violet
+                icon = 'ph-user-gear';
+                label = node.data.name;
+
+                if (isCubrefranco) {
+                    color = '#f59e0b'; // Amber/Orange
+                    icon = 'ph-users-three'; // Multi-user icon
+                }
+                break;
+            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break;
+            default: label = node.data.name || node.id;
+        }
+
         return `
             <div class="network-node" id="${node.id}" 
                  style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color}; ${isCubrefranco ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); border-color: #f59e0b;' : ''}"
