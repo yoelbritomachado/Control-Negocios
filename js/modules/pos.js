@@ -813,13 +813,15 @@ window.showExpenseModal = function () {
                     ${catOptions}
                 </select>
 
-                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
-                <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Luz" style="margin:0 0 1rem 0; width:100%;">
+                <div id="expense-desc-container" style="display:none;">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
+                    <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Luz" style="margin:0 0 1rem 0; width:100%;">
+                </div>
                 
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto</label>
-                <div style="position:relative;">
-                    <span style="position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text-muted);">MN</span>
-                    <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%; padding-left: 2.5rem;">
+                <div style="position:relative; display:flex; align-items:center;">
+                    <span style="position:absolute; left:12px; color:var(--text-muted); pointer-events:none; font-size:0.9rem;">MN</span>
+                    <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0; width:100%; padding-left: 3rem;">
                 </div>
             </div>
         `,
@@ -828,13 +830,42 @@ window.showExpenseModal = function () {
         confirmButtonColor: 'var(--danger)',
         background: 'var(--bg-card)',
         color: 'var(--text-main)',
+        didOpen: () => {
+            const catSelect = document.getElementById('expense-category');
+            const descContainer = document.getElementById('expense-desc-container');
+
+            // Function to toggle
+            const toggleDesc = () => {
+                // Hide if 'area', show otherwise (or specifically 'otros'?)
+                // User said: "choose other... if area do not show".
+                // Let's assume 'area' is the only one that hides it.
+                if (catSelect.value === 'area') {
+                    descContainer.style.display = 'none';
+                } else {
+                    descContainer.style.display = 'block';
+                }
+            };
+
+            catSelect.addEventListener('change', toggleDesc);
+            toggleDesc(); // Initial check
+        },
         preConfirm: () => {
             const cat = document.getElementById('expense-category').value;
-            const desc = document.getElementById('expense-desc').value;
             const amount = document.getElementById('expense-amount').value;
+            // Get desc only if visible
+            let desc = "";
+            if (cat !== 'area') {
+                desc = document.getElementById('expense-desc').value;
+                if (!desc) {
+                    Swal.showValidationMessage('La descripción es obligatoria');
+                    return false;
+                }
+            } else {
+                desc = "Gasto de Área"; // Default description
+            }
 
-            if (!desc || !amount) {
-                Swal.showValidationMessage('Todos los campos son obligatorios');
+            if (!amount) {
+                Swal.showValidationMessage('Monto obligatorio');
                 return false;
             }
             return { cat, desc, amount, currency: 'mn' };
