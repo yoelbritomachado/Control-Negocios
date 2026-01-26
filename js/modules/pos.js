@@ -10,180 +10,150 @@ window.currentPaymentMethod = 'cash';
 window.editingSaleId = null;
 
 // --- POS MAIN RENDER ---
+// --- POS MAIN RENDER ---
 window.renderPOS = function (container) {
     try {
-        // 1. Verificar si hay sesión activa
         if (!isSessionActive && !isReviewingClosure) {
             renderOpenSessionScreen(container);
             return;
         }
 
-        // Obtener fecha actual en formato local
         const now = new Date();
         const today = now.toISOString().split('T')[0];
         const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-        const canEditDate = true;
 
+        // Header (Compact) - Fits in Left Panel
         const headerHtml = `
-            <div class="card" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem;">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <i class="ph ph-calendar" style="font-size: 1.5rem; color: var(--primary);"></i>
-                    <div>
-                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Fecha de Operación</label>
-                        <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" ${!canEditDate ? 'disabled' : ''} 
-                        style="background: transparent; border: none; color: inherit; font-weight: bold; font-size: 1rem; outline: none;">
-                    </div>
+            <div style="display: flex; gap: 1rem; align-items: center; padding-bottom: 1rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.4rem 0.8rem; border-radius: 8px;">
+                    <i class="ph ph-calendar" style="color: var(--primary);"></i>
+                    <input type="date" id="pos-date" value="${isReviewingClosure ? (window.auditTempData?.targetDate || today) : today}" 
+                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 0.9rem; outline: none;">
                 </div>
-                <div style="display: flex; gap: 2rem; text-align: right;">
-                    <div>
-
-                    <div>
-                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Apertura</label>
-                        <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" class="input-minimal" style="width: 100px;">
-                    </div>
-                    ${isReviewingClosure ? `
-                    <div>
-                        <label style="display: block; font-size: 0.75rem; color: var(--text-muted);">Hora Cierre</label>
-                        <input type="time" id="pos-close-time" value="${window.auditTempData.closingTime || currentTime}" class="input-minimal" style="width: 100px;">
-                    </div>` : ''}
+                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.4rem 0.8rem; border-radius: 8px;">
+                    <i class="ph ph-clock" style="color: var(--text-muted);"></i>
+                    <input type="time" id="pos-open-time" value="${isReviewingClosure ? window.auditTempData.openingTime : currentTime}" 
+                           style="background: transparent; border: none; color: white; font-family: inherit; font-size: 0.9rem; outline: none;">
                 </div>
             </div>
         `;
 
+        // History Modal (Injected hidden)
+        const historyModalHtml = `
+            <div id="pos-history-modal" class="modal-overlay hidden" style="z-index: 2000;">
+                <div class="card" style="width: 500px; max-width: 95vw; height: 80vh; display: flex; flex-direction: column; padding: 0;">
+                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0;">Movimientos del Día</h3>
+                        <button class="btn-icon" onclick="toggleTodaySales(false)"><i class="ph ph-x"></i></button>
+                    </div>
+                    <div id="history-modal-content" style="flex: 1; overflow-y: auto;">
+                        <!-- List Injected Here -->
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Just append modal if not exists
+        if (!document.getElementById('pos-history-modal')) {
+            document.body.insertAdjacentHTML('beforeend', historyModalHtml);
+        }
+
+        // Search Bar
         const searchHtml = `
-            <div class="card search-container-card" style="margin-bottom: 1rem;">
-                <div class="search-bar">
-                    <input type="text" id="pos-search" placeholder="Buscar producto por nombre..." 
-                           oninput="handlePOSSearch(this.value)" class="input-field" style="padding-left: 3rem;" autocomplete="off">
-                    <i class="ph ph-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted);"></i>
-                    <div id="pos-results" class="pos-results"></div>
-                </div>
+            <div style="position: relative; margin-bottom: 1rem;">
+                <input type="text" id="pos-search" placeholder="Buscar producto..." 
+                       oninput="handlePOSSearch(this.value)" class="input-field" 
+                       style="padding-left: 2.5rem; width: 100%; height: 50px; font-size: 1.1rem; border-radius: 12px;" autocomplete="off" autofocus>
+                <i class="ph ph-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); font-size: 1.2rem; color: var(--text-muted);"></i>
             </div>
         `;
 
-        // Responsive Grid Structure
+        // Main Layout: Grid 60% - 40%
         container.innerHTML = `
-        <div id="pos-container" class="fade-in pos-container" style="display: grid; grid-template-columns: 1fr 450px; gap: 1.5rem; height: calc(100vh - 150px);">
-            <!-- Panel Izquierdo: Buscador y Productos -->
-            <div id="pos-left-panel" class="pos-left-panel" style="display: flex; flex-direction: column; min-height: 0; gap: 1rem;">
+        <div id="pos-container" class="fade-in" style="display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.5rem; height: calc(100vh - 120px); overflow: hidden;">
+            
+            <!-- LEFT PANEL: Search & Results -->
+            <div style="display: flex; flex-direction: column; min-height: 0;">
                 ${headerHtml}
-                ${isReviewingClosure ? `
-                    <div class="pos-banner pos-banner-review">
-                        <span><i class="ph ph-shield-check"></i> MODALIDAD: REVISANDO CIERRE DE DÍA</span>
-                        <button class="btn-ghost" onclick="cancelPOSEdit()" style="color: var(--danger); font-size: 0.8rem; padding: 0.2rem 0.5rem; border: 1px solid var(--danger); border-radius: 6px;">CANCELAR REVISIÓN</button>
-                    </div>
-                ` : ''}
-                ${editingSaleId ? `
-                    <div class="pos-banner pos-banner-edit">
-                        <span><i class="ph ph-pencil-simple"></i> MODALIDAD: EDITANDO VENTA #${editingSaleId.toString().slice(-4)}</span>
-                        <button class="btn-ghost" onclick="cancelPOSEdit()" style="color: var(--danger); font-size: 0.8rem; padding: 0.2rem 0.5rem; border: 1px solid var(--danger); border-radius: 6px;">CANCELAR EDICIÓN</button>
-                    </div>
-                ` : ''}
                 ${searchHtml}
                 
-                <div id="pos-cart-area" class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
-                     <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="margin: 0;"><i class="ph ph-shopping-cart"></i> Carrito</h3>
-                        <div style="display: flex; gap: 0.5rem;">
-                             <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 0.5rem;" title="Limpiar Carrito"><i class="ph ph-trash"></i></button>
-                        </div>
-                    </div>
-                    <div id="pos-cart-items" style="flex: 1; overflow-y: auto;"></div>
-                    
-                    ${!isWarehouseContext() ? `
-                        <div class="pos-management-actions" style="padding: 1rem;">
-                            <button class="btn-secondary btn-expense" onclick="showExpenseModal()">
-                                <i class="ph ph-receipt"></i> Registrar Gasto
-                            </button>
-                            <button class="btn-secondary btn-merma" onclick="showIncidentModal()">
-                                <i class="ph ph-warning-circle"></i> Incidencias / Dev
-                            </button>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-
-            <!-- Panel Derecho -->
-            <div id="pos-right-panel" class="pos-right-panel" style="display: flex; flex-direction: column; gap: 1.5rem; min-height: 0;">
-                <div id="pos-daily-list-card" class="card" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 0;">
-                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: var(--bg-dark);">
-                        <h3 style="margin: 0; font-size: 1rem;"><i class="ph ph-list-numbers"></i> Movimientos del Día</h3>
-                    </div>
-                    <div id="today-sales-list" style="flex: 1; height: 400px; overflow-y: auto;"></div>
-                </div>
-
-                <div id="pos-actions-card" class="card" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--bg-card);">
-                    <div id="pos-summary"></div>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                        ${isReviewingClosure ? `
-                            <button id="payBtn" class="btn-primary" style="width: 100%; height: 60px; font-size: 1.2rem; border-radius: 10px; background: var(--success);" 
-                                    onclick="approveClosureFromPOS()">
-                                <i class="ph ph-check-circle"></i> APROBAR CIERRE DE DÍA
-                            </button>
-                        ` : `
-                            <button id="payBtn" class="btn-primary" style="width: 100%; height: 60px; font-size: 1.2rem; border-radius: 10px;" 
-                                    onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}">
-                                <i class="ph ${isWarehouseContext() ? 'ph-package' : 'ph-hand-coins'}"></i> 
-                                ${isWarehouseContext() ? 'TRANSFERIR MERCANCÍA' : 'COBRAR'}
-                            </button>
-                            
-                            ${!isWarehouseContext() ? `
-                                <button class="btn-secondary" style="width: 100%; border-color: var(--danger); color: var(--danger);" onclick="showExpenseModal()">
-                                    <i class="ph ph-money-wavy"></i> REGISTRAR GASTO
-                                </button>
-                            ` : ''}
-                        `}
-                        
-                        ${(!isReviewingClosure && currentUser.role === 'seller' && !isWarehouseContext()) ? `
-                            <button class="btn-secondary" style="width: 100%; border-color: var(--primary); color: var(--primary);" onclick="openPOSClosureModal()">
-                                <i class="ph ph-lock-key"></i> TERMINAR Y CERRAR DÍA
-                            </button>
-                        ` : ''}
-                        
-                        ${(!isReviewingClosure && currentUser.role !== 'seller' && !isWarehouseContext()) ? `
-                            <button class="btn-secondary" style="width: 100%;" onclick="openPOSClosureModal()">
-                                <i class="ph ph-check-square"></i> CERRAR DÍA (MODO ADMIN)
-                            </button>
-                        ` : ''}
+                <!-- Results Grid (Static) -->
+                <div id="pos-results-area" style="flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; align-content: start; padding-right: 0.5rem;">
+                    <!-- Default State: Show Categories or Recent -->
+                    <div style="grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); opacity: 0.5;">
+                        <i class="ph ph-magnifying-glass" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                        <p>Busca un producto para comenzar</p>
                     </div>
                 </div>
             </div>
-            
-            <div id="pos-mobile-footer" class="pos-footer-sticky" style="display: none;"></div>
+
+            <!-- RIGHT PANEL: Cart & Actions -->
+            <div class="card" style="display: flex; flex-direction: column; padding: 0; overflow: hidden; height: 100%; border: 1px solid var(--border);">
+                <!-- Cart Header -->
+                <div style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+                    <div style="font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="ph ph-shopping-cart"></i> Carrito
+                        <span id="cart-count-badge" style="background: var(--primary); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8rem;">0</span>
+                    </div>
+                    <button class="btn-ghost" onclick="posCart=[]; renderCart();" style="color: var(--danger); padding: 5px;" title="Vaciar"><i class="ph ph-trash"></i></button>
+                </div>
+
+                <!-- Cart Items (Scrollable) -->
+                <div id="pos-cart-items" style="flex: 1; overflow-y: auto; background: var(--bg-dark);"></div>
+
+                <!-- Footer Summary & Actions (Fixed) -->
+                <div style="padding: 1.5rem; background: var(--bg-card); border-top: 1px solid var(--border); box-shadow: 0 -10px 40px rgba(0,0,0,0.3);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1rem;">
+                        <span style="color: var(--text-muted);">Total</span>
+                        <span id="cart-total-display" style="font-size: 2.5rem; font-weight: 800; color: var(--primary); line-height: 1;">$0.00</span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <button class="btn-secondary" onclick="showExpenseModal()" style="padding: 0.8rem;">
+                            <i class="ph ph-receipt"></i> Gasto
+                        </button>
+                        <button class="btn-secondary" onclick="showIncidentModal()" style="padding: 0.8rem;">
+                            <i class="ph ph-warning-circle"></i> Merma
+                        </button>
+                    </div>
+
+                    <button id="payBtn" class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" 
+                            style="width: 100%; font-size: 1.2rem; padding: 1rem; opacity: 0.5; pointer-events: none;">
+                        ${isWarehouseContext() ? 'TRANSFERIR' : 'COBRAR'} <i class="ph ph-arrow-right" style="margin-left: 0.5rem;"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Toggle (Bottom Left, unobtrusive) -->
+        <div style="position: absolute; bottom: 1.5rem; left: 1.5rem;">
+            <button class="btn-ghost" onclick="toggleTodaySales(true)" style="border: 1px solid var(--border); background: var(--bg-card);">
+                <i class="ph ph-clock-counter-clockwise"></i> Ver Ventas Hoy
+            </button>
         </div>
         `;
 
-        updateTitle(isReviewingClosure ? 'Ventana en Revisión (Auditoría)' : 'Punto de Venta');
-        renderCart();
-        renderTodaySalesList();
-        updatePOSMobileFooter();
-
-        window.removeEventListener('resize', updatePOSMobileFooter);
-        window.addEventListener('resize', updatePOSMobileFooter);
-
-        // [CLOCK] Start Real-Time Clock
-
+        requestAnimationFrame(() => {
+            renderCart();
+            document.getElementById('pos-search').focus();
+        });
 
     } catch (e) {
         console.error('Error rendering POS:', e);
-        container.innerHTML = `<div style="padding:2rem; text-align:center; color:var(--danger);"><i class="ph ph-warning-circle" style="font-size:2rem;"></i><br>Error cargando Punto de Venta.<br><small>${e.message}</small></div>`;
+        container.innerHTML = `<div style="padding:2rem;">Error: ${e.message}</div>`;
     }
 }
 
 // --- SEARCH & CART LOGIC ---
 
+// --- SEARCH & CART LOGIC ---
+
 window.handlePOSSearch = function (query) {
-    const results = document.getElementById('pos-results');
-    if (!results) return;
+    const resultsArea = document.getElementById('pos-results-area');
+    if (!resultsArea) return;
 
-    // [SECURITY FIX] Sanitize input
+    // Sanitize
     query = Security.sanitize(query);
-
-    if (query.length < 1) {
-        results.style.display = 'none';
-        return;
-    }
 
     // Filter Logic
     const businessId = selectedBusinessId || 'mch1';
@@ -195,29 +165,46 @@ window.handlePOSSearch = function (query) {
         return p ? { ...p, stock: inv.quantity } : null;
     }).filter(p => p !== null);
 
-    const filtered = availableProducts.filter(p =>
-        p.name.toLowerCase().includes(query.toLowerCase()) ||
-        (p.alias && p.alias.toLowerCase().includes(query.toLowerCase())) ||
-        String(p.price).startsWith(query) // Price search
-    );
+    // Initial State (Empty Query): Show All (or Top 20)
+    let filtered = [];
+    if (query.length < 1) {
+        filtered = availableProducts.slice(0, 50); // Show initials
+    } else {
+        filtered = availableProducts.filter(p =>
+            p.name.toLowerCase().includes(query.toLowerCase()) ||
+            (p.alias && p.alias.toLowerCase().includes(query.toLowerCase())) ||
+            String(p.price).startsWith(query)
+        );
+    }
 
     if (filtered.length === 0) {
-        results.style.display = 'none';
+        resultsArea.innerHTML = `
+            <div style="grid-column: 1/-1; text-align: center; padding: 2rem; color: var(--text-muted);">
+                <i class="ph ph-magnifying-glass" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                <p>No se encontraron productos</p>
+            </div>`;
         return;
     }
 
-    results.innerHTML = filtered.map(p => `
-        <div class="pos-search-item" onclick="addToPOSCart(${p.id})" style="padding: 10px; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px;">
-            <div style="width: 40px; height: 40px; border-radius: 4px; overflow: hidden; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
-                ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 1.2rem; color: var(--text-muted);"></i>`}
+    // RENDER AS GRID CARDS
+    resultsArea.innerHTML = filtered.map(p => `
+        <div class="pos-product-card fade-in" onclick="addToPOSCart(${p.id})" 
+             style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column;">
+            
+            <div style="height: 100px; background: var(--bg-dark); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                ${p.image ? `<img src="${p.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 2rem; color: var(--text-muted); opacity:0.5;"></i>`}
+                
+                <div style="position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.6); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; backdrop-filter: blur(4px);">
+                    Stock: ${p.stock}
+                </div>
             </div>
-            <div>
-                <div style="font-weight: bold;">${p.name}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">$${p.price.toFixed(2)} | Stock: ${p.stock}</div>
+
+            <div style="padding: 0.8rem; flex: 1; display: flex; flex-direction: column;">
+                <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${p.name}</div>
+                <div style="margin-top: auto; font-size: 1.1rem; font-weight: 800; color: var(--primary);">$${p.price.toFixed(2)}</div>
             </div>
         </div>
     `).join('');
-    results.style.display = 'block';
 }
 
 window.addToPOSCart = function (productId) {
@@ -262,57 +249,69 @@ window.addToPOSCart = function (productId) {
 
 window.renderCart = function () {
     const container = document.getElementById('pos-cart-items');
-    const summary = document.getElementById('pos-summary');
+    const totalDisplay = document.getElementById('cart-total-display');
+    const badge = document.getElementById('cart-count-badge');
+    const payBtn = document.getElementById('payBtn');
+
     if (!container) return;
 
+    // Update Badge
+    if (badge) badge.innerText = posCart.length;
+
+    let total = 0;
+
     if (posCart.length === 0) {
-        container.innerHTML = '<div style="padding: 2rem; text-align: center; color: var(--text-muted);"><i class="ph ph-shopping-cart" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;"></i><br>El carrito está vacío</div>';
-        if (summary) summary.innerHTML = '';
-        if (document.getElementById('payBtn')) document.getElementById('payBtn').disabled = true;
+        container.innerHTML = `
+            <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); opacity: 0.5;">
+                <i class="ph ph-shopping-cart" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                <p>El carrito está vacío</p>
+            </div>`;
+        if (totalDisplay) totalDisplay.innerText = "$0.00";
+        if (payBtn) {
+            payBtn.disabled = true;
+            payBtn.style.opacity = '0.5';
+            payBtn.style.pointerEvents = 'none';
+        }
         updatePOSMobileFooter();
         return;
     }
 
-    if (document.getElementById('payBtn')) document.getElementById('payBtn').disabled = false;
+    if (payBtn) {
+        payBtn.disabled = false;
+        payBtn.style.opacity = '1';
+        payBtn.style.pointerEvents = 'auto';
+    }
 
-    let total = 0;
     container.innerHTML = posCart.map((item, index) => {
         total += item.price * item.qty;
         return `
-            <div class="cart-item fade-in" style="display: flex; align-items: center; gap: 1rem; padding: 1rem; border-bottom: 1px solid var(--border); background: var(--bg-card);">
-                <div style="width: 50px; height: 50px; border-radius: 8px; overflow: hidden; background: var(--bg-dark); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border);">
-                     ${item.image ? `<img src="${item.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<i class="ph ph-image" style="font-size: 1.5rem; color: var(--text-muted);"></i>`}
+            <div class="fade-in" style="padding: 1rem; border-bottom: 1px solid var(--border); display: flex; gap: 0.8rem;">
+                <div style="width: 50px; height: 50px; border-radius: 6px; overflow: hidden; background: var(--bg-dark); flex-shrink: 0;">
+                     ${item.image ? `<img src="${item.image}" style="width: 100%; height: 100%; object-fit: cover;">` : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"><i class="ph ph-image" style="color:#555;"></i></div>`}
                 </div>
                 <div style="flex: 1;">
-                    <div style="font-weight: bold; margin-bottom: 0.2rem;">${item.name}</div>
-                    <div style="font-size: 0.9rem; color: var(--primary);">$${item.price.toFixed(2)}</div>
+                    <div style="font-weight: 600; font-size: 0.95rem; line-height: 1.2; margin-bottom: 0.2rem;">${item.name}</div>
+                    <div style="font-size: 0.85rem; color: var(--primary);">$${item.price.toFixed(2)}</div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 0.2rem; border-radius: 8px; border: 1px solid var(--border);">
-                    <button class="btn-icon" onclick="updateCartItemQty(${index}, -1)" style="width: 28px; height: 28px; padding: 0;"><i class="ph ph-minus"></i></button>
-                    <span style="font-weight: bold; min-width: 20px; text-align: center;">${item.qty}</span>
-                    <button class="btn-icon" onclick="updateCartItemQty(${index}, 1)" style="width: 28px; height: 28px; padding: 0;"><i class="ph ph-plus"></i></button>
+                <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                     <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--bg-dark); padding: 2px; border-radius: 6px; border: 1px solid var(--border);">
+                        <button class="btn-icon" onclick="updateCartItemQty(${index}, -1)" style="width: 24px; height: 24px; padding: 0;"><i class="ph ph-minus" style="font-size: 0.8rem;"></i></button>
+                        <span style="font-weight: bold; min-width: 16px; text-align: center; font-size: 0.9rem;">${item.qty}</span>
+                        <button class="btn-icon" onclick="updateCartItemQty(${index}, 1)" style="width: 24px; height: 24px; padding: 0;"><i class="ph ph-plus" style="font-size: 0.8rem;"></i></button>
+                    </div>
+                    <button class="btn-icon" onclick="removeFromCart(${index})" style="color: var(--danger); width: 24px; height: 24px; padding: 0;"><i class="ph ph-trash"></i></button>
                 </div>
-                <button class="btn-icon" onclick="removeFromCart(${index})" style="color: var(--danger);"><i class="ph ph-trash"></i></button>
             </div>
         `;
     }).join('');
 
-    if (summary) {
-        summary.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: flex-end; padding: 0.5rem 0;">
-                <div>
-                    <div style="font-size: 0.9rem; color: var(--text-muted);">Total a Pagar</div>
-                    <div style="font-size: 2rem; font-weight: 900; color: var(--primary); line-height: 1;">$${total.toFixed(2)}</div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">${posCart.length} ítems</div>
-                </div>
-            </div>
-        `;
-    }
+    // Update Totals
+    if (totalDisplay) totalDisplay.innerText = `$${total.toFixed(2)}`;
+
     updatePOSMobileFooter();
 }
 
+// Preserve helper functions
 window.updateCartItemQty = function (index, change) {
     const item = posCart[index];
     const newQty = item.qty + change;
@@ -646,10 +645,22 @@ function updatePOSMobileFooter() {
     }
 }
 
-// --- TODAY SALES LIST ---
-window.renderTodaySalesList = function () {
-    const container = document.getElementById('today-sales-list');
-    if (!container) return;
+// --- TODAY SALES LIST (HISTORY) ---
+window.toggleTodaySales = function (show) {
+    const modal = document.getElementById('pos-history-modal');
+    if (!modal) return;
+
+    if (show) {
+        modal.classList.remove('hidden');
+        renderTodaySalesList('history-modal-content');
+    } else {
+        modal.classList.add('hidden');
+    }
+}
+
+window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') {
+    const container = document.getElementById(targetContainerId);
+    if (!container) return; // Might happen if modal not open, safe fix
 
     const todayDate = document.getElementById('pos-date') ? document.getElementById('pos-date').value : new Date().toISOString().split('T')[0];
 
