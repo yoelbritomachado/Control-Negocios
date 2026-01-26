@@ -164,21 +164,34 @@ function renderNodes() {
         let icon = 'ph-square';
         let label = node.id;
 
+        // Cubrefranco Detection
+        const incomingConnections = window.networkEditorState.connections.filter(c => c.to === node.id).length;
+        const isCubrefranco = node.type === 'user' && node.data.role === 'seller' && incomingConnections >= 2;
+
         switch (node.type) {
             case 'warehouse': color = 'var(--primary)'; icon = 'ph-warehouse'; label = node.data.name; break;
             case 'business': color = 'var(--success)'; icon = 'ph-storefront'; label = node.data.name; break;
-            case 'user': color = '#8b5cf6'; icon = 'ph-user-gear'; label = node.data.name; break;
-            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break; // Added company
-            default: label = node.data.name || node.id; // Fallback to data.name
+            case 'user':
+                color = '#8b5cf6'; // Default Violet
+                icon = 'ph-user-gear';
+                label = node.data.name;
+
+                if (isCubrefranco) {
+                    color = '#f59e0b'; // Amber/Orange
+                    icon = 'ph-users-three'; // Multi-user icon
+                }
+                break;
+            case 'company': color = '#f59e0b'; icon = 'ph-buildings'; label = node.data.name; break;
+            default: label = node.data.name || node.id;
         }
 
         return `
             <div class="network-node" id="${node.id}" 
-                 style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color};"
+                 style="transform: translate(${node.x}px, ${node.y}px); border-top: 4px solid ${color}; ${isCubrefranco ? 'box-shadow: 0 0 15px rgba(245, 158, 11, 0.4); border-color: #f59e0b;' : ''}"
                  onmousedown="handleNodeMouseDown(event, '${node.id}')"
                  ondblclick="editNodeName('${node.id}')">
                 
-                <div class="node-header">
+                <div class="node-header" style="${isCubrefranco ? 'background: rgba(245, 158, 11, 0.1);' : ''}">
                     <i class="ph ${icon}" style="color: ${color}"></i>
                     <span>${label}</span>
                 </div>
@@ -191,7 +204,7 @@ function renderNodes() {
                 </div>
 
                 <div style="font-size: 0.75rem; color: #888; margin-top: 5px;">
-                    ${node.type === 'business' ? 'PUNTO DE VENTA' : (node.type === 'warehouse' ? 'ALMACÉN' : (node.type === 'company' ? 'EMPRESA' : node.type.toUpperCase()))}
+                    ${node.type === 'business' ? 'PUNTO DE VENTA' : (node.type === 'warehouse' ? 'ALMACÉN' : (node.type === 'company' ? 'EMPRESA' : (isCubrefranco ? 'CUBREFRANCO' : node.type.toUpperCase())))}
                 </div>
             </div>
         `;
