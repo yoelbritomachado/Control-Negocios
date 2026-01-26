@@ -715,8 +715,9 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
              </div>
              ${(!isExpense && (currentUser.role !== 'seller' || s.status === 'registered')) ? `
                  <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-                    <button class="btn-icon" onclick="returnItemFromTodaySale(${s.id})" title="Devolución"><i class="ph ph-arrow-u-up-left"></i></button>
-                    <!-- Edit/Delete could go here -->
+                    <button class="btn-icon" onclick="editSale(${s.id})" title="Editar Venta" style="color:var(--primary); border-color:var(--primary); opacity:0.8;">
+                        <i class="ph ph-pencil-simple"></i> Editar
+                    </button>
                  </div>
              ` : ''}
         </div>
@@ -724,11 +725,31 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
     }).join('');
 }
 
-window.returnItemFromTodaySale = async function (saleId, itemId) {
-    // Only allows returning if not closed, simple logic
-    alert("Función básica de devolución (Implementar detalles en Inventario)");
-    // This function was more complex in app.js, simplified here for 'Option B Lite' to reduce risk first pass.
-    // Ideally we copy the logic exactly. Let's assume we do if the user really uses it.
+window.editSale = function (saleId) {
+    const sale = db.sales.find(s => s.id === saleId);
+    if (!sale) return;
+
+    if (window.posCart.length > 0) {
+        if (!confirm("Hay productos en el carrito actual. ¿Deseas descartarlos para editar esta venta?")) return;
+    }
+
+    // Load to Cart
+    window.posCart = sale.items.map(i => ({
+        id: i.productId || i.id, // Compat
+        name: i.name,
+        price: i.price,
+        qty: i.qty,
+        image: i.image // Might be missing if not saved, but harmless
+    }));
+
+    window.editingSaleId = saleId;
+    renderCart();
+
+    // Pulse effect or notification
+    showToast(`Editando Venta #${saleId}`, "info");
+
+    // Scroll to cart
+    // document.getElementById('pos-cart-panel').scrollIntoView({ behavior: 'smooth' });
 }
 
 console.log('🛒 POS Module Loaded');
