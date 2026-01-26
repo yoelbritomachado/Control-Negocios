@@ -121,6 +121,9 @@ window.renderPOS = function (container) {
                          <button class="btn-secondary" onclick="showExpenseModal()" style="flex: 1; padding: 0.6rem; font-size: 0.9rem; border-color: var(--danger); color: var(--danger);">
                             <i class="ph ph-receipt"></i> Gasto
                         </button>
+                         <button class="btn-secondary" onclick="showIncidentModal()" style="flex: 1; padding: 0.6rem; font-size: 0.9rem; border-color: var(--warning); color: var(--warning);">
+                            <i class="ph ph-warning-circle"></i> Merma
+                        </button>
                     </div>
 
                     <button id="payBtn" class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" 
@@ -769,48 +772,177 @@ window.isWarehouseContext = function () {
 }
 
 window.showExpenseModal = function () {
-    // Basic Expense Modal using SweetAlert2
     if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
+
+    // Load Categories
+    const categories = db.expenseCategories || [{ id: 'general', label: 'General' }];
+    const catOptions = categories.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
 
     Swal.fire({
         title: 'Registrar Gasto',
         html: `
             <div style="text-align: left;">
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Categoría</label>
+                <select id="expense-category" class="swal2-select" style="margin:0 0 1rem 0; width:100%; display:flex;">
+                    ${catOptions}
+                </select>
+
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
-                <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Almuerzo" style="margin:0 0 1rem 0; width:100%;">
+                <input type="text" id="expense-desc" class="swal2-input" placeholder="Ej. Pago de Luz" style="margin:0 0 1rem 0; width:100%;">
                 
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto</label>
                 <input type="number" id="expense-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
 
                 <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Moneda</label>
-                <select id="expense-currency" class="swal2-select" style="margin:0 0 1rem 0; width:100%; display:flex;">
-                    <option value="mn" selected>MN</option>
-                    <option value="usd">USD</option>
-                    <option value="eur">EUR</option>
-                </select>
+                <input type="text" class="swal2-input" value="MN (Moneda Nacional)" disabled style="margin:0 0 1rem 0; width:100%; bg: #333;">
             </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Registrar',
+        confirmButtonText: 'Registrar Gasto',
         confirmButtonColor: 'var(--danger)',
         background: 'var(--bg-card)',
         color: 'var(--text-main)',
         preConfirm: () => {
+            const cat = document.getElementById('expense-category').value;
             const desc = document.getElementById('expense-desc').value;
             const amount = document.getElementById('expense-amount').value;
-            const currency = document.getElementById('expense-currency').value;
+
             if (!desc || !amount) {
                 Swal.showValidationMessage('Todos los campos son obligatorios');
                 return false;
             }
-            return { desc, amount, currency };
+            return { cat, desc, amount, currency: 'mn' };
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            registerExpense(result.value);
+            const { cat, desc, amount, currency } = result.value;
+            console.log("Registrando Gasto:", result.value);
+
+            const saleData = {
+                id: Date.now(),
+                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
+                timestamp: Date.now(),
+                businessId: selectedBusinessId || 'mch1',
+                seller: currentUser ? currentUser.name : 'Vendedor',
+                items: [], // No products
+                total: parseFloat(amount) * -1, // Negative for expense
+                payment: { cash: 0, transfer: 0, currency: currency },
+                type: 'EXPENSE',
+                category: cat,
+                details: desc,
+                status: 'registered'
+            };
+
+            db.sales.unshift(saleData);
+            window.saveData();
+            showToast("Gasto registrado correctamente", "success");
+
+            // Refresh
+            if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+            if (typeof renderPOS === 'function') renderPOS(document.getElementById('content-area'));
         }
     });
-};
+}
+
+window.showIncidentModal = function () {
+    if (typeof Swal === 'undefined') { alert("Sistema de modales no cargado"); return; }
+
+    // Check if cart has items to "discard"
+    const hasItems = window.posCart && window.posCart.length > 0;
+
+    let htmlContent = '';
+    if (hasItems) {
+        const total = window.posCart.reduce((sum, i) => sum + (i.price * i.qty), 0);
+        htmlContent = `
+            <div style="text-align: left;">
+                <p style="color:var(--text-muted); margin-bottom:1rem;">
+                    Se registrarán <b>${window.posCart.length} productos</b> como merma/pérdida.
+                    <br>Valor Total: <b>$${total.toFixed(2)}</b>
+                </p>
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Motivo</label>
+                <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Caducado, Roto, Robo" style="margin:0 0 1rem 0; width:100%;">
+            </div>
+        `;
+    } else {
+        htmlContent = `
+            <div style="text-align: left;">
+                <p style="color:var(--warning); margin-bottom:1rem; font-size:0.9rem;">
+                    <i class="ph ph-info"></i> Para mermar productos específicos, agrégalos al carrito primero.
+                </p>
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Descripción</label>
+                <input type="text" id="incident-desc" class="swal2-input" placeholder="Ej. Pérdida de efectivo" style="margin:0 0 1rem 0; width:100%;">
+                
+                <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted);">Monto Estimado</label>
+                <input type="number" id="incident-amount" class="swal2-input" placeholder="0.00" style="margin:0 0 1rem 0; width:100%;">
+            </div>
+        `;
+    }
+
+    Swal.fire({
+        title: 'Registrar Merma',
+        html: htmlContent,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Registrar Merma',
+        confirmButtonColor: 'var(--warning)',
+        background: 'var(--bg-card)',
+        color: 'var(--text-main)',
+        preConfirm: () => {
+            const desc = document.getElementById('incident-desc').value;
+            const amount = document.getElementById('incident-amount') ? document.getElementById('incident-amount').value : 0;
+
+            if (!desc) {
+                Swal.showValidationMessage('El motivo es obligatorio');
+                return false;
+            }
+            return { desc, amount };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const { desc, amount } = result.value;
+            const businessId = selectedBusinessId || 'mch1';
+
+            // Deduct Stock if Cart Items
+            if (hasItems) {
+                window.posCart.forEach(item => {
+                    const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+                    if (inv) inv.quantity -= item.qty;
+                });
+            }
+
+            const totalLoss = hasItems
+                ? window.posCart.reduce((sum, i) => sum + (i.price * i.qty), 0)
+                : parseFloat(amount) || 0;
+
+            const saleData = {
+                id: Date.now(),
+                date: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString(),
+                timestamp: Date.now(),
+                businessId: businessId,
+                seller: currentUser ? currentUser.name : 'Vendedor',
+                items: hasItems ? window.posCart : [],
+                total: 0, // No revenue
+                lossValue: totalLoss,
+                type: 'MERMA',
+                details: desc,
+                status: 'registered'
+            };
+
+            db.sales.unshift(saleData);
+            window.saveData();
+
+            if (hasItems) {
+                window.posCart = [];
+                renderCart();
+            }
+
+            showToast("Merma registrada", "warning");
+
+            // Refresh
+            if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+        }
+    });
+}
 
 window.registerExpense = function (data) {
     const saleData = {

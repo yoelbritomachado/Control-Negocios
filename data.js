@@ -79,7 +79,13 @@ window.db = {
   businesses: [],
   settings: { theme: 'dark' },
   logs: [],
-  transfers: []
+  transfers: [],
+  expenseCategories: [
+    { id: 'salarios', label: 'Salarios' },
+    { id: 'suministros', label: 'Suministros' },
+    { id: 'servicios', label: 'Servicios' },
+    { id: 'otros', label: 'Otros' }
+  ]
 };
 
 // --- GLOBAL PERSISTENCE FUNCTIONS (DEFINED EARLY) ---
