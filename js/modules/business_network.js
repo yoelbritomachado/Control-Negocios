@@ -149,6 +149,12 @@ window.renderBusinessNetwork = function (container) {
 
     if (!db.networkLayout || db.networkLayout.length === 0) {
         initializeDefaultLayout(db);
+        
+        // [AUTO-SYNC FIX] Load nodes into state BEFORE sync so it sees them
+        window.networkEditorState.nodes = [...db.networkLayout];
+        
+        syncNetworkUsersToDB();
+        window.saveData(); 
     }
 
     // Load State
@@ -759,8 +765,56 @@ window.saveNetworkLayout = async function () {
     const db = window.db || {};
     db.networkLayout = window.networkEditorState.nodes;
     db.networkConnections = window.networkEditorState.connections;
+    
+    // [SYNC] Synchronize Nodes to DB Users
+    syncNetworkUsersToDB();
+
     await window.saveData();
-    showToast("Distribución de Red Guardada", "success");
+    showToast("Distribución de Red Guardada y Usuarios Sincronizados", "success");
+}
+
+function syncNetworkUsersToDB() {
+    const nodes = window.networkEditorState.nodes;
+    if (!window.db.users) window.db.users = [];
+
+    const newUsersList = [];
+
+    // Permission Defaults
+    const defaultPerms = {
+        'owner': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'financials', 'cash-control', 'logs', 'settings', 'network_editor'],
+        'admin': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'reportes', 'cash-control', 'settings'],
+        'seller': ['pos', 'ventas', 'inventory', 'mermas']
+    };
+
+    nodes.forEach(node => {
+        if (node.type === 'user') {
+            // Try to preserve existing user data (PIN, permissions) if ID matches
+            let existingUser = window.db.users.find(u => u.id === node.id);
+            
+            // Fallback: If no ID match, try to match by NAME + ROLE to migrate legacy users
+            if (!existingUser) {
+                existingUser = window.db.users.find(u => u.name === node.data.name && u.role === node.data.role);
+            }
+
+            const userObj = {
+                id: node.id, // The Node ID becomes the User ID Authority
+                name: node.data.name,
+                role: node.data.role,
+                pin: existingUser ? existingUser.pin : '0000',
+                permissions: existingUser ? existingUser.permissions : (defaultPerms[node.data.role] || [])
+            };
+            
+            newUsersList.push(userObj);
+        }
+    });
+
+    // SAFETY CHECK: Ensure we don't delete all users inadvertently
+    if (newUsersList.length > 0) {
+        window.db.users = newUsersList;
+        console.log(`[Sync] Updated db.users. Total users: ${newUsersList.length}`);
+    } else {
+        console.warn("[Sync] No users found in network map. Sync aborted to prevent lockout.");
+    }
 }
 
 window.autoLayoutNetwork = function () {
@@ -1001,7 +1055,15 @@ window.openNodeEditor = function (nodeId) {
         permSection.style.display = 'block';
 
         // Find real user data if unified
-        const dbUser = (window.db.users || []).find(u => u.role === node.data.role); // Match by Role for now
+        // [FIX] Match by ID first, fallback to Role only if ID mismatch (Legacy)
+        let dbUser = (window.db.users || []).find(u => u.id === node.id);
+        
+        // Fallback for legacy default users that might not have matching node IDs yet
+        if (!dbUser) {
+             // Try to find a user with the same name/role that isn't linked to another node?
+             // Or just create a temp view.
+             // For now, if not found by ID, we default to 0000 and standard perms.
+        }
 
         if (dbUser) {
             document.getElementById('editor-pin').value = dbUser.pin || '0000';
@@ -1066,7 +1128,18 @@ window.saveNodeEditor = function () {
 
     // If User, update DB User
     if (node.type === 'user') {
-        let dbUser = window.db.users.find(u => u.role === node.data.role);
+        // [FIX] Find by ID
+        let dbUser = window.db.users.find(u => u.id === node.id);
+
+        // If user doesn't exist yet (e.g. new node not yet synced), create it now
+        if (!dbUser) {
+             dbUser = {
+                id: node.id,
+                role: node.data.role,
+                permissions: []
+             };
+             window.db.users.push(dbUser);
+        }
 
         if (dbUser) {
             dbUser.name = newName;

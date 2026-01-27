@@ -87,6 +87,42 @@ window.db = {
   ]
 };
 
+// --- DEFAULT NETWORK CONFIGURATION (FACTORY SETTINGS) ---
+window.DEFAULT_NETWORK_NODES = [
+    // Level 1: Owners & Company
+    { id: 'node-owner-1', type: 'user', data: { name: 'Dueño YOEL', role: 'owner' }, x: 400, y: 50 },
+    { id: 'node-owner-2', type: 'user', data: { name: 'Dueño ARY', role: 'owner' }, x: 800, y: 50 },
+    { id: 'node-company-1', type: 'company', data: { name: 'MISS CHULERIAS' }, x: 600, y: 250 },
+
+    // Level 2: Admin
+    { id: 'node-admin-1', type: 'user', data: { name: 'Administrador KEILA', role: 'admin' }, x: 300, y: 300 },
+
+    // Level 3: Warehouse
+    { id: 'node-warehouse-1', type: 'warehouse', data: { name: 'Almacén MCH' }, x: 800, y: 450 },
+
+    // Level 4: POS
+    { id: 'node-pos-1', type: 'business', data: { name: 'MCH 1' }, x: 300, y: 650 },
+    { id: 'node-pos-2', type: 'business', data: { name: 'MCH 2' }, x: 900, y: 650 },
+
+    // Level 5: Sellers
+    { id: 'node-seller-1', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 300, y: 850 },
+    { id: 'node-seller-2', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 600, y: 850 }, // Cubrefranco
+    { id: 'node-seller-3', type: 'user', data: { name: 'Vendedor', role: 'seller' }, x: 1000, y: 850 }
+];
+
+window.DEFAULT_NETWORK_CONNECTIONS = [
+    { from: 'node-owner-1', to: 'node-company-1' },
+    { from: 'node-owner-2', to: 'node-company-1' },
+    { from: 'node-company-1', to: 'node-warehouse-1' },
+    { from: 'node-company-1', to: 'node-admin-1' },
+    { from: 'node-warehouse-1', to: 'node-pos-1' },
+    { from: 'node-warehouse-1', to: 'node-pos-2' },
+    { from: 'node-pos-1', to: 'node-seller-1' },
+    { from: 'node-pos-1', to: 'node-seller-2' },
+    { from: 'node-pos-2', to: 'node-seller-2' },
+    { from: 'node-pos-2', to: 'node-seller-3' }
+];
+
 // --- GLOBAL PERSISTENCE FUNCTIONS (DEFINED EARLY) ---
 
 window.saveData = async function () {
@@ -165,22 +201,45 @@ function finalizeLoad() {
     if (!window.db[key]) window.db[key] = [];
   });
 
-  const requiredUsers = [
-    { id: 1, name: 'Dueño', role: 'owner', pin: '0000' },
-    { id: 2, name: 'Administrador', role: 'admin', pin: '0000' },
-    { id: 3, name: 'Vendedor', role: 'seller', pin: '0000' }
-  ];
+  // [MOD] Only enforce default users if NO network layout exists
+  // If no layout, inject DEFAULT_NETWORK_NODES
+  if (!window.db.networkLayout || window.db.networkLayout.length === 0) {
+      console.log("🔧 Inicializando Layout de Red por defecto...");
+      window.db.networkLayout = [...window.DEFAULT_NETWORK_NODES];
+      window.db.networkConnections = [...window.DEFAULT_NETWORK_CONNECTIONS];
+  }
 
-  if (!window.db.users) window.db.users = [];
-  requiredUsers.forEach(ru => {
-    const existing = window.db.users.find(u => u.role === ru.role);
-    if (!existing) {
-      window.db.users.push(ru);
-    } else {
-      // [REQUESTED] Force Update PINs to 0000
-      // existing.pin = '0000';
-    }
-  });
+  // Ensure DB Users match Network Layout
+  const networkUsers = window.db.networkLayout.filter(n => n.type === 'user');
+  if (networkUsers.length > 0) {
+      // Sync DB Users with Network Nodes
+      // Strategy: Ensure every network user node has a db user entry
+      networkUsers.forEach(node => {
+          let user = window.db.users.find(u => u.id === node.id);
+          
+          if (!user) {
+              // Create missing user
+              const role = node.data.role;
+              let perms = [];
+              // Default Permissions (Simplified)
+              if(role === 'owner') perms = ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'cash-control', 'settings', 'network_editor'];
+              if(role === 'admin') perms = ['dashboard', 'pos', 'ventas', 'inventory', 'transfer', 'mermas', 'reportes', 'cash-control', 'settings'];
+              if(role === 'seller') perms = ['pos', 'ventas', 'inventory', 'mermas'];
+
+              window.db.users.push({
+                  id: node.id,
+                  name: node.data.name,
+                  role: role,
+                  pin: '0000',
+                  permissions: perms
+              });
+          } else {
+              // Optional: Update name/role if changed in layout default
+              user.name = node.data.name;
+              user.role = node.data.role;
+          }
+      });
+  }
 
   if (!window.db.businessFund) window.db.businessFund = { cash: 100000, transfer: 0, usd: 0, eur: 0 };
 

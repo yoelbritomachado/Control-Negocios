@@ -44,22 +44,17 @@ window.renderInventory = function (container) {
         else if (i.stock <= minStock) semClass = 'sem-yellow';
 
         return `
-            <div class="product-card-v2 ${isSelected ? 'selected' : ''}" onclick="toggleProductSelection(${i.id})">
-                <div class="pc-semaphore ${semClass}" title="Estado: ${semClass}"></div>
+            <div class="product-card-v2 ${isSelected ? 'selected' : ''}" onclick="showEditProductModal(${i.id})" style="cursor: pointer;">
+                <!-- Selection Checkbox (Top Right) -->
+                <div onclick="event.stopPropagation(); toggleProductSelection(${i.id})" 
+                     style="position: absolute; top: 10px; right: 10px; z-index: 100; width: 24px; height: 24px; background: ${isSelected ? 'var(--primary)' : 'rgba(0,0,0,0.3)'}; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;">
+                    <i class="ph ${isSelected ? 'ph-check' : ''}" style="color: white; font-size: 0.9rem;"></i>
+                </div>
+
+                <div class="pc-semaphore ${semClass}" title="Estado: ${semClass}" style="top: 15px; left: 15px;"></div>
                 
-                <div class="pc-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; padding-right: 0;">
+                <div class="pc-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; padding-right: 2rem; margin-top: 1.5rem;">
                     <div class="pc-title" title="${i.name}" style="flex: 1;">${i.name}</div>
-                    
-                    <div class="header-actions" style="display: flex; gap: 0.5rem; align-items: center; z-index: 50;">
-                        <button class="btn-icon-small" onclick="event.stopPropagation(); showEditProductModal(${i.id})" title="Editar" style="background: rgba(255,255,255,0.1); border: 1px solid var(--border); border-radius: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text-main);">
-                           <i class="ph ph-pencil-simple" style="font-size: 1.1rem;"></i>
-                        </button>
-                        ${selectedBusinessId ? `
-                        <button class="btn-icon-small" onclick="event.stopPropagation(); showMermaModal(${i.id})" title="Merma/Eliminar" style="background: rgba(255,255,255,0.1); border: 1px solid var(--border); border-radius: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--danger);">
-                            <i class="ph ph-trash" style="font-size: 1.1rem;"></i>
-                        </button>
-                        ` : ''}
-                    </div>
                 </div>
 
                 <div class="pc-image-container">

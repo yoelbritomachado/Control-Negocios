@@ -136,6 +136,9 @@ window.renderPOS = function (container) {
                          <button class="btn-secondary" onclick="showIncidentModal()" style="flex: 1; padding: 0.8rem; border-color: var(--border); color: var(--warning);">
                             <i class="ph ph-warning-circle"></i> Merma
                         </button>
+                         <button class="btn-secondary" onclick="showCurrencyBuyModal()" style="flex: 1; padding: 0.8rem; border-color: var(--border); color: #85bb65;">
+                            <i class="ph ph-currency-circle-dollar"></i> Divisa
+                        </button>
                     </div>
 
                     <button id="payBtn" class="btn-primary" onclick="${isWarehouseContext() ? 'showTransferModal()' : 'showPaymentModal()'}" 
@@ -732,7 +735,7 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
             sessionCondition = saleTs >= ((window.currentSessionStartTime) || 0);
         }
         return saleDatePart === todayDate &&
-            (s.status === 'registered' || s.status === 'closed') &&
+            (s.status === 'registered' || s.status === 'closed' || s.status === 'saved') &&
             (selectedBusinessId ? s.businessId === selectedBusinessId : true) &&
             sessionCondition;
     });
@@ -759,9 +762,12 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
         <div class="sale-item fade-in" style="background: var(--bg-hover); padding: 0.8rem; border-radius: 8px; border-left: 3px solid ${color};">
             <div style="display: flex; justify-content: space-between; margin-bottom: 0.2rem;">
                  <span style="font-weight: 700; font-size: 0.95rem; color:white;">#${s.id}</span>
-                 <span style="font-weight: 700; color: ${color};">$${isExpense ? '-' : ''}${Math.abs(s.total).toFixed(2)}</span>
+                 ${isSaved ? 
+                    `<span style="font-weight: 700; color: ${color}; font-size: 0.8rem; padding: 2px 6px; border: 1px solid ${color}; border-radius: 4px;">PENDIENTE</span>` 
+                    : `<span style="font-weight: 700; color: ${color};">$${isExpense ? '-' : ''}${Math.abs(s.total).toFixed(2)}</span>`
+                 }
             </div>
-             <div style="font-size: 0.8rem; color: var(--text-muted); display:flex; gap:0.5rem;">
+             <div style="font-size: 0.8rem; color: var(--text-muted); display:flex; gap:0.5rem; flex-wrap: wrap;">
                  ${(s.items || []).map(i => `<div>• ${i.name} (${i.qty})</div>`).join('')}
              </div>
              <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4); margin-top: 0.4rem;">
@@ -769,11 +775,18 @@ window.renderTodaySalesList = function (targetContainerId = 'today-sales-list') 
              </div>
              ${(!isExpense && !isMerma && (currentUser.role !== 'seller' || s.status === 'registered' || isSaved)) ? `
                  <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem;">
-                    <button class="btn-icon" onclick="editSale(${s.id})" title="${isSaved ? 'Reanudar Venta' : 'Editar Venta'}" style="color:var(--primary); border-color:var(--primary); opacity:0.8;">
-                        <i class="ph ${isSaved ? 'ph-play' : 'ph-pencil-simple'}"></i> ${isSaved ? 'Reanudar' : 'Editar'}
-                    </button>
+                    ${isSaved ? `
+                        <button class="btn-icon" onclick="resumeSale(${s.id})" title="Reanudar Venta" style="color:var(--bg-dark); background:var(--warning); border:none; padding:0.4rem 1rem; border-radius:8px; font-weight:700; opacity:1; width:100%;">
+                            <i class="ph ph-play-circle"></i> REANUDAR
+                        </button>
+                    ` : `
+                        <button class="btn-icon" onclick="editSale(${s.id})" title="Editar Venta" style="color:var(--primary); border-color:var(--primary); opacity:0.8;">
+                            <i class="ph ph-pencil-simple"></i> Editar
+                        </button>
+                    `}
+                    
                     <!-- DELETE BUTTON (Void Sale) -->
-                    <button class="btn-icon" onclick="deleteSale(${s.id})" title="Eliminar Venta (Restaurar Stock)" style="color:var(--danger); border-color:var(--danger); opacity:0.8;">
+                    <button class="btn-icon" onclick="deleteSale(${s.id})" title="Eliminar Venta (Restaurar Stock)" style="color:var(--danger); border-color:var(--danger); opacity:0.8; ${isSaved ? 'background:rgba(255,0,0,0.1);' : ''}">
                         <i class="ph ph-trash"></i>
                     </button>
                  </div>
@@ -788,7 +801,56 @@ window.editSale = async function (saleId) {
     const sale = db.sales.find(s => s.id === saleId);
     if (!sale) return;
 
+    // [FIX] Currency Buy Edit Logic
+    if (sale.type === 'CURRENCY_BUY') {
+        const details = sale.currencyBought || {};
+        // Re-open buy modal with pre-filled data
+        // We need a slight modification to 'showCurrencyBuyModal' to accept values
+        // Or we can manually trigger it and set values after a timeout
+        
+        // For simplicity, let's just delete the old one and let user recreate?
+        // Better: Pre-fill. But standard modal is clean.
+        // Let's modify showCurrencyBuyModal to accept 'editData'
+        
+        // Quick workaround: Alert user to delete and re-add or implement dedicated edit
+        // User requested FIX. So we must support it.
+        // Let's try to delete it (reverting funds) and open the modal fresh.
+        // BUT user might want to see what was there.
+        
+        Swal.fire({
+            title: 'Editar Compra de Divisa',
+            text: 'Para editar, se eliminará el registro actual y podrás crear uno nuevo. ¿Continuar?',
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonText: 'Sí, editar',
+            cancelButtonText: 'Cancelar'
+        }).then((res) => {
+            if (res.isConfirmed) {
+                // Delete sale (Reverts MN)
+                // Manual deletion logic similar to deleteSale but without stock logic
+                db.sales = db.sales.filter(s => s.id !== saleId);
+                // Revert money? 'deleteSale' logic handles inventory. Currency buy handles cash.
+                // We need to implement delete logic for currency buy in 'deleteSale' first or here.
+                
+                // Let's implement robust delete first.
+                // Assuming 'deleteSale' handles generic sales.
+                // Let's manually revert the cash effect here.
+                if (typeof window.actualizarSaldo === 'function') {
+                    window.actualizarSaldo('mn', Math.abs(sale.total)); // Add back the money spent
+                }
+                
+                window.saveData();
+                renderTodaySalesList();
+                
+                // Open Modal
+                showCurrencyBuyModal(details); // Pass details to pre-fill
+            }
+        });
+        return;
+    }
+
     if (window.posCart.length > 0) {
+        // ... existing cart logic ...
         const result = await Swal.fire({
             title: 'Carrito activo',
             text: "¿Qué deseas hacer con los productos en el carrito actual?",
@@ -805,14 +867,13 @@ window.editSale = async function (saleId) {
         });
 
         if (result.isConfirmed) {
-            // Save current cart as Pending Sale
-            window.savePendingSale(); // This clears posCart
-            // Now proceed to load the edit
+            window.savePendingSale().then(() => {
+               window.editSale(saleId); // Recursive retry
+            });
+            return;
         } else if (result.isDenied) {
-            // Just discard
             window.posCart = [];
         } else {
-            // Cancel action
             return;
         }
     }
@@ -836,7 +897,7 @@ window.editSale = async function (saleId) {
     // document.getElementById('pos-cart-panel').scrollIntoView({ behavior: 'smooth' });
 }
 
-window.savePendingSale = function () {
+window.savePendingSale = async function () {
     if (!window.posCart || window.posCart.length === 0) {
         showToast("El carrito está vacío", "error");
         return;
@@ -845,65 +906,122 @@ window.savePendingSale = function () {
     const businessId = selectedBusinessId || 'mch1';
     const totalValue = window.posCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
     const timestamp = Date.now();
-    const dateString = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString();
+    const now = new Date();
+    const dateString = `${now.toISOString().split('T')[0]} ${now.toLocaleTimeString([], { hour12: false })}`;
 
-    // 1. Deduct Stock (Same as normal sale)
-    // Validate if we are editing or new
-    if (window.editingSaleId) {
-        // Revert old before deducting new?
-        // Logic: If editing 'saved', we treat it like an update.
-        // We must REVERT the stock of the OLD saved version, then deduct the NEW cart.
-        const oldSale = db.sales.find(s => s.id === window.editingSaleId);
-        if (oldSale && oldSale.items) {
-            oldSale.items.forEach(oldItem => {
-                const inv = db.inventory.find(i => String(i.productId) === String(oldItem.productId || oldItem.id) && String(i.businessId) === String(oldSale.businessId));
-                if (inv) inv.quantity += oldItem.qty;
-            });
-        }
-        // Deduct New
-        window.posCart.forEach(item => {
-            const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
-            if (inv) inv.quantity -= item.qty;
+    // 1. DEDUCT STOCK (RESERVATION)
+    // We deduct stock to ensure availability. If cancelled later, we revert.
+    window.posCart.forEach(item => {
+        const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
+        if (inv) inv.quantity -= item.qty;
+    });
+
+    // 2. CREATE PENDING RECORD
+    const saleData = {
+        id: timestamp,
+        date: dateString,
+        timestamp: timestamp,
+        businessId: businessId,
+        seller: currentUser ? currentUser.name : 'Vendedor',
+        sellerId: currentUser ? currentUser.id : 0,
+        items: window.posCart.map(i => ({ 
+            productId: i.id, 
+            id: i.id, // Ensure ID is kept
+            name: i.name, 
+            qty: i.qty, 
+            price: i.price,
+            image: i.image 
+        })),
+        total: totalValue,
+        payment: { cash: 0, transfer: 0, currency: 'mn' }, 
+        status: 'saved', // MARK AS SAVED
+        sessionId: (typeof window.currentSessionStartTime !== 'undefined' ? window.currentSessionStartTime : Date.now())
+    };
+
+    db.sales.unshift(saleData);
+    
+    // 3. CLEANUP
+    window.posCart = [];
+    window.editingSaleId = null; // Clear edit flag if any
+    
+    await window.saveData();
+    renderCart();
+    if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+    
+    showToast("Venta guardada y stock reservado 📦", "success");
+}
+
+window.resumeSale = function (saleId) {
+    // 1. Find the saved sale
+    const saleIndex = db.sales.findIndex(s => s.id === saleId);
+    if (saleIndex === -1) return;
+    const sale = db.sales[saleIndex];
+
+    // 2. CHECK IF CART HAS ITEMS
+    if (window.posCart.length > 0) {
+        Swal.fire({
+            title: 'Carrito ocupado',
+            text: "Tienes productos en el carrito. ¿Qué deseas hacer?",
+            icon: 'warning',
+            showDenyButton: true,
+            confirmButtonText: 'Guardar actual y Reanudar',
+            denyButtonText: 'Descartar actual',
+            confirmButtonColor: '#ff4081',
+            denyButtonColor: 'var(--text-muted)',
+            background: 'var(--bg-card)',
+            color: 'var(--text-main)'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                window.savePendingSale().then(() => {
+                   // Recursive call after saving
+                   window.resumeSale(saleId);
+                });
+            } else if (result.isDenied) {
+                window.posCart = [];
+                window.resumeSale(saleId);
+            }
         });
-
-        // Update Record
-        const saleIndex = db.sales.findIndex(s => s.id === window.editingSaleId);
-        if (saleIndex !== -1) {
-            const s = db.sales[saleIndex];
-            s.items = window.posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price }));
-            s.total = totalValue;
-            s.date = dateString;
-            s.status = 'saved'; // Keep as saved
-        }
-        showToast("Venta actualizada y guardada", "warning");
-
-    } else {
-        // New Saved Sale
-        window.posCart.forEach(item => {
-            const inv = db.inventory.find(i => String(i.productId) === String(item.id) && String(i.businessId) === String(businessId));
-            if (inv) inv.quantity -= item.qty;
-        });
-
-        const saleData = {
-            id: timestamp,
-            date: dateString,
-            timestamp: timestamp,
-            businessId: businessId,
-            seller: currentUser ? currentUser.name : 'Vendedor',
-            items: window.posCart.map(i => ({ productId: i.id, name: i.name, qty: i.qty, price: i.price })),
-            total: totalValue,
-            payment: { cash: 0, transfer: 0, currency: 'mn' }, // No payment yet
-            status: 'saved'
-        };
-        db.sales.unshift(saleData);
-        showToast("Venta guardada (Pendiente)", "warning");
+        return;
     }
 
-    window.editingSaleId = null;
-    window.posCart = [];
-    renderCart();
+    // 3. LOAD ITEMS TO CART
+    // Note: Stock was ALREADY deducted when saved. We don't deduct again here.
+    // However, we need to handle the "Edit Mode".
+    // STRATEGY: We DELETE the saved sale (reverting its stock effect logically to "in cart" state).
+    // Actually, simply putting items in cart implies they are "active".
+    // If we delete the sale record, we must REVERT stock first? 
+    // NO. If we delete the record, the stock logic in 'deleteSale' would add it back.
+    // THEN 'addToCart' would subtract it again.
+    // Optimization: Just move items to cart and delete sale WITHOUT reverting stock (since they are physically in hand).
+    
+    // BUT 'addToCart' logic isn't used here, we inject directly.
+    // So: Stock is already down. Cart has items.
+    // When we eventually COBRA (processPOSPayment), it tries to deduct stock again!
+    // FIX: We must REVERT stock when resuming, so the Cart Logic (which deducts on checkout) works normally.
+    
+    // REVERT STOCK TEMPORARILY
+    sale.items.forEach(item => {
+        const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(sale.businessId));
+        if (inv) inv.quantity += item.qty;
+    });
+
+    // LOAD TO CART
+    window.posCart = sale.items.map(i => ({
+        id: i.productId || i.id,
+        name: i.name,
+        price: i.price,
+        qty: i.qty,
+        image: i.image
+    }));
+
+    // REMOVE SAVED SALE FROM DB (It's now active in RAM)
+    db.sales.splice(saleIndex, 1);
+
+    // UPDATE UI
     window.saveData();
-    if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+    renderCart();
+    renderTodaySalesList();
+    showToast("Venta reanudada", "info");
 }
 
 window.deleteSale = function (saleId) {
@@ -1355,245 +1473,304 @@ window.registerExpense = function (data) {
     if (window.showToast) window.showToast('💸 Gasto registrado', 'info');
 };
 
-/* --- END OF DAY CLOSURE WORKFLOW --- */
+        window.showCurrencyBuyModal = function (editData = null) {
+    const rateUSD = db.settings.currencyRates?.usd_buy || 500;
+    const rateEUR = db.settings.currencyRates?.eur_buy || 550;
 
-window.confirmCloseDay = async function () {
-    const today = new Date().toISOString().split('T')[0];
-    const todaySales = db.sales.filter(s => s.date.startsWith(today) && s.businessId === (selectedBusinessId || 'mch1'));
-
-    // [NEW] 1. Check for Pending (Saved) Sales before proceeding
-    const pendingSales = todaySales.filter(s => s.status === 'saved');
-    
-    if (pendingSales.length > 0) {
-        const result = await Swal.fire({
-            title: '⚠️ Ventas Pendientes Detectadas',
-            html: `
-                <div style="text-align: left; color: var(--text-muted);">
-                    <p>Tienes <b>${pendingSales.length} ventas guardadas</b> (pendientes) que no han sido finalizadas.</p>
-                    <p style="margin-top: 1rem;">Para cerrar el día, estas ventas deben ser eliminadas o finalizadas.</p>
-                    <p style="font-size: 0.9rem; margin-top: 1rem; color: var(--warning);">Si continúas, se <b>ELIMINARÁN</b> permanentemente y el stock reservado se liberará.</p>
-                </div>
-            `,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: '🗑️ Eliminar y Cerrar',
-            cancelButtonText: 'Cancelar y Revisar',
-            confirmButtonColor: 'var(--danger)',
-            background: 'var(--bg-card)',
-            color: 'var(--text-main)'
-        });
-
-        if (!result.isConfirmed) {
-            return; // Abort closure to let user review
-        }
-
-        // Auto-delete pending sales logic
-        pendingSales.forEach(s => {
-             // Revert Stock logic (same as deleteSale)
-             if (s.items) {
-                s.items.forEach(item => {
-                    const inv = db.inventory.find(i => String(i.productId) === String(item.productId || item.id) && String(i.businessId) === String(s.businessId));
-                    if (inv) inv.quantity += item.qty;
-                });
-             }
-             // Remove from DB
-             db.sales = db.sales.filter(sale => sale.id !== s.id);
-        });
-        
-        window.saveData();
-        showToast("Ventas pendientes limpiadas.", "info");
-        // Proceed with closure logic...
-    }
-
-    // 2. Calculate Financials (Original Logic continues...)
-    const salesTotal = todaySales.filter(s => (!s.type || s.type === 'SALE') && s.status === 'registered').reduce((sum, s) => sum + s.total, 0);
-    const expensesTotal = todaySales.filter(s => s.type === 'EXPENSE').reduce((sum, s) => sum + Math.abs(s.total), 0);
-    const mermasTotal = todaySales.filter(s => s.type === 'MERMA').reduce((sum, s) => sum + s.lossValue, 0);
-
-    // Estimate Cost (For Profit Calculation)
-    // Map items to get cost
-    let totalCost = 0;
-    todaySales.filter(s => (!s.type || s.type === 'SALE')).forEach(s => {
-        if (s.items) {
-            s.items.forEach(item => {
-                const p = db.products.find(prod => prod.id === (item.productId || item.id));
-                if (p && p.cost) totalCost += (p.cost * item.qty);
-            });
-        }
-    });
-
-    const grossProfit = salesTotal - totalCost;
-    const salaryAvailable = Math.max(0, grossProfit * 0.05); // 5% of Profit
-
-    const theoreticalCash = salesTotal - expensesTotal; // Simplified Cash Flow
-
-    // Move List HTML
-    const movesHtml = todaySales.map(s => {
-        const isExp = s.type === 'EXPENSE';
-        const color = isExp ? 'var(--danger)' : 'var(--success)';
-        return `
-            <div style="display:flex; justify-content:space-between; padding:0.5rem; border-bottom:1px solid var(--border); font-size:0.85rem;">
-                <span>${s.date.split(' ')[1]} ${s.type === 'EXPENSE' ? '(Gasto)' : ''}</span>
-                <span style="color:${color}; font-weight:bold;">${isExp ? '-' : ''}$${Math.abs(s.total).toFixed(2)}</span>
-            </div>`;
-    }).join('') || '<div style="padding:1rem; text-align:center; color:var(--text-muted)">Sin movimientos hoy</div>';
+    // Default values or edit values
+    const defType = editData ? editData.type : 'USD';
+    const defAmount = editData ? editData.amount : '';
 
     Swal.fire({
-        title: 'Cierre de Caja',
-        width: '600px',
+        title: editData ? '✏️ Editar Compra Divisa' : '💵 Compra de Divisas',
         html: `
-            <div style="text-align: left; max-height: 70vh; overflow-y: auto; padding-right: 5px;">
+            <div style="text-align: left; display: flex; flex-direction: column; gap: 1rem;">
                 
-                <!-- SUMMARY CARDS -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
-                    <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
-                        <div style="font-size:0.8rem; color:var(--text-muted);">Ventas Totales</div>
-                        <div style="font-size:1.5rem; font-weight:bold; color:var(--success);">$${salesTotal.toFixed(2)}</div>
+                <!-- Currency Selector -->
+                <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
+                    <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted); font-size:0.9rem;">Divisa a Comprar</label>
+                    <select id="buy-currency-type" class="swal2-select" style="margin:0; width:100%; display:flex; font-weight:bold;" onchange="updateBuyRate()">
+                        <option value="USD" ${defType === 'USD' ? 'selected' : ''}>USD (Dólar)</option>
+                        <option value="EUR" ${defType === 'EUR' ? 'selected' : ''}>EUR (Euro)</option>
+                    </select>
+                </div>
+
+                <div class="grid-2" style="gap: 1rem;">
+                    <!-- Amount Input -->
+                    <div>
+                        <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted); font-size:0.9rem;">Cantidad</label>
+                        <input type="number" id="buy-currency-amount" class="swal2-input" placeholder="0" value="${defAmount}" style="margin:0; width:100%;" oninput="calculateBuyTotal()">
                     </div>
-                     <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
-                        <div style="font-size:0.8rem; color:var(--text-muted);">Gastos del Día</div>
-                        <div style="font-size:1.5rem; font-weight:bold; color:var(--danger);">$${expensesTotal.toFixed(2)}</div>
-                    </div>
-                </div>
-
-                <!-- MOVEMENT LIST -->
-                <div style="margin-bottom: 1.5rem;">
-                     <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">Movimientos del Día</div>
-                     <div style="background:var(--bg-dark); border-radius:8px; max-height:150px; overflow-y:auto; border:1px solid var(--border);">
-                        ${movesHtml}
-                     </div>
-                </div>
-
-                <!-- CASH COUNT -->
-                <div style="margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding:1rem; border-radius:12px;">
-                     <div style="font-size:0.9rem; font-weight:600; margin-bottom:0.5rem; color:var(--text-main);">Arqueo de Caja (Conteo)</div>
-                     
-                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
-                        <div>
-                            <label style="font-size:0.8rem; color:var(--text-muted);">Efectivo en Caja</label>
-                            <input type="number" id="close-cash-real" class="swal2-input" placeholder="0.00" style="width:100%; margin:0;">
-                        </div>
-                         <div>
-                            <label style="font-size:0.8rem; color:var(--text-muted);">Transferencias</label>
-                            <input type="number" id="close-transfer-real" class="swal2-input" placeholder="0.00" style="width:100%; margin:0;">
-                        </div>
-                     </div>
-                     <div id="close-diff-display" style="margin-top:0.5rem; font-size:0.9rem; text-align:right; color:var(--text-muted);">
-                        Diferencia: <span>---</span>
-                     </div>
-                </div>
-
-                <!-- SALARY SECTION -->
-                <div style="background: rgba(16, 185, 129, 0.1); padding:1rem; border-radius:12px; border:1px solid rgba(16, 185, 129, 0.2);">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <div style="font-weight:700; color:var(--success);">Solicitar Salario (Hoy)</div>
-                            <div style="font-size:0.8rem; color:var(--text-muted);">
-                                Disponible (5% Ganancia): <b>$${salaryAvailable.toFixed(2)}</b>
-                            </div>
-                        </div>
-                        <label class="switch">
-                            <input type="checkbox" id="salary-request-switch">
-                            <span class="slider round"></span>
-                        </label>
+                    <!-- Rate Display -->
+                    <div>
+                        <label style="display:block; margin-bottom:0.5rem; color:var(--text-muted); font-size:0.9rem;">Tasa (MN)</label>
+                        <input type="number" id="buy-currency-rate" class="swal2-input" value="${rateUSD}" readonly style="margin:0; width:100%; background:var(--bg-hover); color:var(--text-muted);">
                     </div>
                 </div>
 
+                <!-- Total Cost Display -->
+                <div style="background: rgba(255, 64, 129, 0.1); padding: 1rem; border-radius: 12px; text-align: center; border: 1px solid rgba(255, 64, 129, 0.3);">
+                    <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Costo Total (Sale de Caja)</div>
+                    <div id="buy-currency-total" style="font-size: 2rem; font-weight: 900; color: #ff4081;">$0.00</div>
+                </div>
+
+                <!-- Source Warning -->
+                <div style="font-size: 0.85rem; color: var(--text-muted); display:flex; gap:0.5rem; align-items:center;">
+                    <i class="ph ph-info" style="color:var(--primary);"></i>
+                    <span>El dinero se descontará del efectivo en MN de la caja actual.</span>
+                </div>
             </div>
         `,
         showCancelButton: true,
-        confirmButtonText: 'Cerrar y Enviar',
-        cancelButtonText: 'Cancelar',
+        confirmButtonText: 'Confirmar',
+        confirmButtonColor: '#ff4081',
         background: 'var(--bg-card)',
         color: 'var(--text-main)',
         didOpen: () => {
-            // Real-time Diff Calculation
-            const inputs = [document.getElementById('close-cash-real'), document.getElementById('close-transfer-real')];
-            const diffDisplay = document.querySelector('#close-diff-display span');
-
-            inputs.forEach(i => i.addEventListener('input', () => {
-                const realCash = parseFloat(inputs[0].value) || 0;
-                const realTrans = parseFloat(inputs[1].value) || 0;
-                const totalReal = realCash + realTrans;
-                const diff = totalReal - theoreticalCash;
-
-                diffDisplay.innerText = `$${diff.toFixed(2)}`;
-                diffDisplay.style.color = diff >= -1 ? 'var(--success)' : 'var(--danger)';
-                diffDisplay.style.fontWeight = 'bold';
-            }));
+            window.updateBuyRate = () => {
+                const type = document.getElementById('buy-currency-type').value;
+                const rateInput = document.getElementById('buy-currency-rate');
+                const rate = type === 'USD' ? (db.settings.currencyRates?.usd_buy || 500) : (db.settings.currencyRates?.eur_buy || 550);
+                rateInput.value = rate;
+                window.calculateBuyTotal();
+            };
+            window.calculateBuyTotal = () => {
+                const amount = parseFloat(document.getElementById('buy-currency-amount').value) || 0;
+                const rate = parseFloat(document.getElementById('buy-currency-rate').value) || 0;
+                const total = amount * rate;
+                document.getElementById('buy-currency-total').innerText = `$${total.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+            };
+            // Init calc
+            window.updateBuyRate();
         },
         preConfirm: () => {
-            const realCash = parseFloat(document.getElementById('close-cash-real').value) || 0;
-            const realTrans = parseFloat(document.getElementById('close-transfer-real').value) || 0;
-            const requestSalary = document.getElementById('salary-request-switch').checked;
-
-            return { realCash, realTrans, requestSalary, salaryAvailable };
+            const type = document.getElementById('buy-currency-type').value;
+            const amount = parseFloat(document.getElementById('buy-currency-amount').value);
+            const rate = parseFloat(document.getElementById('buy-currency-rate').value);
+            
+            if (!amount || amount <= 0) {
+                Swal.showValidationMessage('Ingresa una cantidad válida');
+                return false;
+            }
+            return { type, amount, rate, total: amount * rate };
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            processDayClosure(result.value, { salesTotal, expensesTotal, finalCash, grossProfit });
+            processCurrencyBuy(result.value);
         }
     });
-}
+};
 
-window.processDayClosure = function (modalResult, totals) {
-    const { realCash, realTrans, requestSalary, salaryAvailable } = modalResult;
-    const today = new Date().toISOString().split('T')[0];
-    const timestamp = Date.now();
+window.processCurrencyBuy = async function(data) {
+    const { type, amount, rate, total } = data;
     const businessId = selectedBusinessId || 'mch1';
-
-    // Calculate final discrepancy for record
-    const totalReal = realCash + realTrans;
-    const disparity = totalReal - totals.finalCash;
-
-    // 1. Mark Sales as Pending Review
-    db.sales.forEach(s => {
-        if (s.date.startsWith(today) && s.businessId === businessId && s.status === 'registered') {
-            s.status = 'pending_review';
-        }
-    });
-
-    // 2. Create detailed Notification
-    const notification = {
-        id: timestamp,
-        type: 'daily_closure',
-        title: `Cierre del Día (${today})`,
-        message: `Cierre por ${currentUser.name}. Ventas: $${totals.salesTotal.toFixed(2)}. ${requestSalary ? 'SOLICITUD SALARIO.' : ''} ${disparity !== 0 ? `Diferencia: $${disparity.toFixed(2)}` : 'Cuadre Perfecto.'}`,
-        timestamp: timestamp,
-        read: false,
-        data: {
-            salesTotal: totals.salesTotal,
-            expensesTotal: totals.expensesTotal,
-            theoreticalCash: totals.finalCash,
-            realCash: realCash,
-            realTransfer: realTrans,
-            disparity: disparity,
-            requestSalary: requestSalary,
-            salaryAmount: requestSalary ? salaryAvailable : 0,
-            grossProfit: totals.grossProfit,
-            employeeId: currentUser.id,
-            date: today
-        },
-        targetRoles: ['owner', 'admin']
+    
+    // Register as a negative sale (expense) but specifically tagged
+    const saleData = {
+        id: Date.now(),
+        date: new Date().toISOString().replace('T', ' ').split('.')[0],
+        timestamp: Date.now(),
+        businessId: businessId,
+        seller: currentUser ? currentUser.name : 'Sistema',
+        sellerId: currentUser ? currentUser.id : 0,
+        type: 'CURRENCY_BUY', // Special Type
+        items: [],
+        details: `Compra ${amount} ${type} @ ${rate}`,
+        total: -total, // Deduct MN cost from daily total
+        currencyBought: { type, amount, rate }, // Store details for closure report
+        payment: { cash: -total, transfer: 0, currency: 'mn' }, // Deduct from MN Cash
+        status: 'registered',
+        sessionId: (typeof window.currentSessionStartTime !== 'undefined' ? window.currentSessionStartTime : Date.now())
     };
-    db.notifications.unshift(notification);
 
-    // 3. Log Salary Request
-    if (requestSalary) {
-        addLog(`Solicitud de Salario ($${salaryAvailable.toFixed(2)}) por ${currentUser.name}`, 'info');
+    // Update global balance if exists (optional real-time sync)
+    if (typeof window.actualizarSaldo === 'function') {
+        window.actualizarSaldo('mn', -total);
+        // Note: We don't add the bought currency to the "Business Fund" yet. 
+        // It physically sits in the drawer until closure.
     }
 
-    // 4. Close Session
-    window.isSessionActive = false;
-    window.saveData();
+    db.sales.unshift(saleData);
+    await window.saveData();
+    if (typeof renderTodaySalesList === 'function') renderTodaySalesList();
+    showToast(`Compra registrada: ${amount} ${type}`, "success");
+};
+
+/* --- END OF DAY CLOSURE WORKFLOW (REFACTORED) --- */
+
+window.confirmCloseDay = async function () {
+    const today = new Date().toISOString().split('T')[0];
+    // Filter sales for today AND current business
+    const todaySales = db.sales.filter(s => s.date.startsWith(today) && s.businessId === (selectedBusinessId || 'mch1'));
+
+    // 1. Check Pending Sales
+    const pendingSales = todaySales.filter(s => s.status === 'saved');
+    if (pendingSales.length > 0) {
+        Swal.fire('⚠️ Pendientes', 'Hay ventas guardadas. Elimínalas o complétalas antes de cerrar.', 'warning');
+        return;
+    }
+
+    // 2. Calculate Financials
+    // A. Sales (MN Income)
+    const incomeSales = todaySales
+        .filter(s => (!s.type || s.type === 'SALE') && s.status === 'registered')
+        .reduce((sum, s) => sum + s.total, 0);
+
+    // B. Expenses (Money Out)
+    const expensesTotal = todaySales
+        .filter(s => s.type === 'EXPENSE' || s.type === 'MERMA' || s.type === 'RETURN')
+        .reduce((sum, s) => sum + Math.abs(s.total), 0); // s.total is negative, so abs
+
+    // C. Currency Purchases (Money Out for Investment)
+    const currencyBuys = todaySales.filter(s => s.type === 'CURRENCY_BUY');
+    const currencyCostMN = currencyBuys.reduce((sum, s) => sum + Math.abs(s.total), 0);
+    
+    // D. Currencies Acquired (To Deliver)
+    const boughtUSD = currencyBuys.filter(s => s.currencyBought?.type === 'USD').reduce((sum, s) => sum + (s.currencyBought?.amount || 0), 0);
+    const boughtEUR = currencyBuys.filter(s => s.currencyBought?.type === 'EUR').reduce((sum, s) => sum + (s.currencyBought?.amount || 0), 0);
+
+    // E. Net Cash (MN) Expected in Drawer
+    // Logic: Sales - Expenses - CurrencyCost = Net Cash
+    const netCashExpected = incomeSales - expensesTotal - currencyCostMN;
+
+    // F. Net Transfer
+    // Assuming some sales might be transfer. Let's scan payments.
+    let cashInHandMN = 0;
+    let transferTotal = 0;
+
+    todaySales.forEach(s => {
+        if (s.status === 'registered') {
+            if (s.payment?.cash) cashInHandMN += s.payment.cash;
+            if (s.payment?.transfer) transferTotal += s.payment.transfer;
+        }
+    });
+    // Note: s.payment.cash is already negative for expenses/buys, so simple sum works.
+    
+    // UI Construction
+    const htmlContent = `
+        <div style="text-align:left; font-family:system-ui;">
+            
+            <!-- TOP STATS -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:0.5rem; margin-bottom:1.5rem;">
+                <div style="background:rgba(16, 185, 129, 0.1); padding:0.8rem; border-radius:8px; text-align:center;">
+                    <div style="font-size:0.7rem; color:var(--success); font-weight:bold;">VENTAS BRUTAS</div>
+                    <div style="font-size:1.1rem; font-weight:900; color:#fff;">$${incomeSales.toLocaleString()}</div>
+                </div>
+                <div style="background:rgba(239, 68, 68, 0.1); padding:0.8rem; border-radius:8px; text-align:center;">
+                    <div style="font-size:0.7rem; color:var(--danger); font-weight:bold;">GASTOS/SALIDAS</div>
+                    <div style="font-size:1.1rem; font-weight:900; color:#fff;">$${(expensesTotal + currencyCostMN).toLocaleString()}</div>
+                </div>
+                <div style="background:rgba(59, 130, 246, 0.1); padding:0.8rem; border-radius:8px; text-align:center; border:1px solid var(--primary);">
+                    <div style="font-size:0.7rem; color:var(--primary); font-weight:bold;">EFECTIVO A ENTREGAR</div>
+                    <div style="font-size:1.3rem; font-weight:900; color:#fff;">$${cashInHandMN.toLocaleString()}</div>
+                </div>
+            </div>
+
+            <!-- CURRENCY DELIVERY SECTION -->
+            ${(boughtUSD > 0 || boughtEUR > 0) ? `
+                <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; margin-bottom:1.5rem; border:1px solid #85bb65;">
+                    <div style="font-size:0.85rem; font-weight:bold; color:#85bb65; margin-bottom:0.5rem; display:flex; align-items:center; gap:0.5rem;">
+                        <i class="ph ph-money"></i> DIVISAS A ENTREGAR
+                    </div>
+                    <div style="display:flex; gap:1rem;">
+                        ${boughtUSD > 0 ? `<div style="flex:1; background:rgba(133, 187, 101, 0.1); padding:0.5rem; border-radius:6px; text-align:center; font-weight:bold;">${boughtUSD} USD</div>` : ''}
+                        ${boughtEUR > 0 ? `<div style="flex:1; background:rgba(91, 120, 255, 0.1); padding:0.5rem; border-radius:6px; text-align:center; font-weight:bold;">${boughtEUR} EUR</div>` : ''}
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- CASH COUNT (ARQUEO) -->
+            <div style="background:var(--bg-dark); padding:1rem; border-radius:12px; border:1px solid var(--border);">
+                <div style="margin-bottom:1rem; font-weight:bold; font-size:0.9rem; color:var(--text-muted);">ARQUEO DE CAJA (Lo que tienes real)</div>
+                
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; align-items:center; margin-bottom:0.5rem;">
+                    <label>Efectivo MN</label>
+                    <input type="number" id="close-real-mn" class="swal2-input" placeholder="${cashInHandMN}" style="margin:0; height:2.5rem;">
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; align-items:center;">
+                    <label>Transferencia</label>
+                    <input type="number" id="close-real-transfer" class="swal2-input" placeholder="${transferTotal}" style="margin:0; height:2.5rem;">
+                </div>
+            </div>
+
+        </div>
+    `;
 
     Swal.fire({
-        title: 'Día Cerrado Correctamente',
-        html: `Reporte enviado.<br>Diferencia registrada: <b style="color:${disparity >= 0 ? 'var(--success)' : 'var(--danger)'}">$${disparity.toFixed(2)}</b>`,
-        icon: 'success',
+        title: 'Cierre de Turno',
+        html: htmlContent,
+        width: '500px',
+        showCancelButton: true,
+        confirmButtonText: 'Confirmar Cierre',
+        confirmButtonColor: 'var(--primary)',
         background: 'var(--bg-card)',
-        color: 'var(--text-main)'
-    }).then(() => {
-        renderOpenSessionScreen(document.getElementById('content-area'));
+        color: 'var(--text-main)',
+        preConfirm: () => {
+            const realMN = parseFloat(document.getElementById('close-real-mn').value) || 0;
+            const realTransfer = parseFloat(document.getElementById('close-real-transfer').value) || 0;
+            return { realMN, realTransfer, expectedMN: cashInHandMN, expectedTransfer: transferTotal };
+        }
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            const data = result.value;
+            // SAVE CLOSURE
+            const closureReport = {
+                id: Date.now(),
+                date: new Date().toISOString(),
+                businessId: selectedBusinessId || 'mch1',
+                seller: currentUser.name,
+                financials: {
+                    sales: incomeSales,
+                    expenses: expensesTotal,
+                    currencyCost: currencyCostMN,
+                    netCash: cashInHandMN,
+                    transfers: transferTotal
+                },
+                currencies: { usd: boughtUSD, eur: boughtEUR },
+                audit: {
+                    expectedMN: data.expectedMN,
+                    realMN: data.realMN,
+                    diffMN: data.realMN - data.expectedMN
+                },
+                type: 'daily_closure_report', // Special type to distinguish in history
+                status: 'closed'
+            };
+
+            db.sales.unshift(closureReport);
+            
+            // AUTOMATIC ADMIN CASH UPDATE (Integration with Cash Control Module)
+            // Transfer logic: The Seller gives cash to Admin.
+            // Admin Cash Control: +MN (Net Cash), +USD (Bought), +EUR (Bought)
+            // We update the Admin Ledger automatically pending confirmation? 
+            // Or directly? Let's do direct update to "Caja Fuerte" for seamless flow.
+            
+            if (!db.adminCashControl) db.adminCashControl = { balances: { mn: { current: 0 }, usd: { current: 0 }, eur: { current: 0 } }, transactions: [] };
+            
+            // 1. Incomes to Admin
+            if (cashInHandMN > 0) {
+                db.adminCashControl.balances.mn.current = (db.adminCashControl.balances.mn.current || 0) + cashInHandMN;
+                db.adminCashControl.transactions.unshift({
+                    date: new Date().toISOString(),
+                    type: 'INCOME_CLOSURE',
+                    amount: cashInHandMN,
+                    currency: 'mn',
+                    desc: `Cierre Caja ${currentUser.name}`
+                });
+            }
+            if (boughtUSD > 0) {
+                db.adminCashControl.balances.usd.current = (db.adminCashControl.balances.usd.current || 0) + boughtUSD;
+                db.adminCashControl.transactions.unshift({ date: new Date().toISOString(), type: 'INCOME_CURRENCY', amount: boughtUSD, currency: 'usd', desc: `Divisa POS ${currentUser.name}` });
+            }
+            if (boughtEUR > 0) {
+                db.adminCashControl.balances.eur.current = (db.adminCashControl.balances.eur.current || 0) + boughtEUR;
+                db.adminCashControl.transactions.unshift({ date: new Date().toISOString(), type: 'INCOME_CURRENCY', amount: boughtEUR, currency: 'eur', desc: `Divisa POS ${currentUser.name}` });
+            }
+
+            await window.saveData();
+            
+            Swal.fire('¡Cierre Exitoso!', 'El turno se ha cerrado y los fondos se han transferido a la Caja Admin.', 'success').then(() => {
+                location.reload(); // Reset state
+            });
+        }
     });
-}
+};

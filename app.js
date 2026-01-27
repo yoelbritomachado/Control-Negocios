@@ -10,14 +10,23 @@ window.onerror = function (msg, url, line, col, error) {
 
 // --- ACCESO A DATOS SEGURO ---
 // Inicialización defensiva de db (Misma estructura que data.js)
-if (!window.db) {
-    window.db = {
-        products: [], inventory: [], sales: [], users: [],
-        notifications: [], businesses: [], logs: [],
-        settings: { theme: 'dark' },
-        businessFund: { cash: 100000, transfer: 0, usd: 0, eur: 0 }
-    };
-}
+    if (!window.db) {
+        window.db = {
+            products: [], inventory: [], sales: [], users: [],
+            notifications: [], businesses: [], logs: [],
+            settings: { theme: 'dark', currencyRates: { usd_buy: 500, eur_buy: 550 } }, // Added currencyRates
+            businessFund: { cash: 100000, transfer: 0, usd: 0, eur: 0 },
+            adminCashControl: { // New module structure
+                balances: {
+                    mn: { start: 0, current: 0, real: 0 },
+                    usd: { start: 0, current: 0, real: 0 },
+                    eur: { start: 0, current: 0, real: 0 },
+                    transfer: { start: 0, current: 0, real: 0 }
+                },
+                transactions: []
+            }
+        };
+    }
 const db = window.db;
 console.log('🚀 App Initialized [v10.1] | Productos en memoria:', db.products.length);
 
@@ -183,7 +192,7 @@ function renderSidebar(activeView) {
     const selectorHtml = `
         <div class="business-selector-container" style="margin: 0 1rem 1.5rem; position: relative;">
             <select id="sidebar-business-select" onchange="changeBusinessContext(this.value)" 
-                    style="width: 100%; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: white;">
+                    style="width: 100%; padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: white; appearance: none; -webkit-appearance: none; -moz-appearance: none;">
                 ${businessOptions.map(b => `<option value="${b.id === null ? 'global' : b.id}" ${String(selectedBusinessId || 'global') === String(b.id || 'global') ? 'selected' : ''}>${b.name}</option>`).join('')}
             </select>
             <i class="ph ph-caret-down" style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted);"></i>
@@ -217,8 +226,8 @@ function renderSidebar(activeView) {
             items: [
                 { id: 'reportes', icon: 'ph-chart-bar', label: 'Reportes' },
                 { id: 'cash-control', icon: 'ph-currency-dollar', label: 'Control Efectivo' },
-                // { id: 'users', icon: 'ph-users', label: 'Gestión Equipo' }, // REMOVED V2
-                { id: 'network_editor', icon: 'ph-share-network', label: 'Mapa de Red' }
+                { id: 'network_editor', icon: 'ph-share-network', label: 'Mapa de Red' },
+                { id: 'settings', icon: 'ph-gear', label: 'Configuración' }
             ]
         }
     ];
@@ -392,7 +401,8 @@ function navigateTo(viewId) {
                 else throw new Error('No hay vista de control de efectivo disponible');
                 break;
             case 'settings':
-                if (typeof renderSettings === 'function') renderSettings(container);
+                if (typeof renderSettingsV2 === 'function') renderSettingsV2(container);
+                else if (typeof renderSettings === 'function') renderSettings(container);
                 else throw new Error('renderSettings no definida');
                 break;
             case 'transfer':
@@ -444,8 +454,85 @@ function updateTitle(text) {
     document.getElementById('page-title').innerText = text;
 }
 
+window.syncUsersFromNetworkLayout = function() {
+    if (!db.networkLayout || db.networkLayout.length === 0) return;
+
+    const layoutUsers = db.networkLayout.filter(n => n.type === 'user');
+    if (layoutUsers.length === 0) return;
+
+    const existingMap = new Map((db.users || []).map(u => [u.id, u]));
+    
+    const defaultPerms = {
+        'owner': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'users', 'reportes', 'financials', 'cash-control', 'logs', 'settings', 'network_editor'],
+        'admin': ['dashboard', 'pos', 'ventas', 'compras', 'inventory', 'transfer', 'mermas', 'reportes', 'cash-control', 'settings'],
+        'seller': ['pos', 'ventas', 'inventory', 'mermas']
+    };
+
+    const newUsersList = layoutUsers.map(node => {
+        const existing = existingMap.get(node.id);
+        // Fallback: Match by name if ID mismatch (Legacy migration)
+        const legacyMatch = !existing ? (db.users || []).find(u => u.name === node.data.name && u.role === node.data.role) : null;
+        
+        return {
+            id: node.id,
+            name: node.data.name,
+            role: node.data.role,
+            pin: existing ? existing.pin : (legacyMatch ? legacyMatch.pin : '0000'),
+            permissions: existing ? existing.permissions : (legacyMatch ? legacyMatch.permissions : (defaultPerms[node.data.role] || []))
+        };
+    });
+
+    if (newUsersList.length > 0) {
+        db.users = newUsersList;
+    }
+};
+
 // --- VIEWS ---
 function renderLogin(container) {
+    // [AUTO-SYNC] Ensure users match Network Layout before rendering
+    if (typeof syncUsersFromNetworkLayout === 'function') {
+        syncUsersFromNetworkLayout();
+    }
+
+    const users = db.users || [];
+    
+    // Sort users by role priority (Owner > Admin > Seller)
+    const rolePriority = { 'owner': 1, 'admin': 2, 'seller': 3 };
+    users.sort((a, b) => (rolePriority[a.role] || 4) - (rolePriority[b.role] || 4));
+
+    const userCardsHtml = users.map(u => {
+        let roleLabel = 'Vendedor';
+        let roleColor = 'var(--success)'; // Green
+        let roleIcon = 'V';
+        let bgGradient = 'linear-gradient(135deg, var(--success), #10b981)';
+        let shadowColor = 'rgba(16, 185, 129, 0.3)';
+
+        if (u.role === 'owner') {
+            roleLabel = 'Dueño';
+            roleColor = 'var(--primary)'; // Pink
+            roleIcon = 'D';
+            bgGradient = 'linear-gradient(135deg, var(--primary), #3b82f6)';
+            shadowColor = 'rgba(59, 130, 246, 0.3)';
+        } else if (u.role === 'admin') {
+            roleLabel = 'Admin';
+            roleColor = 'var(--warning)'; // Orange
+            roleIcon = 'A';
+            bgGradient = 'linear-gradient(135deg, var(--warning), #f59e0b)';
+            shadowColor = 'rgba(245, 158, 11, 0.3)';
+        }
+
+        return `
+            <div class="login-card user-login-card fade-in" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
+                 onclick="selectUserLogin('${u.id}')">
+                <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: ${bgGradient}; box-shadow: 0 8px 16px ${shadowColor}; color: white;">
+                    ${roleIcon}
+                </div>
+                <div style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.2rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${u.name}</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">${roleLabel}</div>
+            </div>
+        `;
+    }).join('');
+
     container.innerHTML = `
         <div class="fade-in" style="display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; gap: 2.5rem; background: radial-gradient(circle at center, #1a1e23 0%, #0f1115 100%);">
             <div style="text-align: center;">
@@ -456,39 +543,11 @@ function renderLogin(container) {
                 <p style="color: var(--text-muted); margin-top: 0.75rem; font-size: 1.1rem;">Selecciona tu perfil para ingresar</p>
             </div>
             
-            <div style="display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center;">
-                <!-- Dueño Card -->
-                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
-                     onclick="selectUserLogin('owner')">
-                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--primary), #3b82f6); box-shadow: 0 8px 16px rgba(59, 130, 246, 0.3);">
-                        D
-                    </div>
-                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Dueño</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Control Total</div>
-                </div>
-
-                <!-- Admin Card -->
-                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
-                     onclick="selectUserLogin('admin')">
-                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--warning), #f59e0b); box-shadow: 0 8px 16px rgba(245, 158, 11, 0.3);">
-                        A
-                    </div>
-                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Admin</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Gestión</div>
-                </div>
-
-                <!-- Vendedor Card -->
-                <div class="login-card user-login-card" style="width: 180px; cursor: pointer; text-align: center; padding: 2rem; background: var(--bg-card); border-radius: 24px; border: 1px solid var(--border);" 
-                     onclick="selectUserLogin('seller')">
-                    <div class="avatar" style="width: 80px; height: 80px; margin: 0 auto 1.5rem; font-size: 2rem; background: linear-gradient(135deg, var(--success), #10b981); box-shadow: 0 8px 16px rgba(16, 185, 129, 0.3);">
-                        V
-                    </div>
-                    <div style="font-weight: 700; font-size: 1.2rem; margin-bottom: 0.5rem; color: #fff;">Vendedor</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1rem;">Ventas/Stock</div>
-                </div>
+            <div style="display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center; max-width: 1000px;">
+                ${userCardsHtml}
             </div>
 
-            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem;">MCH Control v4.0 · Sistema de Seguridad Activo</p>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 1rem;">MCH Control v4.1 · Sistema de Seguridad Activo</p>
         </div>
 
         <!-- Login Verification Modal -->
@@ -497,7 +556,8 @@ function renderLogin(container) {
                 <button onclick="closeLoginModal()" style="position:absolute; top:1.5rem; right:1.5rem; background:none; border:none; color:var(--text-muted); cursor:pointer;"><i class="ph ph-x" style="font-size:1.5rem;"></i></button>
                 
                 <div id="login-modal-content">
-                    <h2 id="login-modal-title" style="margin-bottom:2rem; font-size:1.8rem;">Ingresar PIN</h2>
+                    <h2 id="login-modal-title" style="margin-bottom:2rem; font-size:1.5rem;">Ingresar PIN</h2>
+                    <p id="login-user-name" style="color:var(--primary); font-weight:bold; margin-bottom:1rem;"></p>
                     
                     <!-- PIN Step -->
                     <div id="step-pin">
@@ -508,17 +568,6 @@ function renderLogin(container) {
                          </div>
                          <button onclick="processLogin()" class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;">Continuar</button>
                     </div>
-
-                    <!-- Gmail Step (Only for Owner) -->
-                    <div id="step-gmail" style="display:none;">
-                         <p style="color:var(--text-muted); margin-bottom:1.5rem; font-size:0.9rem;">Se ha enviado un código a tu Gmail vinculado para autorizar el acceso del Dueño.</p>
-                         <div style="margin-bottom:2rem;">
-                            <input type="text" id="modal-gmail-code" placeholder="Código de 6 dígitos" maxlength="6" 
-                                   style="width:100%; text-align:center; font-size:1.5rem; letter-spacing:0.5rem; background:var(--bg-hover); border:1px solid var(--border); border-radius:12px; padding:1rem; color:#fff; outline:none;"
-                                   onkeyup="if(this.value.length === 6) processGmailVerify()">
-                         </div>
-                         <button onclick="processGmailVerify()" class="btn-primary" style="width:100%; padding:1rem; font-size:1.1rem;">Verificar y Entrar</button>
-                    </div>
                 </div>
              </div>
         </div>
@@ -526,53 +575,41 @@ function renderLogin(container) {
     updateTitle('Bienvenido');
 }
 
-window.selectUserLogin = function (role) {
-    const user = db.users.find(u => u.role === role);
+window.selectUserLogin = function (userId) {
+    const user = db.users.find(u => String(u.id) === String(userId));
     if (user) {
-        // [FEATURE] Auto-login if PIN is default '0000'
-        if (user.pin === '0000') {
-            completeLogin(user);
-        } else {
-            initiateLogin(role);
-        }
+        // [MOD] Bypass PIN check for all users as requested
+        completeLogin(user);
     }
 };
 
-window.initiateLogin = function (role) {
-    selectedLoginRole = role;
+window.initiateLogin = function (user) {
+    selectedLoginRole = user.id; // Using ID now instead of role string
     const overlay = document.getElementById('login-modal-overlay');
     const title = document.getElementById('login-modal-title');
+    const userNameDisplay = document.getElementById('login-user-name');
     const pinStep = document.getElementById('step-pin');
-    const gmailStep = document.getElementById('step-gmail');
     const pinInput = document.getElementById('modal-pin-input');
 
     // Reset modals
     pinInput.value = '';
-    document.getElementById('modal-gmail-code').value = '';
     pinStep.style.display = 'block';
-    gmailStep.style.display = 'none';
 
-    if (role === 'owner') title.innerText = 'Dueño: Ingresa PIN';
-    else if (role === 'admin') title.innerText = 'Administrador: Ingresa PIN';
-    else title.innerText = 'Vendedor: Ingresa PIN';
+    userNameDisplay.innerText = user.name;
+    title.innerText = 'Hola, ' + user.name.split(' ')[0];
 
     overlay.style.display = 'flex';
     pinInput.focus();
 };
 
-window.closeLoginModal = function () {
-    document.getElementById('login-modal-overlay').style.display = 'none';
-};
-
 window.processLogin = function () {
-    const user = db.users.find(u => u.role === selectedLoginRole);
+    const user = db.users.find(u => String(u.id) === String(selectedLoginRole));
     if (!user) return;
 
     const inputPin = document.getElementById('modal-pin-input').value;
 
     // [SECURITY] Validate PIN
     if (user.pin !== inputPin) {
-        // Shake animation or toast could be added here
         alert("⚠️ PIN Incorrecto");
         document.getElementById('modal-pin-input').value = '';
         return;
