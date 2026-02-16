@@ -5,11 +5,12 @@ import api, { fetchProducts } from '../api';
 import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
 import SearchDropdown from './SearchDropdown';
+import ConfirmModal from './ConfirmModal';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
-    Sparkles, TrendingUp, ArrowRight, Wallet, Edit
+    Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
@@ -417,6 +418,11 @@ export default function POSLayout() {
     const [showClose, setShowClose] = useState(false);
     const [showPayment, setShowPayment] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState(null);
+    
+    // Confirm Modals
+    const [showCartConfirm, setShowCartConfirm] = useState(false);
+    const [showSavedConfirm, setShowSavedConfirm] = useState(false);
+    const [pendingAction, setPendingAction] = useState(null);
 
     // State
     const [recentSales, setRecentSales] = useState([]);
@@ -627,54 +633,66 @@ export default function POSLayout() {
     const checkBeforeCloseSession = () => {
         // Verificar si hay items en el carrito
         if (cart.length > 0) {
-            const action = confirm(
-                `Tienes ${cart.length} producto(s) en el carrito por $${total.toFixed(2)}.\n\n` +
-                `¿Deseas COBRAR esta venta antes de cerrar?\n\n` +
-                `Aceptar = Cobrar venta\nCancelar = Borrar carrito y continuar`
-            );
-
-            if (action) {
-                // Volver al POS para cobrar
-                setShowClose(false);
-                return false;
-            } else {
-                // Borrar carrito
-                setCart([]);
-            }
+            setShowCartConfirm(true);
+            return false;
         }
 
         // Verificar si hay ventas guardadas
         if (savedSales.length > 0) {
-            const totalSaved = savedSales.reduce((sum, s) => sum + s.total, 0);
-            const action = confirm(
-                `Tienes ${savedSales.length} venta(s) guardada(s) por $${totalSaved.toFixed(2)}.\n\n` +
-                `¿Deseas COBRARLAS antes de cerrar?\n\n` +
-                `Aceptar = Volver a cobrar\nCancelar = Eliminar ventas guardadas`
-            );
-
-            if (action) {
-                // Volver al POS para cobrar las ventas guardadas
-                setShowClose(false);
-                return false;
-            } else {
-                // Eliminar ventas guardadas
-                setSavedSales([]);
-            }
+            setShowSavedConfirm(true);
+            return false;
         }
 
         // Si llegamos aquí, no hay nada pendiente
         return true;
     };
+    
+    const handleCartConfirm = (shouldPay) => {
+        if (shouldPay) {
+            // Volver al POS para cobrar
+            setShowCartConfirm(false);
+        } else {
+            // Borrar carrito y verificar ventas guardadas
+            setCart([]);
+            setShowCartConfirm(false);
+            // Verificar si hay ventas guardadas después de borrar carrito
+            setTimeout(() => {
+                if (savedSales.length > 0) {
+                    setShowSavedConfirm(true);
+                } else {
+                    // No hay nada pendiente, mostrar modal de cierre
+                    fetchMetricsDirect();
+                }
+            }, 100);
+        }
+    };
+    
+    const handleSavedConfirm = (shouldPay) => {
+        if (shouldPay) {
+            // Volver al POS para cobrar las ventas guardadas
+            setShowSavedConfirm(false);
+        } else {
+            // Eliminar ventas guardadas
+            setSavedSales([]);
+            setShowSavedConfirm(false);
+            // Mostrar modal de cierre
+            fetchMetricsDirect();
+        }
+    };
+    
+    const fetchMetricsDirect = async () => {
+        const res = await api.get('/sessions/status');
+        setSessionMetrics(res.data);
+        setShowClose(true);
+    };
 
     const fetchMetrics = async () => {
         // Verificar si hay items pendientes antes de mostrar el modal
         if (!checkBeforeCloseSession()) {
-            return; // No mostrar el modal, el usuario quiere cobrar primero
+            return; // No mostrar el modal, se mostrarán los confirm
         }
         
-        const res = await api.get('/sessions/status');
-        setSessionMetrics(res.data);
-        setShowClose(true);
+        await fetchMetricsDirect();
     };
 
     return (
@@ -1031,6 +1049,43 @@ export default function POSLayout() {
                             onConfirm={processPayment}
                         />
                     )}
+                    
+                    {/* Confirm Modals */}
+                    <ConfirmModal
+                        isOpen={showCartConfirm}
+                        onClose={() => setShowCartConfirm(false)}
+                        onConfirm={() => handleCartConfirm(true)}
+                        title="Carrito con productos"
+                        message={
+                            <>
+                                Tienes <strong>{cart.length} producto(s)</strong> en el carrito por <strong>${total.toFixed(2)}</strong>.
+                                <br /><br />
+                                ¿Deseas <strong>COBRAR</strong> esta venta antes de cerrar sesión?
+                            </>
+                        }
+                        confirmText="Cobrar venta"
+                        cancelText="Borrar carrito"
+                        type="warning"
+                        icon={ShoppingCart}
+                    />
+                    
+                    <ConfirmModal
+                        isOpen={showSavedConfirm}
+                        onClose={() => setShowSavedConfirm(false)}
+                        onConfirm={() => handleSavedConfirm(true)}
+                        title="Ventas guardadas pendientes"
+                        message={
+                            <>
+                                Tienes <strong>{savedSales.length} venta(s) guardada(s)</strong> por <strong>${savedSales.reduce((sum, s) => sum + s.total, 0).toFixed(2)}</strong>.
+                                <br /><br />
+                                ¿Deseas <strong>COBRARLAS</strong> antes de cerrar sesión?
+                            </>
+                        }
+                        confirmText="Cobrar ventas"
+                        cancelText="Eliminar guardadas"
+                        type="info"
+                        icon={Save}
+                    />
                 </AnimatePresence>
             </div>
         </SessionGuard>
