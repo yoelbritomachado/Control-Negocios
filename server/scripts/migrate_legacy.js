@@ -35,9 +35,10 @@ function createHistoryTables() {
             legacy_id INTEGER,
             fecha TEXT,
             cliente TEXT,
+            folio TEXT,
             total REAL DEFAULT 0,
-            items_count INTEGER DEFAULT 0,
-            metodo_pago TEXT,
+            impuesto REAL DEFAULT 0,
+            descuento REAL DEFAULT 0,
             migrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
@@ -48,8 +49,9 @@ function createHistoryTables() {
             legacy_id INTEGER,
             fecha TEXT,
             proveedor TEXT,
+            folio TEXT,
             total REAL DEFAULT 0,
-            items_count INTEGER DEFAULT 0,
+            impuesto REAL DEFAULT 0,
             migrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
@@ -61,12 +63,43 @@ function createHistoryTables() {
             fecha TEXT,
             producto TEXT,
             cantidad INTEGER DEFAULT 0,
+            costo REAL DEFAULT 0,
             motivo TEXT,
             migrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
     
     console.log('   ✅ Tablas de historial creadas');
+}
+
+// Función para obtener fecha de transaccion relacionada
+function getTransaccionFecha(tipo, id) {
+    try {
+        const trans = legacyDb.prepare(`
+            SELECT fecha FROM transaccion 
+            WHERE tipo LIKE ? AND info LIKE ?
+            ORDER BY fecha DESC LIMIT 1
+        `).get(`%${tipo}%`, `%"${id}"%`);
+        return trans ? trans.fecha : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+// Función para calcular total de venta desde items
+function calcularTotalVenta(ventaId) {
+    try {
+        const items = legacyDb.prepare(`
+            SELECT ti.cantidad, ti.precio
+            FROM transaccion_item ti
+            JOIN transaccion t ON ti.transaccion_id = t.id
+            WHERE t.tipo LIKE '%venta%' AND t.info LIKE ?
+        `).all(`%"${ventaId}"%`);
+        
+        return items.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
+    } catch (e) {
+        return 0;
+    }
 }
 
 // Función para migrar productos
@@ -149,17 +182,16 @@ function migrateSales() {
     console.log('\n💰 Migrando ventas...');
     
     const sales = legacyDb.prepare(`
-        SELECT v.id, v.fecha, v.total, c.nombre as cliente, v.forma_pago
+        SELECT v.id, v.folio, v.impuesto, v.descuento, v.cliente, v.cliente_temp
         FROM venta v
-        LEFT JOIN cliente c ON v.cliente_id = c.id
-        ORDER BY v.fecha DESC
+        ORDER BY v.id DESC
     `).all();
     
     console.log(`   Encontradas ${sales.length} ventas`);
     
     const insertSale = targetDb.prepare(`
-        INSERT INTO legacy_sales (legacy_id, fecha, cliente, total, metodo_pago)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO legacy_sales (legacy_id, folio, fecha, cliente, impuesto, descuento, total)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     
     let migrated = 0;
@@ -167,12 +199,20 @@ function migrateSales() {
     const migrateTransaction = targetDb.transaction(() => {
         for (const sale of sales) {
             try {
+                // Buscar fecha en transaccion
+                const fecha = getTransaccionFecha('venta', sale.id) || new Date().toISOString();
+                
+                // Calcular total desde items
+                const total = calcularTotalVenta(sale.id);
+                
                 insertSale.run(
                     sale.id,
-                    sale.fecha,
-                    sale.cliente || 'Cliente general',
-                    sale.total || 0,
-                    sale.forma_pago || 'Efectivo'
+                    sale.folio || '',
+                    fecha,
+                    sale.cliente || sale.cliente_temp || 'Cliente general',
+                    sale.impuesto || 0,
+                    sale.descuento || 0,
+                    total
                 );
                 migrated++;
             } catch (e) {
@@ -191,17 +231,16 @@ function migratePurchases() {
     console.log('\n📦 Migrando compras...');
     
     const purchases = legacyDb.prepare(`
-        SELECT c.id, c.fecha, c.total, p.nombre as proveedor
+        SELECT c.id, c.folio, c.impuesto, c.proveedor
         FROM compra c
-        LEFT JOIN proveedor p ON c.proveedor_id = p.id
-        ORDER BY c.fecha DESC
+        ORDER BY c.id DESC
     `).all();
     
     console.log(`   Encontradas ${purchases.length} compras`);
     
     const insertPurchase = targetDb.prepare(`
-        INSERT INTO legacy_purchases (legacy_id, fecha, proveedor, total)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO legacy_purchases (legacy_id, folio, fecha, proveedor, impuesto, total)
+        VALUES (?, ?, ?, ?, ?, ?)
     `);
     
     let migrated = 0;
@@ -209,11 +248,28 @@ function migratePurchases() {
     const migrateTransaction = targetDb.transaction(() => {
         for (const purchase of purchases) {
             try {
+                // Buscar fecha en transaccion
+                const fecha = getTransaccionFecha('compra', purchase.id) || new Date().toISOString();
+                
+                // Calcular total desde items de transaccion
+                let total = 0;
+                try {
+                    const items = legacyDb.prepare(`
+                        SELECT ti.cantidad, ti.precio
+                        FROM transaccion_item ti
+                        JOIN transaccion t ON ti.transaccion_id = t.id
+                        WHERE t.tipo LIKE '%compra%' AND t.info LIKE ?
+                    `).all(`%"${purchase.id}"%`);
+                    total = items.reduce((sum, item) => sum + (item.cantidad * item.precio), 0);
+                } catch (e) {}
+                
                 insertPurchase.run(
                     purchase.id,
-                    purchase.fecha,
+                    purchase.folio || '',
+                    fecha,
                     purchase.proveedor || 'Sin proveedor',
-                    purchase.total || 0
+                    purchase.impuesto || 0,
+                    total
                 );
                 migrated++;
             } catch (e) {
@@ -232,17 +288,16 @@ function migrateLosses() {
     console.log('\n⚠️  Migrando mermas...');
     
     const losses = legacyDb.prepare(`
-        SELECT m.id, m.fecha, m.cantidad, i.nombre as producto, m.motivo
+        SELECT m.id, m.fecha, m.producto, m.cantidad, m.costo, m.info
         FROM merma m
-        LEFT JOIN item i ON m.item_id = i.id
         ORDER BY m.fecha DESC
     `).all();
     
     console.log(`   Encontradas ${losses.length} mermas`);
     
     const insertLoss = targetDb.prepare(`
-        INSERT INTO legacy_losses (legacy_id, fecha, producto, cantidad, motivo)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO legacy_losses (legacy_id, fecha, producto, cantidad, costo, motivo)
+        VALUES (?, ?, ?, ?, ?, ?)
     `);
     
     let migrated = 0;
@@ -255,7 +310,8 @@ function migrateLosses() {
                     loss.fecha,
                     loss.producto || 'Producto desconocido',
                     loss.cantidad || 0,
-                    loss.motivo || 'Sin motivo'
+                    loss.costo || 0,
+                    loss.info || 'Sin motivo'
                 );
                 migrated++;
             } catch (e) {
