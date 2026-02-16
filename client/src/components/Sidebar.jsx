@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
@@ -19,6 +19,7 @@ import {
     Check
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useCart } from './CartProvider';
 
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
@@ -28,17 +29,29 @@ const menuItems = [
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
 ];
 
+const inventories = [
+    { id: 'mch1', label: 'MCH1' },
+    { id: 'mch2', label: 'MCH2' },
+    { id: 'alm', label: 'Almacén' },
+];
+
 export function Sidebar({ isDark, toggleTheme }) {
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const [selectedInventory, setSelectedInventory] = useState('MCH1');
     const [isInventoryOpen, setIsInventoryOpen] = useState(false);
     const location = useLocation();
+    
+    // Usar el contexto global del carrito para el inventario
+    const { currentInventory, setCurrentInventory } = useCart();
 
-    const inventories = [
-        { id: 'MCH1', label: 'MCH1' },
-        { id: 'MCH2', label: 'MCH2' },
-        { id: 'Almacen', label: 'Almacén' },
-    ];
+    // Obtener el label del inventario actual
+    const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
+
+    const handleInventoryChange = (inventoryId) => {
+        setCurrentInventory(inventoryId);
+        setIsInventoryOpen(false);
+        // Recargar la página para aplicar cambios en todas las vistas
+        window.location.reload();
+    };
 
     return (
         <motion.aside
@@ -112,10 +125,10 @@ export function Sidebar({ isDark, toggleTheme }) {
                             <>
                                 <div className="flex-1 overflow-hidden">
                                     <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                                        Inventario
+                                        Inventario Activo
                                     </p>
                                     <p className="text-sm font-semibold truncate text-foreground">
-                                        {inventories.find(i => i.id === selectedInventory)?.label}
+                                        {currentInventoryLabel}
                                     </p>
                                 </div>
                                 <ChevronDown className={cn(
@@ -140,19 +153,16 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 {inventories.map((inventory) => (
                                     <button
                                         key={inventory.id}
-                                        onClick={() => {
-                                            setSelectedInventory(inventory.id);
-                                            setIsInventoryOpen(false);
-                                        }}
+                                        onClick={() => handleInventoryChange(inventory.id)}
                                         className={cn(
                                             'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                            selectedInventory === inventory.id
+                                            currentInventory === inventory.id
                                                 ? 'bg-violet-500/20 text-violet-400'
                                                 : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
                                         )}
                                     >
                                         <span>{inventory.label}</span>
-                                        {selectedInventory === inventory.id && (
+                                        {currentInventory === inventory.id && (
                                             <Check className="w-3.5 h-3.5" />
                                         )}
                                     </button>

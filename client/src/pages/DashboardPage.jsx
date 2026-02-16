@@ -9,6 +9,7 @@ import { StatCard } from '../components/StatCard';
 import { SalesChart } from '../components/SalesChart';
 import { FundsDistribution } from '../components/FundsDistribution';
 import { InventoryHealth } from '../components/InventoryHealth';
+import { useCart } from '../components/CartProvider';
 
 // Dashboard Data
 const dashboardData = {
@@ -20,7 +21,17 @@ const dashboardData = {
     }
 };
 
+const inventoryLabels = {
+    mch1: 'MCH 1',
+    mch2: 'MCH 2',
+    alm: 'Almacén'
+};
+
 export default function DashboardPage() {
+    const { currentInventory } = useCart();
+    
+    const inventoryLabel = inventoryLabels[currentInventory] || currentInventory.toUpperCase();
+    
     return (
         <motion.div
             initial={{ opacity: 0 }}
@@ -28,6 +39,18 @@ export default function DashboardPage() {
             transition={{ duration: 0.5 }}
             className="space-y-6"
         >
+            {/* Header con inventario actual */}
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold">
+                        Dashboard: <span className="text-cyan-400">{inventoryLabel}</span>
+                    </h1>
+                    <p className="text-xs text-muted-foreground uppercase tracking-widest mt-1">
+                        Monitoreo Activo de Flujos de Caja
+                    </p>
+                </div>
+            </div>
+
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
