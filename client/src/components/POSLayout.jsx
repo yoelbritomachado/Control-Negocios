@@ -4,6 +4,7 @@ import InventorySelector from './InventorySelector';
 import api, { fetchProducts } from '../api';
 import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
+import SearchDropdown from './SearchDropdown';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
@@ -63,7 +64,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
                         <p className="text-sm text-muted-foreground">Registra un gasto del turno actual</p>
                     </div>
                 </div>
-                
+
                 <form onSubmit={handleSubmit} className="space-y-5">
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de Gasto</label>
@@ -75,8 +76,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
                                     onClick={() => setType(value)}
                                     className={cn(
                                         "flex flex-col items-center gap-2 p-3 rounded-xl border transition-all",
-                                        type === value 
-                                            ? "bg-amber-500/20 border-amber-500/50 text-amber-400" 
+                                        type === value
+                                            ? "bg-amber-500/20 border-amber-500/50 text-amber-400"
                                             : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
                                     )}
                                 >
@@ -114,15 +115,15 @@ const ExpenseModal = ({ onClose, onSave }) => {
                     </div>
 
                     <div className="flex gap-3 pt-2">
-                        <button 
-                            type="button" 
-                            onClick={onClose} 
+                        <button
+                            type="button"
+                            onClick={onClose}
                             className="flex-1 px-4 py-3 rounded-xl text-muted-foreground hover:text-white hover:bg-white/5 font-medium transition-all"
                         >
                             Cancelar
                         </button>
-                        <button 
-                            type="submit" 
+                        <button
+                            type="submit"
                             className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-amber-500/25 transition-all"
                         >
                             Registrar
@@ -183,8 +184,8 @@ const ReturnModal = ({ onClose, onSave }) => {
                                     onClick={() => setType(value)}
                                     className={cn(
                                         "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
-                                        type === value 
-                                            ? "bg-rose-500/10 border-rose-500/50" 
+                                        type === value
+                                            ? "bg-rose-500/10 border-rose-500/50"
                                             : "bg-white/5 border-white/10 hover:bg-white/10"
                                     )}
                                 >
@@ -207,13 +208,13 @@ const ReturnModal = ({ onClose, onSave }) => {
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monto a Devolver</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
-                            <input 
-                                type="number" 
-                                placeholder="0.00" 
-                                value={amount} 
-                                onChange={e => setAmount(e.target.value)} 
+                            <input
+                                type="number"
+                                placeholder="0.00"
+                                value={amount}
+                                onChange={e => setAmount(e.target.value)}
                                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white focus:border-rose-500/50 focus:ring-1 focus:ring-rose-500/50 outline-none transition-all font-mono text-lg"
-                                required 
+                                required
                             />
                         </div>
                     </div>
@@ -274,15 +275,15 @@ const ReturnModal = ({ onClose, onSave }) => {
                     </div>
 
                     <div className="flex gap-3 pt-2">
-                        <button 
-                            type="button" 
-                            onClick={onClose} 
+                        <button
+                            type="button"
+                            onClick={onClose}
                             className="flex-1 px-4 py-3 rounded-xl text-muted-foreground hover:text-white hover:bg-white/5 font-medium transition-all"
                         >
                             Cancelar
                         </button>
-                        <button 
-                            type="submit" 
+                        <button
+                            type="submit"
                             disabled={loading}
                             className="flex-1 px-4 py-3 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all flex items-center justify-center gap-2"
                         >
@@ -336,37 +337,37 @@ const CloseSessionModal = ({ onClose, onSave, metrics }) => {
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Efectivo en Caja</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
-                            <input 
-                                type="number" 
-                                placeholder="0.00" 
-                                value={cash} 
-                                onChange={e => setCash(e.target.value)} 
+                            <input
+                                type="number"
+                                placeholder="0.00"
+                                value={cash}
+                                onChange={e => setCash(e.target.value)}
                                 className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 outline-none transition-all font-mono text-lg"
-                                required 
+                                required
                             />
                         </div>
                     </div>
 
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notas del Turno</label>
-                        <textarea 
-                            placeholder="Observaciones, incidencias, etc..." 
-                            value={notes} 
-                            onChange={e => setNotes(e.target.value)} 
+                        <textarea
+                            placeholder="Observaciones, incidencias, etc..."
+                            value={notes}
+                            onChange={e => setNotes(e.target.value)}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 outline-none transition-all h-24 resize-none"
                         />
                     </div>
 
                     <div className="flex gap-3 pt-2">
-                        <button 
-                            type="button" 
-                            onClick={onClose} 
+                        <button
+                            type="button"
+                            onClick={onClose}
                             className="flex-1 px-4 py-3 rounded-xl text-muted-foreground hover:text-white hover:bg-white/5 font-medium transition-all"
                         >
                             Cancelar
                         </button>
-                        <button 
-                            type="submit" 
+                        <button
+                            type="submit"
                             className="flex-1 px-4 py-3 bg-gradient-to-r from-violet-600 to-purple-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-violet-500/25 transition-all flex items-center justify-center gap-2"
                         >
                             <LogOut className="w-4 h-4" />
@@ -387,6 +388,7 @@ export default function POSLayout() {
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+    const inputRef = useRef(null);
 
     // Modals
     const [showExpense, setShowExpense] = useState(false);
@@ -442,22 +444,22 @@ export default function POSLayout() {
                 if (products && products.length > 0) {
                     const p = products[0];
                     const stock = p.inventory?.[currentInventory] || 0;
-                    if (stock > 0) { 
-                        addToCart(p); 
-                        setSearch(''); 
+                    if (stock > 0) {
+                        addToCart(p);
+                        setSearch('');
                         setSearchResults([]);
                     }
-                    else { 
-                        alert("Producto agotado en esta sede"); 
+                    else {
+                        alert("Producto agotado en esta sede");
                     }
-                } else { 
-                    alert("Producto no encontrado"); 
+                } else {
+                    alert("Producto no encontrado");
                 }
-            } catch (err) { 
-                console.error(err); 
+            } catch (err) {
+                console.error(err);
             }
-            finally { 
-                setLoadingProduct(false); 
+            finally {
+                setLoadingProduct(false);
             }
         }
     };
@@ -471,7 +473,7 @@ export default function POSLayout() {
 
     const handleSaveSale = () => {
         if (cart.length === 0) return;
-        
+
         const savedSale = {
             id: `S-${Date.now()}`,
             items: [...cart],
@@ -480,7 +482,7 @@ export default function POSLayout() {
             status: 'saved',
             inventoryId: currentInventory
         };
-        
+
         setSavedSales(prev => [savedSale, ...prev]);
         clearCart();
         alert('Venta guardada. No se suma al total de la sesion hasta que se cobre.');
@@ -545,10 +547,10 @@ export default function POSLayout() {
                 transferAmount: paymentData.transferAmount
             });
             if (res.data.success) {
-                setRecentSales(prev => [{ 
-                    id: res.data.saleId, 
-                    total, 
-                    time: new Date().toLocaleTimeString(), 
+                setRecentSales(prev => [{
+                    id: res.data.saleId,
+                    total,
+                    time: new Date().toLocaleTimeString(),
                     method: paymentMethod,
                     cashAmount: paymentData.cashAmount,
                     transferAmount: paymentData.transferAmount
@@ -556,12 +558,12 @@ export default function POSLayout() {
                 clearCart();
                 setShowPayment(false);
             }
-        } catch (e) { 
+        } catch (e) {
             console.error('Error al cobrar:', e);
-            alert(e.response?.data?.error || "Error al cobrar"); 
+            alert(e.response?.data?.error || "Error al cobrar");
         }
-        finally { 
-            setCheckoutProcessing(false); 
+        finally {
+            setCheckoutProcessing(false);
         }
     };
 
@@ -573,7 +575,7 @@ export default function POSLayout() {
                 `Tienes ${savedSales.length} venta(s) guardada(s) por $${totalSaved.toFixed(2)}.\n\n` +
                 `¿Deseas COBRARLAS antes de cerrar? (Aceptar = Cobrar, Cancelar = Eliminar)`
             );
-            
+
             if (action) {
                 // Cobrar todas las ventas guardadas
                 savedSales.forEach(sale => {
@@ -588,7 +590,7 @@ export default function POSLayout() {
             // Si cancela, simplemente se eliminan (no se suman al total)
             setSavedSales([]);
         }
-        
+
         try {
             const res = await api.post('/sessions/close', { declared_cash: cash, notes });
             alert(`Sesion Cerrada. Salario Calculado: $${res.data.wage}`);
@@ -605,18 +607,19 @@ export default function POSLayout() {
     return (
         <SessionGuard>
             <div className="h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
-                
+
                 {/* --- CONTENT AREA --- */}
                 <div className="flex h-full">
-                    
+
                     {/* LEFT COLUMN: Cart (60%) */}
                     <div className="w-[60%] flex flex-col h-full border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
-                        
+
                         {/* Search Bar Premium */}
                         <div className="h-16 flex-none px-4 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
                             <div className="relative flex-1">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
                                 <input
+                                    ref={inputRef}
                                     type="text"
                                     value={search}
                                     onChange={e => setSearch(e.target.value)}
@@ -628,60 +631,16 @@ export default function POSLayout() {
                                 {loadingProduct && (
                                     <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-cyan-500 w-5 h-5" />
                                 )}
-                                
-                                {/* Search Results Dropdown */}
-                                <AnimatePresence>
-                                    {showSearchDropdown && searchResults.length > 0 && (
-                                        <motion.div
-                                            initial={{ opacity: 0, y: -10, scale: 0.98 }}
-                                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                                            exit={{ opacity: 0, y: -10, scale: 0.98 }}
-                                            transition={{ duration: 0.15 }}
-                                            className="absolute top-full left-0 right-0 mt-2 bg-[#0B1120] border border-cyan-500/30 rounded-xl shadow-2xl z-[100] max-h-72 overflow-y-auto"
-                                            style={{ 
-                                                boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(6,182,212,0.2)',
-                                                isolation: 'isolate'
-                                            }}
-                                        >
-                                            <div className="p-3 space-y-2">
-                                                {searchResults.map((product, index) => {
-                                                    const stock = product.inventory?.[currentInventory] || 0;
-                                                    return (
-                                                        <motion.button
-                                                            key={product.id}
-                                                            initial={{ opacity: 0, x: -10 }}
-                                                            animate={{ opacity: 1, x: 0 }}
-                                                            transition={{ delay: index * 0.03 }}
-                                                            onClick={() => handleSelectProduct(product)}
-                                                            className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/80 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/40 transition-all text-left group"
-                                                        >
-                                                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/30 shrink-0">
-                                                                <Package2 className="w-5 h-5 text-cyan-400" />
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="font-semibold text-foreground truncate group-hover:text-cyan-300 transition-colors">{product.name}</div>
-                                                                <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-                                                                    <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">{product.code || 'SIN CÓDIGO'}</span>
-                                                                    <span className="w-1 h-1 rounded-full bg-slate-600"></span>
-                                                                    <span className={stock < 5 ? "text-rose-400 font-medium" : "text-emerald-400 font-medium"}>
-                                                                        Stock: {stock}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-right shrink-0">
-                                                                <div className="font-bold text-emerald-400 font-mono text-lg">${product.sale_price_manual}</div>
-                                                                <div className="text-xs text-slate-500">${product.cost_mx} costo</div>
-                                                            </div>
-                                                            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/40 shrink-0">
-                                                                <Plus className="w-5 h-5 text-cyan-400" />
-                                                            </div>
-                                                        </motion.button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
+
+                                {/* Search Results Dropdown usando Portal */}
+                                <SearchDropdown
+                                    isOpen={showSearchDropdown && searchResults.length > 0}
+                                    onClose={() => setShowSearchDropdown(false)}
+                                    searchResults={searchResults}
+                                    currentInventory={currentInventory}
+                                    onSelectProduct={handleSelectProduct}
+                                    inputRef={inputRef}
+                                />
                             </div>
                         </div>
 
@@ -703,14 +662,14 @@ export default function POSLayout() {
                                                 <div className="flex items-center gap-3">
                                                     {/* Quantity Controls */}
                                                     <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1 border border-white/5">
-                                                        <button 
+                                                        <button
                                                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
                                                             className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
                                                         >
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
                                                         <span className="w-8 text-center font-bold tabular-nums">{item.quantity}</span>
-                                                        <button 
+                                                        <button
                                                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                                             className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
                                                         >
@@ -734,7 +693,7 @@ export default function POSLayout() {
                                                     </div>
 
                                                     {/* Delete Button */}
-                                                    <button 
+                                                    <button
                                                         onClick={() => removeFromCart(item.id)}
                                                         className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-all"
                                                     >
@@ -747,7 +706,7 @@ export default function POSLayout() {
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40">
-                                    <motion.div 
+                                    <motion.div
                                         initial={{ scale: 0.8, opacity: 0 }}
                                         animate={{ scale: 1, opacity: 1 }}
                                         className="w-20 h-20 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 flex items-center justify-center mb-3"
@@ -771,7 +730,7 @@ export default function POSLayout() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <button 
+                                <button
                                     onClick={handleSaveSale}
                                     disabled={cart.length === 0}
                                     className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -799,14 +758,14 @@ export default function POSLayout() {
 
                     {/* RIGHT COLUMN: Sidebar (40%) */}
                     <div className="w-[40%] flex flex-col h-full bg-card/30">
-                        
+
                         {/* Session Info */}
                         <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">
                             <div className="flex items-center gap-2">
                                 <History className="w-4 h-4 text-muted-foreground" />
                                 <span className="text-sm font-semibold text-muted-foreground">Tickets Recientes</span>
                             </div>
-                            <button 
+                            <button
                                 onClick={fetchMetrics}
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/20 transition-all"
                             >
@@ -884,8 +843,8 @@ export default function POSLayout() {
                                                         <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
                                                         <span className={cn(
                                                             "px-1.5 py-0.5 rounded text-[10px] font-medium uppercase",
-                                                            sale.method === 'transfer' 
-                                                                ? "bg-blue-500/10 text-blue-400" 
+                                                            sale.method === 'transfer'
+                                                                ? "bg-blue-500/10 text-blue-400"
                                                                 : "bg-emerald-500/10 text-emerald-400"
                                                         )}>
                                                             {sale.method === 'transfer' ? 'Transf' : 'Efectivo'}
@@ -912,7 +871,7 @@ export default function POSLayout() {
                                     </motion.div>
                                 ))}
                             </AnimatePresence>
-                            
+
                             {recentSales.length === 0 && savedSales.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-8">
                                     <History className="w-10 h-10 mb-2 opacity-50" />
@@ -924,7 +883,7 @@ export default function POSLayout() {
                         {/* Quick Actions */}
                         <div className="h-20 flex-none p-3 border-t border-border/50 bg-card/50">
                             <div className="grid grid-cols-2 gap-2 h-full">
-                                <button 
+                                <button
                                     onClick={() => setShowExpense(true)}
                                     className="flex items-center gap-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 transition-all group"
                                 >
@@ -936,8 +895,8 @@ export default function POSLayout() {
                                         <div className="text-[10px] text-amber-400/70">Registrar</div>
                                     </div>
                                 </button>
-                                
-                                <button 
+
+                                <button
                                     onClick={() => setShowReturn(true)}
                                     className="flex items-center gap-2 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all group"
                                 >
@@ -957,46 +916,46 @@ export default function POSLayout() {
                 {/* Modals */}
                 <AnimatePresence>
                     {showExpense && (
-                        <ExpenseModal 
-                            onClose={() => setShowExpense(false)} 
-                            onSave={async (data) => { 
-                                try { 
-                                    await api.post('/expenses', data); 
-                                    setShowExpense(false); 
-                                    alert("Gasto registrado"); 
-                                } catch (e) { 
-                                    alert("Error"); 
-                                } 
-                            }} 
+                        <ExpenseModal
+                            onClose={() => setShowExpense(false)}
+                            onSave={async (data) => {
+                                try {
+                                    await api.post('/expenses', data);
+                                    setShowExpense(false);
+                                    alert("Gasto registrado");
+                                } catch (e) {
+                                    alert("Error");
+                                }
+                            }}
                         />
                     )}
                     {showReturn && (
-                        <ReturnModal 
-                            onClose={() => setShowReturn(false)} 
-                            onSave={async (formData) => { 
-                                formData.append('inventoryId', currentInventory); 
-                                try { 
-                                    await api.post('/returns', formData); 
-                                    setShowReturn(false); 
-                                    alert("Devolución registrada"); 
-                                } catch (e) { 
-                                    alert(e.response?.data?.error || "Error"); 
-                                } 
-                            }} 
+                        <ReturnModal
+                            onClose={() => setShowReturn(false)}
+                            onSave={async (formData) => {
+                                formData.append('inventoryId', currentInventory);
+                                try {
+                                    await api.post('/returns', formData);
+                                    setShowReturn(false);
+                                    alert("Devolución registrada");
+                                } catch (e) {
+                                    alert(e.response?.data?.error || "Error");
+                                }
+                            }}
                         />
                     )}
                     {showClose && (
-                        <CloseSessionModal 
-                            metrics={sessionMetrics} 
-                            onClose={() => setShowClose(false)} 
-                            onSave={handleCloseSession} 
+                        <CloseSessionModal
+                            metrics={sessionMetrics}
+                            onClose={() => setShowClose(false)}
+                            onSave={handleCloseSession}
                         />
                     )}
                     {showPayment && (
-                        <PaymentModal 
-                            total={total} 
-                            onClose={() => setShowPayment(false)} 
-                            onConfirm={processPayment} 
+                        <PaymentModal
+                            total={total}
+                            onClose={() => setShowPayment(false)}
+                            onConfirm={processPayment}
                         />
                     )}
                 </AnimatePresence>
