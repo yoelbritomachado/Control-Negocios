@@ -5,14 +5,12 @@ const path = require('path');
 // Configuración
 const LEGACY_DB_PATH = path.join(__dirname, '../uploads/backup_legacy.db');
 const TARGET_DB_PATH = path.join(__dirname, '../inventory.db');
-const UPLOADS_DIR = path.join(__dirname, '../uploads');
 
 console.log('🚀 Iniciando migración de datos legacy...\n');
 
 // Verificar que existe la base de datos legacy
 if (!fs.existsSync(LEGACY_DB_PATH)) {
     console.error('❌ No se encontró la base de datos legacy:', LEGACY_DB_PATH);
-    console.log('💡 Asegúrate de que el archivo .mnx haya sido descomprimido y renombrado a backup_legacy.db');
     process.exit(1);
 }
 
@@ -36,11 +34,9 @@ function migrateProducts() {
         SELECT 
             i.id as legacy_id,
             i.nombre as name,
-            i.clave as code,
             p.precio as sale_price,
             p.costo as cost,
-            p.cantidad as stock,
-            p.costo_promedio as avg_cost
+            p.cantidad as stock
         FROM item i
         JOIN producto p ON i.id = p.id
         WHERE i.status = 1
@@ -49,10 +45,10 @@ function migrateProducts() {
     
     console.log(`   Encontrados ${legacyProducts.length} productos para migrar`);
     
-    // Preparar statements
+    // Preparar statement - SIN la columna quantity que no existe
     const insertProduct = targetDb.prepare(`
-        INSERT INTO products (name, cost_mx, sale_price_manual, description, quantity)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO products (name, cost_mx, sale_price_manual, description)
+        VALUES (?, ?, ?, ?)
     `);
     
     const insertInventory = targetDb.prepare(`
@@ -80,13 +76,12 @@ function migrateProducts() {
                     continue;
                 }
                 
-                // Insertar producto
+                // Insertar producto (solo campos que existen)
                 const result = insertProduct.run(
                     prod.name,
                     prod.cost || 0,
                     prod.sale_price || 0,
-                    `Migrado desde sistema legacy. ID original: ${prod.legacy_id}`,
-                    prod.stock || 0
+                    `Migrado desde sistema legacy. ID original: ${prod.legacy_id}`
                 );
                 
                 const newProductId = result.lastInsertRowid;
@@ -118,75 +113,8 @@ function migrateProducts() {
     return { migrated, skipped, errors };
 }
 
-// Función para migrar imágenes
-function migrateImages() {
-    console.log('\n🖼️  Migrando imágenes...');
-    
-    const legacyImages = legacyDb.prepare(`
-        SELECT DISTINCT id FROM item WHERE status = 1
-    `).all();
-    
-    let imagesFound = 0;
-    let imagesMigrated = 0;
-    
-    // Buscar imágenes en el directorio de uploads
-    const tempDir = path.join(__dirname, '../uploads/temp_mnx');
-    
-    if (!fs.existsSync(tempDir)) {
-        console.log('   ℹ️  No se encontró directorio temporal de imágenes');
-        return { found: 0, migrated: 0 };
-    }
-    
-    const insertImage = targetDb.prepare(`
-        INSERT INTO product_images (product_id, image_url, is_primary, sort_order)
-        VALUES (?, ?, ?, ?)
-    `);
-    
-    const getProductByCode = targetDb.prepare(`
-        SELECT id FROM products WHERE code = ?
-    `);
-    
-    for (const item of legacyImages) {
-        const imageName = `img_${item.id}.jpg`;
-        const imagePath = path.join(tempDir, imageName);
-        
-        if (fs.existsSync(imagePath)) {
-            imagesFound++;
-            
-            try {
-                // Copiar imagen a uploads
-                const newImageName = `legacy_${item.id}_${Date.now()}.jpg`;
-                const targetPath = path.join(UPLOADS_DIR, newImageName);
-                fs.copyFileSync(imagePath, targetPath);
-                
-                // Buscar el producto correspondiente
-                const product = getProductByCode.get(`LEGACY_${item.id}`);
-                
-                if (product) {
-                    insertImage.run(
-                        product.id,
-                        `/uploads/${newImageName}`,
-                        1, // is_primary
-                        0  // sort_order
-                    );
-                    imagesMigrated++;
-                    console.log(`   ✅ Imagen migrada para producto ID ${item.id}`);
-                }
-            } catch (e) {
-                console.error(`   ❌ Error migrando imagen ${imageName}:`, e.message);
-            }
-        }
-    }
-    
-    console.log(`\n📊 Resumen de imágenes:`);
-    console.log(`   🖼️  Encontradas: ${imagesFound}`);
-    console.log(`   ✅ Migradas: ${imagesMigrated}`);
-    
-    return { found: imagesFound, migrated: imagesMigrated };
-}
-
 // Función para generar reporte
-function generateReport(productsResult, imagesResult) {
+function generateReport(productsResult) {
     const report = {
         fecha: new Date().toISOString(),
         productos: {
@@ -194,8 +122,7 @@ function generateReport(productsResult, imagesResult) {
             migrados: productsResult.migrated,
             saltados: productsResult.skipped,
             errores: productsResult.errors
-        },
-        imagenes: imagesResult
+        }
     };
     
     const reportPath = path.join(__dirname, '../uploads/migration_report.json');
@@ -210,8 +137,7 @@ try {
     console.log('='.repeat(60));
     
     const productsResult = migrateProducts();
-    const imagesResult = migrateImages();
-    generateReport(productsResult, imagesResult);
+    generateReport(productsResult);
     
     console.log('\n' + '='.repeat(60));
     console.log('✅ MIGRACIÓN COMPLETADA');
