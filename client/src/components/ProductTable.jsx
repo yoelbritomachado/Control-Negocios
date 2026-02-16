@@ -1,22 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { FaEdit, FaTrash, FaTag } from 'react-icons/fa';
+import { Package2 } from 'lucide-react';
 
 // ProductThumbnail Component
 const ProductThumbnail = ({ product, onClick }) => {
   const [index, setIndex] = useState(0);
+  const [imageError, setImageError] = useState(false);
   const images = product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []);
 
   useEffect(() => {
     if (images.length <= 1) return;
     const interval = setInterval(() => {
       setIndex(prev => (prev + 1) % images.length);
-    }, 2000); // 2s rotation
+    }, 2000);
     return () => clearInterval(interval);
   }, [images.length]);
 
-  if (images.length === 0) {
+  const handleImageError = () => {
+    setImageError(true);
+  };
+
+  if (images.length === 0 || imageError) {
     return (
-      <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 font-bold uppercase">Sin Foto</div>
+      <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center justify-center text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 font-bold uppercase">
+        <Package2 className="w-5 h-5 text-muted-foreground" />
+      </div>
     );
   }
 
@@ -34,6 +42,7 @@ const ProductThumbnail = ({ product, onClick }) => {
         <img
           src={images[prevIndex]}
           alt=""
+          onError={handleImageError}
           className="w-full h-full object-cover absolute inset-0 z-0 opacity-100 pointer-events-none"
         />
       )}
@@ -41,6 +50,7 @@ const ProductThumbnail = ({ product, onClick }) => {
         key={index}
         src={images[index]}
         alt={product.name}
+        onError={handleImageError}
         className={`w-full h-full object-cover absolute inset-0 z-10 pointer-events-none ${images.length > 1 ? 'animate-fade-in' : ''}`}
       />
       {images.length > 1 && (
