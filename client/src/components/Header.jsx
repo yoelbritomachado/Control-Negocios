@@ -3,13 +3,40 @@ import {
   Plus,
   Bell,
   User,
-  ChevronDown
+  ChevronDown,
+  LayoutDashboard,
+  ShoppingCart,
+  Package,
+  ArrowLeftRight,
+  Users
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useCart } from './CartProvider';
 
-export function Header({ businessName, userName, userRole }) {
+const pageTitles = {
+  '/': { title: 'Dashboard', subtitle: 'Monitoreo activo de flujos de caja', icon: LayoutDashboard },
+  '/pos': { title: 'Punto de Venta', subtitle: 'Sistema de cobro y gestion de ventas', icon: ShoppingCart },
+  '/entradas': { title: 'Inventario', subtitle: 'Control de stock y productos', icon: Package },
+  '/compras': { title: 'Compras', subtitle: 'Gestion de entradas de mercancia', icon: ArrowLeftRight },
+  '/usuarios': { title: 'Usuarios', subtitle: 'Administracion de usuarios y permisos', icon: Users },
+};
+
+const inventoryLabels = {
+  mch1: 'MCH 1',
+  mch2: 'MCH 2',
+  alm: 'Almacen'
+};
+
+export function Header({ userName, userRole }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { currentInventory } = useCart();
+
+  const currentPage = pageTitles[location.pathname] || pageTitles['/'];
+  const PageIcon = currentPage.icon;
+  
+  const inventoryLabel = inventoryLabels[currentInventory] || currentInventory.toUpperCase();
 
   return (
     <motion.header
@@ -28,12 +55,13 @@ export function Header({ businessName, userName, userRole }) {
             className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"
           />
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Monitoreo activo de flujos de caja
+            {currentPage.subtitle}
           </p>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight">
-          Dashboard:{' '}
-          <span className="gradient-text-cyan">{businessName}</span>
+        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
+          <PageIcon className="w-7 h-7 text-cyan-400" />
+          <span>{currentPage.title}:</span>
+          <span className="gradient-text-cyan">{inventoryLabel}</span>
         </h1>
       </div>
 
@@ -64,23 +92,25 @@ export function Header({ businessName, userName, userRole }) {
           <ChevronDown className="w-4 h-4 text-muted-foreground" />
         </motion.div>
 
-        {/* New Sale Button */}
-        <motion.button
-          onClick={() => navigate('/pos')}
-          whileHover={{ scale: 1.02, y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          className={cn(
-            'flex items-center gap-2 px-5 py-2.5 rounded-xl',
-            'bg-gradient-to-r from-cyan-500 to-blue-600',
-            'text-white font-medium text-sm',
-            'shadow-lg shadow-cyan-500/30',
-            'hover:shadow-cyan-500/50',
-            'transition-all duration-300'
-          )}
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nueva Venta</span>
-        </motion.button>
+        {/* New Sale Button - Solo mostrar si no estamos en POS */}
+        {location.pathname !== '/pos' && (
+          <motion.button
+            onClick={() => navigate('/pos')}
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            className={cn(
+              'flex items-center gap-2 px-5 py-2.5 rounded-xl',
+              'bg-gradient-to-r from-cyan-500 to-blue-600',
+              'text-white font-medium text-sm',
+              'shadow-lg shadow-cyan-500/30',
+              'hover:shadow-cyan-500/50',
+              'transition-all duration-300'
+            )}
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nueva Venta</span>
+          </motion.button>
+        )}
       </div>
     </motion.header>
   );

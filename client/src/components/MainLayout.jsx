@@ -193,7 +193,6 @@ export default function MainLayout() {
             )}>
                 <div className="p-6 lg:p-8">
                     <Header
-                        businessName={userInfo.businessName}
                         userName={userInfo.userName}
                         userRole={userInfo.userRole}
                     />
