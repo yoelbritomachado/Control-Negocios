@@ -3,7 +3,7 @@ import { History, ShoppingCart, Package, AlertTriangle, Calendar, Search, Dollar
 import { fetchLegacyHistory } from '../api';
 
 export default function LegacyHistoryPage() {
-    const [activeTab, setActiveTab] = useState('sales'); // sales, purchases, losses
+    const [activeTab, setActiveTab] = useState('sales');
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -46,6 +46,15 @@ export default function LegacyHistoryPage() {
     ];
 
     const activeTabData = tabs.find(t => t.id === activeTab);
+
+    // Parsear info JSON para mostrar detalles
+    const parseInfo = (infoStr) => {
+        try {
+            return JSON.parse(infoStr || '{}');
+        } catch (e) {
+            return {};
+        }
+    };
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
@@ -159,15 +168,13 @@ export default function LegacyHistoryPage() {
                                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Tipo</th>
                                     {activeTab === 'sales' && (
                                         <>
-                                            <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Items</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Detalles</th>
                                             <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">Total</th>
                                         </>
                                     )}
                                     {activeTab === 'purchases' && (
                                         <>
-                                            <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Proveedor</th>
-                                            <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Producto</th>
-                                            <th className="px-4 py-3 text-center text-sm font-medium text-muted-foreground">Cantidad</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Detalles</th>
                                             <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">Total</th>
                                         </>
                                     )}
@@ -175,55 +182,65 @@ export default function LegacyHistoryPage() {
                                         <>
                                             <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Producto</th>
                                             <th className="px-4 py-3 text-center text-sm font-medium text-muted-foreground">Cantidad</th>
+                                            <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">Costo</th>
                                             <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Motivo</th>
                                         </>
                                     )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border/30">
-                                {filteredData.map((item, index) => (
-                                    <tr key={index} className="hover:bg-card/50 transition-colors">
-                                        <td className="px-4 py-3 text-sm">
-                                            {item.fecha ? new Date(item.fecha).toLocaleDateString() : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 text-sm">
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                                activeTab === 'sales' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                activeTab === 'purchases' ? 'bg-blue-500/20 text-blue-400' :
-                                                'bg-rose-500/20 text-rose-400'
-                                            }`}>
-                                                {item.tipo || 'N/A'}
-                                            </span>
-                                        </td>
-                                        {activeTab === 'sales' && (
-                                            <>
-                                                <td className="px-4 py-3 text-sm">{item.items_count || 0}</td>
-                                                <td className="px-4 py-3 text-sm text-right font-mono">
-                                                    ${(item.total || 0).toFixed(2)}
-                                                </td>
-                                            </>
-                                        )}
-                                        {activeTab === 'purchases' && (
-                                            <>
-                                                <td className="px-4 py-3 text-sm">{item.proveedor || 'N/A'}</td>
-                                                <td className="px-4 py-3 text-sm">{item.producto || 'N/A'}</td>
-                                                <td className="px-4 py-3 text-sm text-center">{item.cantidad || 0}</td>
-                                                <td className="px-4 py-3 text-sm text-right font-mono">
-                                                    ${(item.total || 0).toFixed(2)}
-                                                </td>
-                                            </>
-                                        )}
-                                        {activeTab === 'losses' && (
-                                            <>
-                                                <td className="px-4 py-3 text-sm">{item.producto || 'N/A'}</td>
-                                                <td className="px-4 py-3 text-sm text-center">{item.cantidad || 0}</td>
-                                                <td className="px-4 py-3 text-sm text-muted-foreground">
-                                                    {item.motivo || 'Sin motivo'}
-                                                </td>
-                                            </>
-                                        )}
-                                    </tr>
-                                ))}
+                                {filteredData.map((item, index) => {
+                                    const info = parseInfo(item.info);
+                                    return (
+                                        <tr key={index} className="hover:bg-card/50 transition-colors">
+                                            <td className="px-4 py-3 text-sm">
+                                                {item.fecha ? new Date(item.fecha).toLocaleDateString() : 'N/A'}
+                                            </td>
+                                            <td className="px-4 py-3 text-sm">
+                                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                                    activeTab === 'sales' ? 'bg-emerald-500/20 text-emerald-400' :
+                                                    activeTab === 'purchases' ? 'bg-blue-500/20 text-blue-400' :
+                                                    'bg-rose-500/20 text-rose-400'
+                                                }`}>
+                                                    {item.tipo || 'N/A'}
+                                                </span>
+                                            </td>
+                                            {activeTab === 'sales' && (
+                                                <>
+                                                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                        {info.cliente || info.cliente_nombre || 'Cliente general'}
+                                                        {info.items_count && ` (${info.items_count} items)`}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-right font-mono">
+                                                        ${(item.total || 0).toFixed(2)}
+                                                    </td>
+                                                </>
+                                            )}
+                                            {activeTab === 'purchases' && (
+                                                <>
+                                                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                        {info.proveedor || info.proveedor_nombre || 'Sin proveedor'}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-right font-mono">
+                                                        ${(item.total || 0).toFixed(2)}
+                                                    </td>
+                                                </>
+                                            )}
+                                            {activeTab === 'losses' && (
+                                                <>
+                                                    <td className="px-4 py-3 text-sm">{item.producto || 'N/A'}</td>
+                                                    <td className="px-4 py-3 text-sm text-center">{item.cantidad || 0}</td>
+                                                    <td className="px-4 py-3 text-sm text-right font-mono">
+                                                        ${(item.costo || 0).toFixed(2)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-muted-foreground">
+                                                        {item.motivo || 'Sin motivo'}
+                                                    </td>
+                                                </>
+                                            )}
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
