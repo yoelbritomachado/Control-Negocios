@@ -397,6 +397,7 @@ export default function POSLayout() {
 
     // State
     const [recentSales, setRecentSales] = useState([]);
+    const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
 
     // Search with debounce
@@ -468,6 +469,43 @@ export default function POSLayout() {
         setShowSearchDropdown(false);
     };
 
+    const handleSaveSale = () => {
+        if (cart.length === 0) return;
+        
+        const savedSale = {
+            id: `S-${Date.now()}`,
+            items: [...cart],
+            total: total,
+            time: new Date().toLocaleTimeString(),
+            status: 'saved',
+            inventoryId: currentInventory
+        };
+        
+        setSavedSales(prev => [savedSale, ...prev]);
+        clearCart();
+        alert('Venta guardada. No se suma al total de la sesion hasta que se cobre.');
+    };
+
+    const handlePaySavedSale = (saleId) => {
+        const sale = savedSales.find(s => s.id === saleId);
+        if (!sale) return;
+        
+        setRecentSales(prev => [{
+            id: sale.id,
+            total: sale.total,
+            time: new Date().toLocaleTimeString(),
+            method: 'cash'
+        }, ...prev]);
+        
+        setSavedSales(prev => prev.filter(s => s.id !== saleId));
+    };
+
+    const handleDeleteSavedSale = (saleId) => {
+        if (confirm('¿Eliminar esta venta guardada?')) {
+            setSavedSales(prev => prev.filter(s => s.id !== saleId));
+        }
+    };
+
     const handleCheckoutClick = () => { if (cart.length > 0) setShowPayment(true); };
 
     const processPayment = async (paymentData) => {
@@ -491,11 +529,34 @@ export default function POSLayout() {
     };
 
     const handleCloseSession = async (cash, notes) => {
+        // Verificar si hay ventas guardadas
+        if (savedSales.length > 0) {
+            const totalSaved = savedSales.reduce((sum, s) => sum + s.total, 0);
+            const action = confirm(
+                `Tienes ${savedSales.length} venta(s) guardada(s) por $${totalSaved.toFixed(2)}.\n\n` +
+                `¿Deseas COBRARLAS antes de cerrar? (Aceptar = Cobrar, Cancelar = Eliminar)`
+            );
+            
+            if (action) {
+                // Cobrar todas las ventas guardadas
+                savedSales.forEach(sale => {
+                    setRecentSales(prev => [{
+                        id: sale.id,
+                        total: sale.total,
+                        time: sale.time,
+                        method: 'cash'
+                    }, ...prev]);
+                });
+            }
+            // Si cancela, simplemente se eliminan (no se suman al total)
+            setSavedSales([]);
+        }
+        
         try {
             const res = await api.post('/sessions/close', { declared_cash: cash, notes });
-            alert(`Sesión Cerrada. Salario Calculado: $${res.data.wage}`);
+            alert(`Sesion Cerrada. Salario Calculado: $${res.data.wage}`);
             window.location.reload();
-        } catch (e) { alert("Error al cerrar sesión"); }
+        } catch (e) { alert("Error al cerrar sesion"); }
     };
 
     const fetchMetrics = async () => {
@@ -670,7 +731,11 @@ export default function POSLayout() {
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <button className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2">
+                                <button 
+                                    onClick={handleSaveSale}
+                                    disabled={cart.length === 0}
+                                    className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
                                     <Save className="w-4 h-4" />
                                     <span className="text-sm font-semibold">Guardar</span>
                                 </button>
@@ -712,6 +777,51 @@ export default function POSLayout() {
 
                         {/* Recent Sales List */}
                         <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                            {/* Ventas Guardadas (Pendientes) */}
+                            <AnimatePresence>
+                                {savedSales.map((sale, index) => (
+                                    <motion.div
+                                        key={sale.id}
+                                        initial={{ opacity: 0, x: 20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 hover:border-amber-500/40 transition-all group"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                                                    <Save className="w-4 h-4 text-amber-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="font-semibold text-foreground text-sm flex items-center gap-2">
+                                                        Venta #{sale.id}
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">GUARDADA</span>
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground">{sale.time} • Pendiente de cobro</div>
+                                                </div>
+                                            </div>
+                                            <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
+                                        </div>
+                                        <div className="flex gap-2 mt-2">
+                                            <button
+                                                onClick={() => handlePaySavedSale(sale.id)}
+                                                className="flex-1 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/30 transition-all"
+                                            >
+                                                Cobrar
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteSavedSale(sale.id)}
+                                                className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/30 transition-all"
+                                            >
+                                                Eliminar
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+
+                            {/* Ventas Cobradas */}
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
@@ -749,7 +859,7 @@ export default function POSLayout() {
                                 ))}
                             </AnimatePresence>
                             
-                            {recentSales.length === 0 && (
+                            {recentSales.length === 0 && savedSales.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-8">
                                     <History className="w-10 h-10 mb-2 opacity-50" />
                                     <p className="text-sm">Sin ventas en este turno</p>
