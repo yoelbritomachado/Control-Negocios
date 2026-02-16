@@ -700,7 +700,7 @@ export default function POSLayout() {
                                                     {/* Delete Button */}
                                                     <button
                                                         onClick={() => removeFromCart(item.id)}
-                                                        className="opacity-0 group-hover:opacity-100 p-2 rounded-lg text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                                                        className="p-2 rounded-lg text-muted-foreground hover:text-rose-500 hover:bg-rose-500/10 transition-all"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </button>
@@ -859,7 +859,7 @@ export default function POSLayout() {
                                             </div>
                                             <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
                                         </div>
-                                        <div className="flex gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <div className="flex gap-2 mt-2">
                                             <button
                                                 onClick={() => handleEditSale(sale)}
                                                 className="flex-1 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
