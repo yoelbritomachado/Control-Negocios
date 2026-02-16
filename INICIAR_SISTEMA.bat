@@ -56,6 +56,16 @@ if not exist "server\node_modules" (
     cd ..
 ) else (
     echo    ✅ Server dependencies OK
+    echo    Verificando dependencias adicionales...
+    cd server
+    call npm list adm-zip > nul 2>&1
+    if %errorlevel% neq 0 (
+        echo    Instalando adm-zip...
+        call npm install adm-zip
+    ) else (
+        echo    ✅ adm-zip OK
+    )
+    cd ..
 )
 
 if not exist "client\node_modules" (
