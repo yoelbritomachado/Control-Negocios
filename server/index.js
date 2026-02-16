@@ -193,6 +193,9 @@ app.post('/api/admin/extract-local-mnx', (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// Multer Storage for Returns/Evidence
+const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const dir = path.join(__dirname, 'uploads/returns');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
