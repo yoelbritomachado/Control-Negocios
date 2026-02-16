@@ -535,39 +535,46 @@ export default function POSLayout() {
                                 <AnimatePresence>
                                     {showSearchDropdown && searchResults.length > 0 && (
                                         <motion.div
-                                            initial={{ opacity: 0, y: -10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: -10 }}
-                                            className="absolute top-full left-0 right-0 mt-2 bg-card/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto"
+                                            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="absolute top-full left-0 right-0 mt-2 bg-[#0a0f1c]/98 backdrop-blur-2xl border border-cyan-500/20 rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] z-50 max-h-72 overflow-y-auto"
+                                            style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(6,182,212,0.1)' }}
                                         >
                                             <div className="p-2 space-y-1">
-                                                {searchResults.map((product) => {
+                                                {searchResults.map((product, index) => {
                                                     const stock = product.inventory?.[currentInventory] || 0;
                                                     return (
-                                                        <button
+                                                        <motion.button
                                                             key={product.id}
+                                                            initial={{ opacity: 0, x: -10 }}
+                                                            animate={{ opacity: 1, x: 0 }}
+                                                            transition={{ delay: index * 0.03 }}
                                                             onClick={() => handleSelectProduct(product)}
-                                                            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-all text-left group"
+                                                            className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/30 transition-all text-left group"
                                                         >
-                                                            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
-                                                                <Package2 className="w-5 h-5 text-cyan-500" />
+                                                            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/20">
+                                                                <Package2 className="w-5 h-5 text-cyan-400" />
                                                             </div>
                                                             <div className="flex-1 min-w-0">
-                                                                <div className="font-medium text-foreground truncate">{product.name}</div>
-                                                                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                                                                    <span className="font-mono">{product.code || 'SIN CÓDIGO'}</span>
-                                                                    <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
-                                                                    <span className={stock < 5 ? "text-rose-400" : "text-emerald-400"}>
+                                                                <div className="font-semibold text-foreground truncate group-hover:text-cyan-300 transition-colors">{product.name}</div>
+                                                                <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                                                                    <span className="font-mono bg-white/5 px-1.5 py-0.5 rounded">{product.code || 'SIN CÓDIGO'}</span>
+                                                                    <span className="w-1 h-1 rounded-full bg-muted-foreground/30"></span>
+                                                                    <span className={stock < 5 ? "text-rose-400 font-medium" : "text-emerald-400 font-medium"}>
                                                                         Stock: {stock}
                                                                     </span>
                                                                 </div>
                                                             </div>
                                                             <div className="text-right">
-                                                                <div className="font-bold text-emerald-400 font-mono">${product.sale_price_manual}</div>
+                                                                <div className="font-bold text-emerald-400 font-mono text-lg">${product.sale_price_manual}</div>
                                                                 <div className="text-xs text-muted-foreground">${product.cost_mx} costo</div>
                                                             </div>
-                                                            <Plus className="w-5 h-5 text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                        </button>
+                                                            <div className="w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/20">
+                                                                <Plus className="w-5 h-5 text-cyan-400" />
+                                                            </div>
+                                                        </motion.button>
                                                     );
                                                 })}
                                             </div>
