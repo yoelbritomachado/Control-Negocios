@@ -90,5 +90,10 @@ export const restoreBackup = async (backupData) => {
   return res.data;
 };
 
+// Migration
+export const migrateLegacyData = async () => {
+  const res = await api.post('/admin/migrate-legacy');
+  return res.data;
+};
 
 export default api;

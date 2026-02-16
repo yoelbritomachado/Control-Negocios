@@ -853,3 +853,47 @@ if (resetInventories.count === 0) {
 app.listen(port, () => {
     console.log(`Server listening at http://localhost:${port}`);
 });
+
+// --- MIGRATION ENDPOINT (Legacy Data) ---
+app.post('/api/admin/migrate-legacy', (req, res) => {
+    // Only admin can run migration
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Solo administradores pueden ejecutar migraciones' });
+    }
+    
+    try {
+        const { exec } = require('child_process');
+        const scriptPath = path.join(__dirname, 'scripts', 'migrate_legacy.js');
+        
+        // Check if legacy database exists
+        const legacyDbPath = path.join(__dirname, 'uploads', 'backup_legacy.db');
+        if (!fs.existsSync(legacyDbPath)) {
+            return res.status(400).json({ 
+                error: 'No se encontró la base de datos legacy',
+                message: 'Asegúrate de haber subido y descomprimido el archivo .mnx'
+            });
+        }
+        
+        // Run migration script
+        exec(`node "${scriptPath}"`, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Migration error:', error);
+                return res.status(500).json({ 
+                    error: 'Error en la migración',
+                    details: stderr 
+                });
+            }
+            
+            console.log('Migration output:', stdout);
+            res.json({ 
+                success: true, 
+                message: 'Migración completada',
+                output: stdout 
+            });
+        });
+        
+    } catch (e) {
+        logError("POST /api/admin/migrate-legacy", e);
+        res.status(500).json({ error: e.message });
+    }
+});
