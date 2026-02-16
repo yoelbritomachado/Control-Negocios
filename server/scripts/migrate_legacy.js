@@ -29,42 +29,36 @@ try {
 function createHistoryTables() {
     console.log('\n📋 Creando tablas de historial...');
     
-    // Tabla de historial de ventas legacy
     targetDb.exec(`
         CREATE TABLE IF NOT EXISTS legacy_sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
-            tipo TEXT,
-            info TEXT,
+            cliente TEXT,
             total REAL DEFAULT 0,
             items_count INTEGER DEFAULT 0,
+            metodo_pago TEXT,
             migrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
     
-    // Tabla de historial de compras legacy
     targetDb.exec(`
         CREATE TABLE IF NOT EXISTS legacy_purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
             proveedor TEXT,
-            producto TEXT,
-            cantidad INTEGER DEFAULT 0,
-            costo_unitario REAL DEFAULT 0,
             total REAL DEFAULT 0,
+            items_count INTEGER DEFAULT 0,
             migrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
     
-    // Tabla de historial de mermas/pérdidas legacy
     targetDb.exec(`
         CREATE TABLE IF NOT EXISTS legacy_losses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
-            tipo TEXT,
             producto TEXT,
             cantidad INTEGER DEFAULT 0,
             motivo TEXT,
@@ -117,7 +111,6 @@ function migrateProducts() {
             try {
                 const existing = getProductByName.get(prod.name);
                 if (existing) {
-                    console.log(`   ⚠️  Producto ya existe: ${prod.name}`);
                     skipped++;
                     continue;
                 }
@@ -136,9 +129,6 @@ function migrateProducts() {
                 insertInventory.run(newProductId, 'almacen', 0);
                 
                 migrated++;
-                if (migrated % 50 === 0) {
-                    console.log(`   ✅ ${migrated} productos migrados...`);
-                }
                 
             } catch (e) {
                 console.error(`   ❌ Error migrando ${prod.name}:`, e.message);
@@ -149,177 +139,157 @@ function migrateProducts() {
     
     migrateTransaction();
     
-    console.log(`\n📊 Resumen de productos:`);
-    console.log(`   ✅ Migrados: ${migrated}`);
-    console.log(`   ⚠️  Saltados (duplicados): ${skipped}`);
-    console.log(`   ❌ Errores: ${errors}`);
+    console.log(`   ✅ Migrados: ${migrated}, Saltados: ${skipped}, Errores: ${errors}`);
     
     return { migrated, skipped, errors };
 }
 
-// Función para migrar transacciones (ventas, compras, mermas)
-function migrateTransactions() {
-    console.log('\n📜 Migrando historial de transacciones...');
+// Función para migrar ventas
+function migrateSales() {
+    console.log('\n💰 Migrando ventas...');
     
-    const transactions = legacyDb.prepare(`
-        SELECT id, fecha, tipo, info, status
-        FROM transaccion
-        ORDER BY fecha DESC
+    const sales = legacyDb.prepare(`
+        SELECT v.id, v.fecha, v.total, c.nombre as cliente, v.forma_pago
+        FROM venta v
+        LEFT JOIN cliente c ON v.cliente_id = c.id
+        ORDER BY v.fecha DESC
     `).all();
     
-    console.log(`   Encontradas ${transactions.length} transacciones`);
+    console.log(`   Encontradas ${sales.length} ventas`);
     
     const insertSale = targetDb.prepare(`
-        INSERT INTO legacy_sales (legacy_id, fecha, tipo, info, total, items_count)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO legacy_sales (legacy_id, fecha, cliente, total, metodo_pago)
+        VALUES (?, ?, ?, ?, ?)
     `);
     
-    const insertPurchase = targetDb.prepare(`
-        INSERT INTO legacy_purchases (legacy_id, fecha, proveedor, producto, cantidad, costo_unitario, total)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const insertLoss = targetDb.prepare(`
-        INSERT INTO legacy_losses (legacy_id, fecha, tipo, producto, cantidad, motivo)
-        VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    
-    let salesCount = 0;
-    let purchasesCount = 0;
-    let lossesCount = 0;
-    let errors = 0;
+    let migrated = 0;
     
     const migrateTransaction = targetDb.transaction(() => {
-        for (const trans of transactions) {
+        for (const sale of sales) {
             try {
-                // Parsear el campo info (JSON)
-                let info = {};
-                try {
-                    info = JSON.parse(trans.info || '{}');
-                } catch (e) {
-                    info = { raw: trans.info };
-                }
-                
-                // Clasificar por tipo
-                const tipo = (trans.tipo || '').toLowerCase();
-                
-                if (tipo.includes('venta') || tipo.includes('sale')) {
-                    // Es una venta
-                    insertSale.run(
-                        trans.id,
-                        trans.fecha,
-                        trans.tipo,
-                        trans.info,
-                        info.total || info.monto || 0,
-                        info.items_count || info.cantidad_items || 0
-                    );
-                    salesCount++;
-                    
-                } else if (tipo.includes('compra') || tipo.includes('purchase') || tipo.includes('entrada')) {
-                    // Es una compra
-                    insertPurchase.run(
-                        trans.id,
-                        trans.fecha,
-                        info.proveedor || info.proveedor_nombre || 'Sin proveedor',
-                        info.producto || info.producto_nombre || 'Sin producto',
-                        info.cantidad || 0,
-                        info.costo_unitario || info.costo || 0,
-                        info.total || info.monto || 0
-                    );
-                    purchasesCount++;
-                    
-                } else if (tipo.includes('merma') || tipo.includes('perdida') || tipo.includes('loss') || tipo.includes('daño')) {
-                    // Es una merma/pérdida
-                    insertLoss.run(
-                        trans.id,
-                        trans.fecha,
-                        trans.tipo,
-                        info.producto || info.producto_nombre || 'Sin producto',
-                        info.cantidad || 0,
-                        info.motivo || info.razon || 'Sin motivo'
-                    );
-                    lossesCount++;
-                    
-                } else {
-                    // Otro tipo - guardar como venta genérica
-                    insertSale.run(
-                        trans.id,
-                        trans.fecha,
-                        trans.tipo,
-                        trans.info,
-                        info.total || info.monto || 0,
-                        0
-                    );
-                    salesCount++;
-                }
-                
+                insertSale.run(
+                    sale.id,
+                    sale.fecha,
+                    sale.cliente || 'Cliente general',
+                    sale.total || 0,
+                    sale.forma_pago || 'Efectivo'
+                );
+                migrated++;
             } catch (e) {
-                console.error(`   ❌ Error migrando transacción ${trans.id}:`, e.message);
-                errors++;
+                // Silently skip duplicates
             }
         }
     });
     
     migrateTransaction();
-    
-    console.log(`\n📊 Resumen de transacciones:`);
-    console.log(`   💰 Ventas: ${salesCount}`);
-    console.log(`   📦 Compras: ${purchasesCount}`);
-    console.log(`   ⚠️  Mermas/Pérdidas: ${lossesCount}`);
-    console.log(`   ❌ Errores: ${errors}`);
-    
-    return { salesCount, purchasesCount, lossesCount, errors };
+    console.log(`   ✅ ${migrated} ventas migradas`);
+    return migrated;
 }
 
-// Función para generar reporte
-function generateReport(productsResult, transactionsResult) {
-    const report = {
-        fecha: new Date().toISOString(),
-        productos: {
-            total: productsResult.migrated + productsResult.skipped + productsResult.errors,
-            migrados: productsResult.migrated,
-            saltados: productsResult.skipped,
-            errores: productsResult.errors
-        },
-        transacciones: {
-            ventas: transactionsResult.salesCount,
-            compras: transactionsResult.purchasesCount,
-            mermas: transactionsResult.lossesCount,
-            errores: transactionsResult.errors
-        }
-    };
+// Función para migrar compras
+function migratePurchases() {
+    console.log('\n📦 Migrando compras...');
     
-    const reportPath = path.join(__dirname, '../uploads/migration_report.json');
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
-    console.log(`\n📝 Reporte guardado en: ${reportPath}`);
+    const purchases = legacyDb.prepare(`
+        SELECT c.id, c.fecha, c.total, p.nombre as proveedor
+        FROM compra c
+        LEFT JOIN proveedor p ON c.proveedor_id = p.id
+        ORDER BY c.fecha DESC
+    `).all();
+    
+    console.log(`   Encontradas ${purchases.length} compras`);
+    
+    const insertPurchase = targetDb.prepare(`
+        INSERT INTO legacy_purchases (legacy_id, fecha, proveedor, total)
+        VALUES (?, ?, ?, ?)
+    `);
+    
+    let migrated = 0;
+    
+    const migrateTransaction = targetDb.transaction(() => {
+        for (const purchase of purchases) {
+            try {
+                insertPurchase.run(
+                    purchase.id,
+                    purchase.fecha,
+                    purchase.proveedor || 'Sin proveedor',
+                    purchase.total || 0
+                );
+                migrated++;
+            } catch (e) {
+                // Silently skip duplicates
+            }
+        }
+    });
+    
+    migrateTransaction();
+    console.log(`   ✅ ${migrated} compras migradas`);
+    return migrated;
+}
+
+// Función para migrar mermas
+function migrateLosses() {
+    console.log('\n⚠️  Migrando mermas...');
+    
+    const losses = legacyDb.prepare(`
+        SELECT m.id, m.fecha, m.cantidad, i.nombre as producto, m.motivo
+        FROM merma m
+        LEFT JOIN item i ON m.item_id = i.id
+        ORDER BY m.fecha DESC
+    `).all();
+    
+    console.log(`   Encontradas ${losses.length} mermas`);
+    
+    const insertLoss = targetDb.prepare(`
+        INSERT INTO legacy_losses (legacy_id, fecha, producto, cantidad, motivo)
+        VALUES (?, ?, ?, ?, ?)
+    `);
+    
+    let migrated = 0;
+    
+    const migrateTransaction = targetDb.transaction(() => {
+        for (const loss of losses) {
+            try {
+                insertLoss.run(
+                    loss.id,
+                    loss.fecha,
+                    loss.producto || 'Producto desconocido',
+                    loss.cantidad || 0,
+                    loss.motivo || 'Sin motivo'
+                );
+                migrated++;
+            } catch (e) {
+                // Silently skip duplicates
+            }
+        }
+    });
+    
+    migrateTransaction();
+    console.log(`   ✅ ${migrated} mermas migradas`);
+    return migrated;
 }
 
 // Ejecutar migración
 try {
     console.log('='.repeat(60));
     console.log('MIGRACIÓN DE DATOS LEGACY - MISS CHULERÍAS');
-    console.log('Incluye: Productos, Ventas, Compras, Mermas');
     console.log('='.repeat(60));
     
-    // Crear tablas de historial
     createHistoryTables();
     
-    // Migrar productos
     const productsResult = migrateProducts();
-    
-    // Migrar transacciones
-    const transactionsResult = migrateTransactions();
-    
-    // Generar reporte
-    generateReport(productsResult, transactionsResult);
+    const salesCount = migrateSales();
+    const purchasesCount = migratePurchases();
+    const lossesCount = migrateLosses();
     
     console.log('\n' + '='.repeat(60));
     console.log('✅ MIGRACIÓN COMPLETADA');
     console.log('='.repeat(60));
-    console.log('\n📍 Puedes ver el historial en:');
-    console.log('   - legacy_sales (ventas)');
-    console.log('   - legacy_purchases (compras)');
-    console.log('   - legacy_losses (mermas/pérdidas)');
+    console.log(`\n📊 Resumen:`);
+    console.log(`   📦 Productos: ${productsResult.migrated}`);
+    console.log(`   💰 Ventas: ${salesCount}`);
+    console.log(`   📥 Compras: ${purchasesCount}`);
+    console.log(`   ⚠️  Mermas: ${lossesCount}`);
     
 } catch (e) {
     console.error('\n❌ Error durante la migración:', e);
