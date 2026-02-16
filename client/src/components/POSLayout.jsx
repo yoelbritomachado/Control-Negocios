@@ -486,18 +486,15 @@ export default function POSLayout() {
         alert('Venta guardada. No se suma al total de la sesion hasta que se cobre.');
     };
 
-    const handlePaySavedSale = (saleId) => {
-        const sale = savedSales.find(s => s.id === saleId);
-        if (!sale) return;
-        
-        setRecentSales(prev => [{
-            id: sale.id,
-            total: sale.total,
-            time: new Date().toLocaleTimeString(),
-            method: 'cash'
-        }, ...prev]);
-        
-        setSavedSales(prev => prev.filter(s => s.id !== saleId));
+    const handleEditSavedSale = (sale) => {
+        if (confirm('¿Cargar esta venta guardada en el carrito para editar?')) {
+            // Cargar items de la venta al carrito
+            sale.items.forEach(item => {
+                addToCart(item, item.quantity);
+            });
+            // Eliminar la venta guardada
+            setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+        }
     };
 
     const handleDeleteSavedSale = (saleId) => {
@@ -845,16 +842,16 @@ export default function POSLayout() {
                                         </div>
                                         <div className="flex gap-2 mt-2">
                                             <button
-                                                onClick={() => handlePaySavedSale(sale.id)}
-                                                className="flex-1 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/30 transition-all"
+                                                onClick={() => handleEditSavedSale(sale)}
+                                                className="flex-1 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
                                             >
-                                                Cobrar
+                                                <Edit className="w-3 h-3" /> Editar
                                             </button>
                                             <button
                                                 onClick={() => handleDeleteSavedSale(sale.id)}
-                                                className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/30 transition-all"
+                                                className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/30 transition-all flex items-center justify-center gap-1"
                                             >
-                                                Eliminar
+                                                <Trash2 className="w-3 h-3" /> Eliminar
                                             </button>
                                         </div>
                                     </motion.div>
