@@ -147,9 +147,6 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             />
                         </div>
                     </div>
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
-                        />
-                    </div>
 
                     <div className="flex gap-3 pt-2">
                         <button
