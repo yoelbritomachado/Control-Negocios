@@ -155,14 +155,12 @@ function App() {
       <CartProvider>
         {isAuthenticated ? (
           <Routes>
-            {/* Rutas Full Screen (Sin Layout Principal) */}
-            <Route path="/pos" element={<POSPage />} />
-
             {/* Rutas con Layout Principal (Sidebar y Header Global) */}
             <Route path="/" element={<MainLayout />}>
               <Route index element={<DashboardPage />} />
+              <Route path="pos" element={<POSPage />} />
               <Route path="entradas" element={<InventoryPage />} />
-              <Route path="compras" element={<PurchaseSection />} /> {/* Nueva Sección */}
+              <Route path="compras" element={<PurchaseSection />} />
               <Route path="usuarios" element={<div className="p-10">Módulo de Usuarios (En Construcción)</div>} />
             </Route>
           </Routes>

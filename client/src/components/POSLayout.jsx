@@ -7,8 +7,8 @@ import PaymentModal from './PaymentModal';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
-    CheckCircle2, Camera, Store, Package2, X, Plus, Minus,
-    AlertCircle, Sparkles, TrendingUp, Wallet, ArrowRight
+    CheckCircle2, Camera, Package2, X, Plus, Minus,
+    Sparkles, TrendingUp, ArrowRight, Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
@@ -47,7 +47,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
 
     const expenseTypes = [
         { value: 'other', label: 'Otros', icon: Receipt },
-        { value: 'area', label: 'Pago de Área', icon: Store },
+        { value: 'area', label: 'Pago de Área', icon: Wallet },
         { value: 'cleaning', label: 'Limpieza', icon: Sparkles },
     ];
 
@@ -451,38 +451,16 @@ export default function POSLayout() {
 
     return (
         <SessionGuard>
-            <div className="flex flex-col h-screen w-full bg-background text-foreground font-sans overflow-hidden">
+            <div className="h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
                 
-                {/* --- HEADER PREMIUM --- */}
-                <header className="h-16 flex-none flex items-center justify-between px-6 z-30 border-b border-border/50 bg-card/80 backdrop-blur-xl">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/20">
-                            <Store className="w-5 h-5" />
-                        </div>
-                        <div className="flex flex-col">
-                            <h1 className="text-lg font-bold tracking-tight leading-none">
-                                <span className="gradient-text-cyan">POS</span> Venta
-                            </h1>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-semibold">Sistema Activo</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                        <InventorySelector minimal />
-                    </div>
-                </header>
-
                 {/* --- CONTENT AREA --- */}
-                <div className="flex flex-1 overflow-hidden relative">
+                <div className="flex h-full">
                     
                     {/* LEFT COLUMN: Cart (60%) */}
                     <div className="w-[60%] flex flex-col h-full border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
                         
                         {/* Search Bar Premium */}
-                        <div className="h-20 flex-none px-6 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
+                        <div className="h-16 flex-none px-4 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
                             <div className="relative flex-1">
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
                                 <input
@@ -491,7 +469,7 @@ export default function POSLayout() {
                                     onChange={e => setSearch(e.target.value)}
                                     onKeyDown={handleSearch}
                                     placeholder="Escanear código o buscar producto..."
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-12 py-3.5 text-foreground placeholder:text-muted-foreground/60 text-lg font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-12 py-2.5 text-foreground placeholder:text-muted-foreground/60 text-base font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all"
                                     autoFocus
                                 />
                                 {loadingProduct && (
@@ -501,11 +479,11 @@ export default function POSLayout() {
                         </div>
 
                         {/* Cart List Premium */}
-                        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+                        <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
                             {cart.length > 0 ? (
                                 <div className="space-y-2">
                                     <AnimatePresence mode="popLayout">
-                                        {cart.map((item, index) => (
+                                        {cart.map((item) => (
                                             <motion.div
                                                 key={item.id}
                                                 layout
@@ -513,29 +491,29 @@ export default function POSLayout() {
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                                 exit={{ opacity: 0, x: -100, scale: 0.9 }}
                                                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                                                className="group relative p-4 rounded-xl bg-card/50 border border-border/50 hover:border-cyan-500/30 hover:bg-card/80 transition-all"
+                                                className="group relative p-3 rounded-xl bg-card/50 border border-border/50 hover:border-cyan-500/30 hover:bg-card/80 transition-all"
                                             >
-                                                <div className="flex items-center gap-4">
+                                                <div className="flex items-center gap-3">
                                                     {/* Quantity Controls */}
                                                     <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1 border border-white/5">
                                                         <button 
                                                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
+                                                            className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
                                                         >
-                                                            <Minus className="w-4 h-4" />
+                                                            <Minus className="w-3.5 h-3.5" />
                                                         </button>
-                                                        <span className="w-10 text-center font-bold text-lg tabular-nums">{item.quantity}</span>
+                                                        <span className="w-8 text-center font-bold tabular-nums">{item.quantity}</span>
                                                         <button 
                                                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                                            className="w-8 h-8 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
+                                                            className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
                                                         >
-                                                            <Plus className="w-4 h-4" />
+                                                            <Plus className="w-3.5 h-3.5" />
                                                         </button>
                                                     </div>
 
                                                     {/* Product Info */}
                                                     <div className="flex-1 min-w-0">
-                                                        <h4 className="font-semibold text-foreground truncate">{item.name}</h4>
+                                                        <h4 className="font-semibold text-foreground truncate text-sm">{item.name}</h4>
                                                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                                                             <Package2 className="w-3 h-3" />
                                                             <span className="font-mono">{item.code || 'SIN CÓDIGO'}</span>
@@ -544,7 +522,7 @@ export default function POSLayout() {
 
                                                     {/* Prices */}
                                                     <div className="text-right">
-                                                        <div className="font-bold text-emerald-400 font-mono text-lg">${(item.sale_price_manual * item.quantity).toFixed(2)}</div>
+                                                        <div className="font-bold text-emerald-400 font-mono">${(item.sale_price_manual * item.quantity).toFixed(2)}</div>
                                                         <div className="text-xs text-muted-foreground">${item.sale_price_manual} c/u</div>
                                                     </div>
 
@@ -565,44 +543,44 @@ export default function POSLayout() {
                                     <motion.div 
                                         initial={{ scale: 0.8, opacity: 0 }}
                                         animate={{ scale: 1, opacity: 1 }}
-                                        className="w-24 h-24 rounded-2xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 flex items-center justify-center mb-4"
+                                        className="w-20 h-20 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 flex items-center justify-center mb-3"
                                     >
-                                        <ShoppingCart className="w-10 h-10 text-cyan-500/50" />
+                                        <ShoppingCart className="w-8 h-8 text-cyan-500/50" />
                                     </motion.div>
-                                    <p className="text-lg font-medium">Carrito vacío</p>
-                                    <p className="text-sm">Escanea un producto para comenzar</p>
+                                    <p className="text-base font-medium">Carrito vacío</p>
+                                    <p className="text-xs">Escanea un producto para comenzar</p>
                                 </div>
                             )}
                         </div>
 
                         {/* Footer Premium */}
-                        <div className="h-24 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-6 flex items-center justify-between">
+                        <div className="h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-4 flex items-center justify-between">
                             <div>
-                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">Total a Pagar</div>
+                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total a Pagar</div>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-2xl text-emerald-500 font-medium">$</span>
-                                    <span className="text-5xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
+                                    <span className="text-xl text-emerald-500 font-medium">$</span>
+                                    <span className="text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                                <button className="h-14 px-5 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2">
-                                    <Save className="w-5 h-5" />
+                            <div className="flex items-center gap-2">
+                                <button className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2">
+                                    <Save className="w-4 h-4" />
                                     <span className="text-sm font-semibold">Guardar</span>
                                 </button>
 
                                 <button
                                     onClick={handleCheckoutClick}
                                     disabled={cart.length === 0 || checkoutProcessing}
-                                    className="h-14 px-8 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3"
+                                    className="h-12 px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
                                     {checkoutProcessing ? (
-                                        <Loader2 className="animate-spin w-5 h-5" />
+                                        <Loader2 className="animate-spin w-4 h-4" />
                                     ) : (
-                                        <Banknote className="w-5 h-5" />
+                                        <Banknote className="w-4 h-4" />
                                     )}
-                                    <span className="text-lg">Cobrar</span>
-                                    <ArrowRight className="w-5 h-5" />
+                                    <span className="text-base">Cobrar</span>
+                                    <ArrowRight className="w-4 h-4" />
                                 </button>
                             </div>
                         </div>
@@ -612,7 +590,7 @@ export default function POSLayout() {
                     <div className="w-[40%] flex flex-col h-full bg-card/30">
                         
                         {/* Session Info */}
-                        <div className="h-16 flex-none px-5 border-b border-border/50 flex items-center justify-between bg-card/50">
+                        <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">
                             <div className="flex items-center gap-2">
                                 <History className="w-4 h-4 text-muted-foreground" />
                                 <span className="text-sm font-semibold text-muted-foreground">Tickets Recientes</span>
@@ -627,7 +605,7 @@ export default function POSLayout() {
                         </div>
 
                         {/* Recent Sales List */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
@@ -636,15 +614,15 @@ export default function POSLayout() {
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
                                         transition={{ delay: index * 0.05 }}
-                                        className="p-4 rounded-xl bg-card/50 border border-border/50 hover:border-emerald-500/30 hover:bg-card/80 transition-all cursor-pointer group"
+                                        className="p-3 rounded-xl bg-card/50 border border-border/50 hover:border-emerald-500/30 hover:bg-card/80 transition-all cursor-pointer group"
                                     >
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                                                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                                                 </div>
                                                 <div>
-                                                    <div className="font-semibold text-foreground">Venta #{sale.id}</div>
+                                                    <div className="font-semibold text-foreground text-sm">Venta #{sale.id}</div>
                                                     <div className="text-xs text-muted-foreground flex items-center gap-2">
                                                         <span>{sale.time}</span>
                                                         <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
@@ -654,51 +632,51 @@ export default function POSLayout() {
                                                                 ? "bg-blue-500/10 text-blue-400" 
                                                                 : "bg-emerald-500/10 text-emerald-400"
                                                         )}>
-                                                            {sale.method === 'transfer' ? 'Transferencia' : 'Efectivo'}
+                                                            {sale.method === 'transfer' ? 'Transf' : 'Efectivo'}
                                                         </span>
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="font-bold text-lg font-mono text-foreground">${sale.total?.toFixed(2)}</div>
+                                            <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
                                         </div>
                                     </motion.div>
                                 ))}
                             </AnimatePresence>
                             
                             {recentSales.length === 0 && (
-                                <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-12">
-                                    <History className="w-12 h-12 mb-3 opacity-50" />
+                                <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-8">
+                                    <History className="w-10 h-10 mb-2 opacity-50" />
                                     <p className="text-sm">Sin ventas en este turno</p>
                                 </div>
                             )}
                         </div>
 
                         {/* Quick Actions */}
-                        <div className="h-24 flex-none p-4 border-t border-border/50 bg-card/50">
-                            <div className="grid grid-cols-2 gap-3 h-full">
+                        <div className="h-20 flex-none p-3 border-t border-border/50 bg-card/50">
+                            <div className="grid grid-cols-2 gap-2 h-full">
                                 <button 
                                     onClick={() => setShowExpense(true)}
-                                    className="flex items-center gap-3 px-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 transition-all group"
+                                    className="flex items-center gap-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 transition-all group"
                                 >
-                                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                        <Receipt className="w-5 h-5" />
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <Receipt className="w-4 h-4" />
                                     </div>
                                     <div className="text-left">
                                         <div className="font-semibold text-sm">Gastos</div>
-                                        <div className="text-[10px] text-amber-400/70">Registrar gasto</div>
+                                        <div className="text-[10px] text-amber-400/70">Registrar</div>
                                     </div>
                                 </button>
                                 
                                 <button 
                                     onClick={() => setShowReturn(true)}
-                                    className="flex items-center gap-3 px-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all group"
+                                    className="flex items-center gap-2 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-500 hover:bg-rose-500/20 transition-all group"
                                 >
-                                    <div className="w-10 h-10 rounded-lg bg-rose-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                        <RotateCcw className="w-5 h-5" />
+                                    <div className="w-8 h-8 rounded-lg bg-rose-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <RotateCcw className="w-4 h-4" />
                                     </div>
                                     <div className="text-left">
                                         <div className="font-semibold text-sm">Devolución</div>
-                                        <div className="text-[10px] text-rose-400/70">Procesar return</div>
+                                        <div className="text-[10px] text-rose-400/70">Procesar</div>
                                     </div>
                                 </button>
                             </div>
