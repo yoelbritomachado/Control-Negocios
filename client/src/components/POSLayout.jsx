@@ -558,6 +558,11 @@ export default function POSLayout() {
                 cashAmount: paymentData.cashAmount,
                 transferAmount: paymentData.transferAmount
             });
+            
+            if (!res || !res.data) {
+                throw new Error('No se recibió respuesta del servidor');
+            }
+            
             if (res.data.success) {
                 // Guardar la venta con sus items para poder editarla después
                 const completedSale = {
