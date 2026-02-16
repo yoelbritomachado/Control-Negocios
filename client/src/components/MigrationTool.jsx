@@ -220,7 +220,7 @@ export default function MigrationTool() {
                             <div>
                                 <p className="text-emerald-400 font-medium">{message}</p>
                                 {output && (
-                                    <pre className="mt-2 text-xs text-emerald-300/70 bg-emerald-950/30 p-3 rounded-lg overflow-auto max-h-60">
+                                    <pre className="mt-2 text-xs text-emerald-300/70 bg-emerald-950/30 p-3 rounded-lg overflow-auto max-h-60 max-w-full whitespace-pre-wrap break-words">
                                         {output}
                                     </pre>
                                 )}
@@ -234,7 +234,7 @@ export default function MigrationTool() {
                             <div>
                                 <p className="text-rose-400 font-medium">{message}</p>
                                 {output && (
-                                    <pre className="mt-2 text-xs text-rose-300/70 bg-rose-950/30 p-3 rounded-lg overflow-auto max-h-60">
+                                    <pre className="mt-2 text-xs text-rose-300/70 bg-rose-950/30 p-3 rounded-lg overflow-auto max-h-60 max-w-full whitespace-pre-wrap break-words">
                                         {output}
                                     </pre>
                                 )}
