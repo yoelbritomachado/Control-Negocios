@@ -51,8 +51,8 @@ function migrateProducts() {
     
     // Preparar statements
     const insertProduct = targetDb.prepare(`
-        INSERT INTO products (name, code, cost_mx, sale_price_manual, description, quantity)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO products (name, cost_mx, sale_price_manual, description, quantity)
+        VALUES (?, ?, ?, ?, ?)
     `);
     
     const insertInventory = targetDb.prepare(`
@@ -83,7 +83,6 @@ function migrateProducts() {
                 // Insertar producto
                 const result = insertProduct.run(
                     prod.name,
-                    prod.code || `LEGACY_${prod.legacy_id}`,
                     prod.cost || 0,
                     prod.sale_price || 0,
                     `Migrado desde sistema legacy. ID original: ${prod.legacy_id}`,
