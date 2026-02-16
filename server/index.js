@@ -127,7 +127,20 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
 
         const newSaleId = transaction();
         console.log(`Sale #${newSaleId} completed in Session #${session.id}`);
-        res.json({ success: true, saleId: newSaleId });
+        
+        // Fetch the complete sale with items for the response
+        const saleItems = db.prepare(`
+            SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
+            FROM sale_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id = ?
+        `).all(newSaleId);
+        
+        res.json({ 
+            success: true, 
+            saleId: newSaleId,
+            items: saleItems
+        });
 
     } catch (e) {
         console.error("Sale Error:", e);

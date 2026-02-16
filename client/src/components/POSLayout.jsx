@@ -514,7 +514,14 @@ export default function POSLayout() {
         if (confirm('¿Cargar esta venta en el carrito para editar?')) {
             // Cargar items de la venta al carrito
             sale.items.forEach(item => {
-                addToCart(item, item.quantity);
+                addToCart({
+                    id: item.id,
+                    name: item.name,
+                    code: item.code,
+                    sale_price_manual: item.sale_price_manual || item.price,
+                    cost_mn: item.cost_mn || item.cost,
+                    quantity: item.quantity
+                }, item.quantity);
             });
             // Eliminar la venta original
             setRecentSales(prev => prev.filter(s => s.id !== sale.id));
@@ -552,14 +559,25 @@ export default function POSLayout() {
                 transferAmount: paymentData.transferAmount
             });
             if (res.data.success) {
-                setRecentSales(prev => [{
+                // Guardar la venta con sus items para poder editarla después
+                const completedSale = {
                     id: res.data.saleId,
-                    total,
+                    items: cart.map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        code: item.code,
+                        quantity: item.quantity,
+                        sale_price_manual: item.sale_price_manual,
+                        cost_mn: item.cost_mn
+                    })),
+                    total: total,
                     time: new Date().toLocaleTimeString(),
                     method: paymentMethod,
                     cashAmount: paymentData.cashAmount,
                     transferAmount: paymentData.transferAmount
-                }, ...prev]);
+                };
+
+                setRecentSales(prev => [completedSale, ...prev]);
                 clearCart();
                 setShowPayment(false);
             }
