@@ -25,12 +25,17 @@ try {
     process.exit(1);
 }
 
-// Crear tablas de historial si no existen
+// Crear tablas de historial (eliminar si existen para recrear con columnas correctas)
 function createHistoryTables() {
     console.log('\n📋 Creando tablas de historial...');
     
+    // Eliminar tablas si existen para recrearlas
+    targetDb.exec(`DROP TABLE IF EXISTS legacy_sales`);
+    targetDb.exec(`DROP TABLE IF EXISTS legacy_purchases`);
+    targetDb.exec(`DROP TABLE IF EXISTS legacy_losses`);
+    
     targetDb.exec(`
-        CREATE TABLE IF NOT EXISTS legacy_sales (
+        CREATE TABLE legacy_sales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
@@ -44,7 +49,7 @@ function createHistoryTables() {
     `);
     
     targetDb.exec(`
-        CREATE TABLE IF NOT EXISTS legacy_purchases (
+        CREATE TABLE legacy_purchases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
@@ -57,7 +62,7 @@ function createHistoryTables() {
     `);
     
     targetDb.exec(`
-        CREATE TABLE IF NOT EXISTS legacy_losses (
+        CREATE TABLE legacy_losses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             legacy_id INTEGER,
             fecha TEXT,
