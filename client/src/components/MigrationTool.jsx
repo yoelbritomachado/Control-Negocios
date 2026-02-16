@@ -1,13 +1,33 @@
-import React, { useState, useRef } from 'react';
-import { Database, Upload, CheckCircle, AlertCircle, Loader2, FileArchive } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Database, Upload, CheckCircle, AlertCircle, Loader2, FileArchive, FolderOpen } from 'lucide-react';
 import api from '../api';
 
 export default function MigrationTool() {
-    const [status, setStatus] = useState('idle'); // idle, uploading, processing, success, error
+    const [status, setStatus] = useState('idle'); // idle, checking, uploading, processing, success, error
     const [message, setMessage] = useState('');
     const [output, setOutput] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
+    const [localFileExists, setLocalFileExists] = useState(false);
     const fileInputRef = useRef(null);
+
+    // Check if local file exists on mount
+    useEffect(() => {
+        checkLocalFile();
+    }, []);
+
+    const checkLocalFile = async () => {
+        setStatus('checking');
+        try {
+            const res = await api.get('/admin/check-mnx');
+            if (res.data.exists) {
+                setLocalFileExists(true);
+                setMessage(`Archivo local encontrado: ${res.data.filename} (${res.data.size})`);
+            }
+        } catch (e) {
+            // Silently fail - user can upload manually
+        }
+        setStatus('idle');
+    };
 
     const handleFileSelect = (e) => {
         const file = e.target.files[0];
@@ -20,6 +40,35 @@ export default function MigrationTool() {
             setSelectedFile(file);
             setStatus('idle');
             setMessage('');
+        }
+    };
+
+    const handleMigrateLocal = async () => {
+        if (!confirm('¿Ejecutar migración con el archivo local backup.mnx?')) {
+            return;
+        }
+
+        setStatus('processing');
+        setMessage('Extrayendo y migrando datos...');
+
+        try {
+            // 1. Extract local file
+            const extractRes = await api.post('/admin/extract-local-mnx');
+            if (!extractRes.data.success) {
+                throw new Error(extractRes.data.error || 'Error al extraer archivo');
+            }
+
+            // 2. Execute migration
+            const migrateRes = await api.post('/admin/migrate-legacy');
+            
+            setStatus('success');
+            setMessage('Migración completada exitosamente');
+            setOutput(migrateRes.data.output || '');
+
+        } catch (e) {
+            setStatus('error');
+            setMessage(e.response?.data?.error || e.message || 'Error en la migración');
+            setOutput(e.response?.data?.details || '');
         }
     };
 
@@ -38,7 +87,7 @@ export default function MigrationTool() {
         setMessage('Subiendo archivo...');
 
         try {
-            // 1. Subir archivo .mnx
+            // 1. Upload file
             const formData = new FormData();
             formData.append('file', selectedFile);
 
@@ -53,7 +102,7 @@ export default function MigrationTool() {
             setStatus('processing');
             setMessage('Extrayendo y migrando datos...');
 
-            // 2. Ejecutar migración
+            // 2. Execute migration
             const migrateRes = await api.post('/admin/migrate-legacy');
             
             setStatus('success');
@@ -84,6 +133,43 @@ export default function MigrationTool() {
                 </div>
 
                 <div className="space-y-4">
+                    {/* Local File Option */}
+                    {localFileExists && (
+                        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                            <div className="flex items-center gap-3 mb-3">
+                                <FolderOpen className="w-5 h-5 text-emerald-400" />
+                                <span className="text-emerald-400 font-medium">Archivo local detectado</span>
+                            </div>
+                            <p className="text-sm text-emerald-300/70 mb-3">{message}</p>
+                            <button
+                                onClick={handleMigrateLocal}
+                                disabled={status === 'processing'}
+                                className="w-full py-2 px-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                            >
+                                {status === 'processing' ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Migrando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Database className="w-4 h-4" />
+                                        Usar Archivo Local
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Divider */}
+                    {localFileExists && (
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 h-px bg-border/50"></div>
+                            <span className="text-xs text-muted-foreground">O sube un archivo diferente</span>
+                            <div className="flex-1 h-px bg-border/50"></div>
+                        </div>
+                    )}
+
                     {/* File Upload Area */}
                     <div 
                         className={`

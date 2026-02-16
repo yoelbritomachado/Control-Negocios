@@ -103,4 +103,14 @@ export const uploadMnxFile = async (formData) => {
   return res.data;
 };
 
+export const checkLocalMnx = async () => {
+  const res = await api.get('/admin/check-mnx');
+  return res.data;
+};
+
+export const extractLocalMnx = async () => {
+  const res = await api.post('/admin/extract-local-mnx');
+  return res.data;
+};
+
 export default api;

@@ -92,6 +92,107 @@ app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// Check if local MNX file exists
+app.get('/api/admin/check-mnx', (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Solo administradores pueden acceder' });
+    }
+
+    try {
+        // Check multiple possible locations
+        const possiblePaths = [
+            path.join(__dirname, '..', 'backup.mnx'),  // Repo root
+            path.join(__dirname, 'backup.mnx'),        // Server folder
+            path.join(__dirname, 'uploads', 'backup.mnx'), // Uploads folder
+        ];
+
+        for (const mnxPath of possiblePaths) {
+            if (fs.existsSync(mnxPath)) {
+                const stats = fs.statSync(mnxPath);
+                return res.json({
+                    exists: true,
+                    filename: 'backup.mnx',
+                    size: (stats.size / 1024 / 1024).toFixed(2) + ' MB',
+                    path: mnxPath
+                });
+            }
+        }
+
+        res.json({ exists: false });
+
+    } catch (e) {
+        console.error('Check MNX Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Extract local MNX file
+app.post('/api/admin/extract-local-mnx', (req, res) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Solo administradores pueden ejecutar esto' });
+    }
+
+    try {
+        // Find the MNX file
+        const possiblePaths = [
+            path.join(__dirname, '..', 'backup.mnx'),
+            path.join(__dirname, 'backup.mnx'),
+            path.join(__dirname, 'uploads', 'backup.mnx'),
+        ];
+
+        let mnxPath = null;
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                mnxPath = p;
+                break;
+            }
+        }
+
+        if (!mnxPath) {
+            return res.status(404).json({ error: 'No se encontró backup.mnx' });
+        }
+
+        const extractDir = path.join(__dirname, 'uploads', 'temp_mnx');
+
+        // Clean and create extraction directory
+        if (fs.existsSync(extractDir)) {
+            fs.rmSync(extractDir, { recursive: true });
+        }
+        fs.mkdirSync(extractDir, { recursive: true });
+
+        // Extract ZIP
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(mnxPath);
+        zip.extractAllTo(extractDir, true);
+
+        // Find the database file
+        const files = fs.readdirSync(extractDir);
+        const dbFile = files.find(f => f.endsWith('.db') && f.startsWith('bd_'));
+
+        if (!dbFile) {
+            return res.status(400).json({ error: 'No se encontró base de datos en el archivo' });
+        }
+
+        // Copy to backup_legacy.db
+        const dbPath = path.join(extractDir, dbFile);
+        const legacyPath = path.join(__dirname, 'uploads', 'backup_legacy.db');
+        fs.copyFileSync(dbPath, legacyPath);
+
+        console.log(`Local MNX extracted. DB: ${dbFile}, Images: ${files.filter(f => f.endsWith('.jpg') || f.endsWith('.png')).length}`);
+
+        res.json({
+            success: true,
+            message: 'Archivo extraído correctamente',
+            dbFile: dbFile,
+            totalFiles: files.length
+        });
+
+    } catch (e) {
+        console.error('Extract Local MNX Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
     destination: (req, file, cb) => {
         const dir = path.join(__dirname, 'uploads/returns');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
