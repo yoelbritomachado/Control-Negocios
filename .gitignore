@@ -9,3 +9,5 @@ ngrok.exe
 .vscode/
 _trash/
 backups/
+*.db
+*.db-journal
