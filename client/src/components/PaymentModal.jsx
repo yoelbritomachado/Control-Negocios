@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
 export default function PaymentModal({ total, onClose, onConfirm }) {
-    const [cashAmount, setCashAmount] = useState('');
+    const [cashAmount, setCashAmount] = useState(total.toFixed(2));
     const [transferAmount, setTransferAmount] = useState('');
     const [activeInput, setActiveInput] = useState('cash'); // 'cash', 'transfer', 'both'
     const inputRef = useRef(null);
