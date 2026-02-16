@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api from '../api';
+import { fetchProducts } from '../api';
 import { FaBoxOpen, FaClipboardList, FaPlus, FaSearch, FaHistory, FaBarcode } from 'react-icons/fa';
 
 export default function PurchaseSection() {
@@ -16,7 +16,7 @@ export default function PurchaseSection() {
     const loadProducts = async () => {
         setLoading(true);
         try {
-            const data = await api.fetchProducts();
+            const data = await fetchProducts();
             setProducts(data);
         } catch (e) {
             console.error(e);
