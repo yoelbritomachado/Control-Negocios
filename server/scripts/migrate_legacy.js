@@ -156,7 +156,7 @@ function migrateTransactions() {
     const transactions = legacyDb.prepare(`
         SELECT id, fecha, tipo, info
         FROM transaccion
-        WHERE tipo LIKE '%venta%' OR tipo LIKE '%compra%'
+        WHERE tipo = 10 OR tipo = 20
         ORDER BY fecha DESC
     `).all();
     
@@ -185,22 +185,21 @@ function migrateTransactions() {
                     total = info.total || info.monto || 0;
                 } catch (e) {}
                 
-                const tipo = (trans.tipo || '').toLowerCase();
-                
-                if (tipo.includes('venta')) {
+                // Tipo 10 = Venta, Tipo 20 = Compra
+                if (trans.tipo === 10) {
                     insertSale.run(
                         trans.id,
                         trans.fecha,
-                        trans.tipo,
+                        'Venta',
                         trans.info,
                         total
                     );
                     salesCount++;
-                } else if (tipo.includes('compra')) {
+                } else if (trans.tipo === 20) {
                     insertPurchase.run(
                         trans.id,
                         trans.fecha,
-                        trans.tipo,
+                        'Compra',
                         trans.info,
                         total
                     );
