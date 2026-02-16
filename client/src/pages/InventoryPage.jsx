@@ -55,7 +55,7 @@ export default function InventoryPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold flex items-center gap-3">
-                        <Package className="w-7 h-7 text-cyan-400" /
+                        <Package className="w-7 h-7 text-cyan-400" />
                         Inventario
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
