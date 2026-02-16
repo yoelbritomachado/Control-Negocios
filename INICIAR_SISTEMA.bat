@@ -86,7 +86,7 @@ echo 🚀 PASO 3: Iniciando Backend (Puerto 3001)...
 echo ════════════════════════════════════════════════════════════
 echo.
 
-start "🖥️  MCH Backend" cmd /k "cd /d "%PROJECT_PATH%server" && npm run dev"
+start "🖥️  MCH Backend" cmd /k "cd /d "%PROJECT_PATH%server" && node index.js"
 
 echo    ⏳ Esperando 5 segundos para iniciar backend...
 timeout /t 5 /nobreak >nul
