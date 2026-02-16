@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCart } from './CartProvider';
 import InventorySelector from './InventorySelector';
-import api from '../api';
+import { fetchProducts } from '../api';
 import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
 import {
@@ -416,7 +416,7 @@ export default function POSLayout() {
     const performSearch = async (query) => {
         setLoadingProduct(true);
         try {
-            const products = await api.fetchProducts(query);
+            const products = await fetchProducts(query);
             // Filter products that have stock in current inventory
             const availableProducts = products.filter(p => {
                 const stock = p.inventory?.[currentInventory] || 0;
@@ -437,7 +437,7 @@ export default function POSLayout() {
             setShowSearchDropdown(false);
             setLoadingProduct(true);
             try {
-                const products = await api.fetchProducts(search.trim());
+                const products = await fetchProducts(search.trim());
                 if (products && products.length > 0) {
                     const p = products[0];
                     const stock = p.inventory?.[currentInventory] || 0;
