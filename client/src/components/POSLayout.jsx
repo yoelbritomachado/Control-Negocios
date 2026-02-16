@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCart } from './CartProvider';
 import InventorySelector from './InventorySelector';
-import { fetchProducts } from '../api';
+import api, { fetchProducts } from '../api';
 import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
 import {
@@ -511,21 +511,43 @@ export default function POSLayout() {
     const processPayment = async (paymentData) => {
         setCheckoutProcessing(true);
         try {
+            // Determinar el método de pago principal
+            let paymentMethod = 'cash';
+            if (paymentData.method === 'mixed') {
+                paymentMethod = 'mixed';
+            } else if (paymentData.transferAmount > 0) {
+                paymentMethod = 'transfer';
+            }
+
             const res = await api.post('/sales', {
                 items: cart,
                 total: total,
-                paymentMethod: paymentData.method,
+                paymentMethod: paymentMethod,
                 amountReceived: paymentData.amountReceived,
                 change: paymentData.change,
-                inventoryId: currentInventory
+                inventoryId: currentInventory,
+                cashAmount: paymentData.cashAmount,
+                transferAmount: paymentData.transferAmount
             });
             if (res.data.success) {
-                setRecentSales(prev => [{ id: res.data.saleId, total, time: new Date().toLocaleTimeString(), method: paymentData.method }, ...prev]);
+                setRecentSales(prev => [{ 
+                    id: res.data.saleId, 
+                    total, 
+                    time: new Date().toLocaleTimeString(), 
+                    method: paymentMethod,
+                    cashAmount: paymentData.cashAmount,
+                    transferAmount: paymentData.transferAmount
+                }, ...prev]);
                 clearCart();
                 setShowPayment(false);
             }
-        } catch (e) { alert(e.response?.data?.error || "Error al cobrar"); }
-        finally { setCheckoutProcessing(false); }
+        } catch (e) { 
+            console.error('Error al cobrar:', e);
+            alert(e.response?.data?.error || "Error al cobrar"); 
+        }
+        finally { 
+            setCheckoutProcessing(false); 
+        }
     };
 
     const handleCloseSession = async (cash, notes) => {
