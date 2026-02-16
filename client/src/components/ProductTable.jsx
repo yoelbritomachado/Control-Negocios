@@ -152,20 +152,20 @@ const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, is
                 </td>
                 <td className="px-6 py-4 text-right">
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    ${product.actual_sale_price.toFixed(2)}
+                    ${(product.actual_sale_price || product.sale_price_manual || 0).toFixed(2)}
                   </span>
                   {product.sale_price_manual > 0 && (
                     <span className="block text-[9px] text-gray-400 uppercase font-bold tracking-wide mt-0.5">Manual</span>
                   )}
                 </td>
                 <td className="px-6 py-4 text-right font-mono text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                  ${getDynamicCost(product).toFixed(2)}
+                  ${(getDynamicCost(product) || 0).toFixed(2)}
                 </td>
                 <td className="px-6 py-4 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
-                  ${product.cost_mn.toFixed(2)}
+                  ${(product.cost_mn || 0).toFixed(2)}
                 </td>
                 <td className="px-6 py-4 text-right font-mono text-xs text-gray-500 dark:text-gray-500 font-medium">
-                  {product.margin_percent}%
+                  {product.margin_percent || 0}%
                 </td>
                 {canEdit && (
                   <td className="px-6 py-4 text-center">
