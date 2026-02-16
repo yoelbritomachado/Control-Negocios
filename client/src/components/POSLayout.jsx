@@ -68,7 +68,16 @@ const ExpenseModal = ({ onClose, onSave }) => {
         const selectedType = expenseTypes.find(t => t.id.toString() === typeId);
         if (selectedType) {
             setAmount(selectedType.amount.toString());
+            // Limpiar descripción al cambiar de tipo
+            setDesc('');
         }
+    };
+
+    const isCustomExpense = () => {
+        const selectedType = expenseTypes.find(t => t.id.toString() === type);
+        return selectedType?.name?.toLowerCase().includes('otro') || 
+               selectedType?.name?.toLowerCase().includes('otros') ||
+               selectedType?.amount === 0;
     };
 
     const handleSubmit = async (e) => {
@@ -77,7 +86,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
         await onSave({ 
             type: selectedType?.name || 'Otro', 
             amount: parseFloat(amount), 
-            description: desc 
+            description: isCustomExpense() ? desc : selectedType?.name 
         });
     };
 
@@ -110,6 +119,20 @@ const ExpenseModal = ({ onClose, onSave }) => {
                         </select>
                     </div>
 
+                    {isCustomExpense() && (
+                        <div className="space-y-2">
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Nombre del Gasto</label>
+                            <input
+                                type="text"
+                                placeholder="Ej: Compra de material de oficina..."
+                                value={desc}
+                                onChange={e => setDesc(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+                                required={isCustomExpense()}
+                            />
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monto</label>
                         <div className="relative">
@@ -124,14 +147,6 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             />
                         </div>
                     </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Descripción</label>
-                        <input
-                            type="text"
-                            placeholder="Detalle del gasto..."
-                            value={desc}
-                            onChange={e => setDesc(e.target.value)}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
                         />
                     </div>
