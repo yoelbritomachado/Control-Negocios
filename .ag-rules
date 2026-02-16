@@ -1,0 +1,58 @@
+# Antigravity Rules Configuration (.ag-rules)
+# Policy: Selective Autonomy (Auto-generated based on project structure)
+# Generated: 2026-02-15
+
+version: 1.1.0
+execution_policy: selective_auto
+
+# ✅ Lista Segura (Safe-List)
+# Comandos detectados en el entorno (server, client, roots)
+safe_list:
+  # Ciclo de Vida del Proyecto (Unificado)
+  - "npm start"
+  - "npm install"
+  - "npm run build"
+  
+  # Backend & Migración
+  - "node migrate_data.js"
+  - "npm run server"
+  - "npm run dev --prefix server"
+  - "node server/index.js"
+  
+  # Frontend
+  - "npm run client"
+  - "npm run dev --prefix client"
+  
+  # Exploración y Lectura (Sistema)
+  - "ls"
+  - "dir"
+  - "Get-ChildItem"
+  - "cat"
+  - "type"
+  - "grep"
+  - "findstr"
+  - "check_data.js"
+  
+  # Gestión de Skills y Tests
+  - "node .agent/skills/*"
+  - "npm test"
+  - "npm run lint"
+
+# 🤖 Patrones de Auto-Ejecución
+auto_approved_tools:
+  - "view_file"
+  - "list_dir"
+  - "grep_search"
+  - "read_terminal"
+  - "run_command" # Solo si está en safe_list
+  - "generate_image"
+
+# ⚠️ Requiere Confirmación
+restricted_actions:
+  - "Delete-Item -Recurse" (en directorios raíz)
+  - "Drop Database"
+  - "rm -rf" (Unix simulation)
+
+metadata:
+  refresh_rate: "per_session"
+  project_type: "express-react-sqlite-concurrent"
