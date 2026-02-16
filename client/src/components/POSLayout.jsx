@@ -506,6 +506,11 @@ export default function POSLayout() {
     };
 
     const handleEditSale = (sale) => {
+        if (!sale.items || sale.items.length === 0) {
+            alert('Esta venta no puede ser editada porque no tiene items guardados.');
+            return;
+        }
+        
         if (confirm('¿Cargar esta venta en el carrito para editar?')) {
             // Cargar items de la venta al carrito
             sale.items.forEach(item => {
