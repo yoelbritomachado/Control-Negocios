@@ -57,7 +57,7 @@ export function SearchDropdown({
                 left: position.left,
                 width: position.width,
                 boxShadow: '0 25px 50px -12px rgba(0,0,0,0.9), 0 0 0 1px rgba(6,182,212,0.3)',
-                zIndex: 9999
+                zIndex: 99999
             }}
         >
             <div className="p-3 space-y-2">
