@@ -28,6 +28,8 @@ echo 🔽 PASO 1: Descargando ultimos cambios de GitHub...
 echo ════════════════════════════════════════════════════════════
 echo.
 
+:: Resetear cambios locales y actualizar
+git checkout -- .
 git pull origin main
 
 if %ERRORLEVEL% NEQ 0 (
