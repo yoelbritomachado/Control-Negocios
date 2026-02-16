@@ -50,20 +50,6 @@ export default function HistoryPage() {
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
-            <div className="mb-8">
-                <div className="flex items-center gap-4 mb-2">
-                    <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-                        <History className="w-6 h-6 text-amber-400" />
-                    </div>
-                    <div>
-                        <h1 className="text-2xl font-bold">Historial</h1>
-                        <p className="text-sm text-muted-foreground">
-                            Registro de operaciones del sistema
-                        </p>
-                    </div>
-                </div>
-            </div>
-
             {/* Tabs */}
             <div className="flex gap-2 mb-6">
                 {tabs.map(tab => (

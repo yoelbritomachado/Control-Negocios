@@ -31,23 +31,14 @@ export default function PurchaseSection() {
 
     return (
         <div className="flex flex-col h-full bg-[#08090A] text-white p-6 animate-fade-in overflow-hidden">
-            {/* Header */}
-            <div className="flex justify-between items-center mb-8 shrink-0">
-                <div>
-                    <h1 className="text-3xl font-bold font-outfit tracking-tight flex items-center gap-3">
-                        <FaClipboardList className="text-pink-500" />
-                        Gestión de Compras
-                    </h1>
-                    <p className="text-gray-400 text-sm mt-1">Control de inventario y entradas de mercancía</p>
-                </div>
-                <div className="flex gap-3">
-                    <button className="btn-primary flex items-center gap-2">
-                        <FaHistory /> Historial Entradas
-                    </button>
-                    <button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-xl shadow-lg shadow-emerald-900/40 transition-all hover:-translate-y-1 flex items-center gap-2">
-                        <FaPlus /> Nueva Entrada
-                    </button>
-                </div>
+            {/* Action Buttons */}
+            <div className="flex justify-end items-center mb-8 shrink-0 gap-3">
+                <button className="btn-primary flex items-center gap-2">
+                    <FaHistory /> Historial Entradas
+                </button>
+                <button onClick={() => setShowAddModal(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-xl shadow-lg shadow-emerald-900/40 transition-all hover:-translate-y-1 flex items-center gap-2">
+                    <FaPlus /> Nueva Entrada
+                </button>
             </div>
 
             {/* Metrics Cards (Optional, based on legacy) */}

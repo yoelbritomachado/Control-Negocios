@@ -8,7 +8,8 @@ import {
   ShoppingCart,
   Package,
   ArrowLeftRight,
-  Users
+  Users,
+  History
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -20,6 +21,7 @@ const pageTitles = {
   '/entradas': { title: 'Inventario', subtitle: 'Control de stock y productos', icon: Package },
   '/compras': { title: 'Compras', subtitle: 'Gestion de entradas de mercancia', icon: ArrowLeftRight },
   '/usuarios': { title: 'Usuarios', subtitle: 'Administracion de usuarios y permisos', icon: Users },
+  '/historial': { title: 'Historial', subtitle: 'Registro de operaciones del sistema', icon: History },
 };
 
 const inventoryLabels = {

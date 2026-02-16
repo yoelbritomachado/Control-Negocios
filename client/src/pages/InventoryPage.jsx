@@ -81,17 +81,8 @@ export default function InventoryPage() {
 
     return (
         <div className="h-full overflow-y-auto p-6 space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-3">
-                        <Package className="w-7 h-7 text-cyan-400" />
-                        Inventario
-                    </h1>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Gestion de productos y control de stock
-                    </p>
-                </div>
-                
+            {/* Botón Nuevo Producto */}
+            <div className="flex justify-end">
                 <button
                     onClick={() => {
                         setEditingProduct(null);

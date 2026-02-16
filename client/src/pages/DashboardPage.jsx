@@ -39,18 +39,6 @@ export default function DashboardPage() {
             transition={{ duration: 0.5 }}
             className="space-y-6"
         >
-            {/* Header con inventario actual */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold">
-                        Dashboard: <span className="text-cyan-400">{inventoryLabel}</span>
-                    </h1>
-                    <p className="text-xs text-muted-foreground uppercase tracking-widest mt-1">
-                        Monitoreo Activo de Flujos de Caja
-                    </p>
-                </div>
-            </div>
-
             {/* Stats Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
