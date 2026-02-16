@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 // Configuración
-const LEGACY_DB_PATH = path.join(__dirname, '../uploads/backup_legacy.db');
-const TARGET_DB_PATH = path.join(__dirname, '../inventory.db');
+const LEGACY_DB_PATH = path.join(__dirname, '../../uploads/backup_legacy.db');
+const TARGET_DB_PATH = path.join(__dirname, '../../inventory.db');
 
 console.log('🚀 Iniciando migración de datos legacy...\n');
 
