@@ -439,6 +439,7 @@ export default function POSLayout() {
     // State
     const [recentSales, setRecentSales] = useState([]);
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
+    const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
 
     // Search with debounce
@@ -923,6 +924,35 @@ export default function POSLayout() {
                                 ))}
                             </AnimatePresence>
 
+                            {/* Gastos */}
+                            <AnimatePresence>
+                                {expenses.map((expense, index) => (
+                                    <motion.div
+                                        key={`expense-${expense.id}`}
+                                        initial={{ opacity: 0, x: 20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        className="p-3 rounded-xl bg-card/50 border border-border/50 hover:border-rose-500/30 hover:bg-card/80 transition-all"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+                                                    <Receipt className="w-4 h-4 text-rose-500" />
+                                                </div>
+                                                <div>
+                                                    <div className="font-semibold text-foreground text-sm">{expense.name}</div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {expense.time} • {expense.description || 'Gasto registrado'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="font-bold font-mono text-rose-400">-${expense.amount?.toFixed(2)}</div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+
                             {/* Ventas Cobradas */}
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
@@ -975,7 +1005,7 @@ export default function POSLayout() {
                                 ))}
                             </AnimatePresence>
 
-                            {recentSales.length === 0 && savedSales.length === 0 && (
+                            {recentSales.length === 0 && savedSales.length === 0 && expenses.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-8">
                                     <History className="w-10 h-10 mb-2 opacity-50" />
                                     <p className="text-sm">Sin ventas en este turno</p>
@@ -1024,8 +1054,18 @@ export default function POSLayout() {
                             onSave={async (data) => {
                                 try {
                                     await api.post('/expenses', data);
+                                    // Agregar el gasto a la lista local
+                                    const newExpense = {
+                                        id: Date.now(),
+                                        type: 'expense',
+                                        name: data.type,
+                                        amount: data.amount,
+                                        description: data.description,
+                                        time: new Date().toLocaleTimeString(),
+                                        isExpense: true
+                                    };
+                                    setExpenses(prev => [newExpense, ...prev]);
                                     setShowExpense(false);
-                                    alert("Gasto registrado");
                                 } catch (e) {
                                     alert("Error");
                                 }
