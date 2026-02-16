@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { FaArrowUp, FaArrowDown, FaWallet, FaExchangeAlt, FaExclamationTriangle, FaPlus, FaChartPie } from 'react-icons/fa';
 import InventorySelector from './InventorySelector';
 
+// Dashboard Component v2 - Fixed imports
+
 const Widget = ({ title, value, subtext, icon: Icon, colorClass, trend }) => (
   <div className="bg-[#1A1D21] p-5 rounded-2xl border border-gray-800 relative overflow-hidden group hover:border-gray-700 transition-all">
     <div className={`absolute top-4 right-4 p-2 rounded-lg opacity-20 ${colorClass}`}>
