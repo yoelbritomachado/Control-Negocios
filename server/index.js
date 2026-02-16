@@ -23,8 +23,75 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Multer Storage for Returns/Evidence
-const storage = multer.diskStorage({
+// Multer Storage for MNX files
+const mnxStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, 'backup_upload_' + Date.now() + '.mnx');
+    }
+});
+const mnxUpload = multer({ storage: mnxStorage });
+
+// --- MNX UPLOAD AND EXTRACTION ---
+app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
+    // Only admin can upload
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Solo administradores pueden subir archivos' });
+    }
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se subió ningún archivo' });
+        }
+
+        const mnxPath = req.file.path;
+        const extractDir = path.join(__dirname, 'uploads', 'temp_mnx');
+
+        // Clean and create extraction directory
+        if (fs.existsSync(extractDir)) {
+            fs.rmSync(extractDir, { recursive: true });
+        }
+        fs.mkdirSync(extractDir, { recursive: true });
+
+        // Extract ZIP (MNX is a renamed ZIP)
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(mnxPath);
+        zip.extractAllTo(extractDir, true);
+
+        // Find the database file (usually named like bd_*.db)
+        const files = fs.readdirSync(extractDir);
+        const dbFile = files.find(f => f.endsWith('.db') && f.startsWith('bd_'));
+
+        if (!dbFile) {
+            return res.status(400).json({ error: 'No se encontró base de datos en el archivo' });
+        }
+
+        // Rename to backup_legacy.db
+        const dbPath = path.join(extractDir, dbFile);
+        const legacyPath = path.join(__dirname, 'uploads', 'backup_legacy.db');
+        fs.copyFileSync(dbPath, legacyPath);
+
+        // Clean up uploaded MNX file
+        fs.unlinkSync(mnxPath);
+
+        console.log(`MNX extracted successfully. DB: ${dbFile}, Images: ${files.filter(f => f.endsWith('.jpg') || f.endsWith('.png')).length}`);
+
+        res.json({
+            success: true,
+            message: 'Archivo extraído correctamente',
+            dbFile: dbFile,
+            totalFiles: files.length
+        });
+
+    } catch (e) {
+        console.error('MNX Upload Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
     destination: (req, file, cb) => {
         const dir = path.join(__dirname, 'uploads/returns');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });

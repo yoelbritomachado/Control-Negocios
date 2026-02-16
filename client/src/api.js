@@ -96,4 +96,11 @@ export const migrateLegacyData = async () => {
   return res.data;
 };
 
+export const uploadMnxFile = async (formData) => {
+  const res = await api.post('/admin/upload-mnx', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return res.data;
+};
+
 export default api;

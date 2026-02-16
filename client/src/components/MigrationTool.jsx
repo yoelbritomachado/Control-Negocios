@@ -1,28 +1,69 @@
-import React, { useState } from 'react';
-import { Database, Upload, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Database, Upload, CheckCircle, AlertCircle, Loader2, FileArchive } from 'lucide-react';
 import api from '../api';
 
 export default function MigrationTool() {
     const [status, setStatus] = useState('idle'); // idle, uploading, processing, success, error
     const [message, setMessage] = useState('');
     const [output, setOutput] = useState('');
+    const [selectedFile, setSelectedFile] = useState(null);
+    const fileInputRef = useRef(null);
 
-    const handleMigrate = async () => {
+    const handleFileSelect = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (!file.name.endsWith('.mnx')) {
+                setStatus('error');
+                setMessage('El archivo debe tener extensión .mnx');
+                return;
+            }
+            setSelectedFile(file);
+            setStatus('idle');
+            setMessage('');
+        }
+    };
+
+    const handleUploadAndMigrate = async () => {
+        if (!selectedFile) {
+            setStatus('error');
+            setMessage('Selecciona un archivo .mnx primero');
+            return;
+        }
+
         if (!confirm('¿Estás seguro de ejecutar la migración? Esto importará los productos del sistema legacy.')) {
             return;
         }
-        
-        setStatus('processing');
-        setMessage('Ejecutando migración...');
-        
+
+        setStatus('uploading');
+        setMessage('Subiendo archivo...');
+
         try {
-            const res = await api.post('/admin/migrate-legacy');
+            // 1. Subir archivo .mnx
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            const uploadRes = await api.post('/admin/upload-mnx', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (!uploadRes.data.success) {
+                throw new Error(uploadRes.data.error || 'Error al subir archivo');
+            }
+
+            setStatus('processing');
+            setMessage('Extrayendo y migrando datos...');
+
+            // 2. Ejecutar migración
+            const migrateRes = await api.post('/admin/migrate-legacy');
+            
             setStatus('success');
             setMessage('Migración completada exitosamente');
-            setOutput(res.data.output || '');
+            setOutput(migrateRes.data.output || '');
+            setSelectedFile(null);
+
         } catch (e) {
             setStatus('error');
-            setMessage(e.response?.data?.error || 'Error en la migración');
+            setMessage(e.response?.data?.error || e.message || 'Error en la migración');
             setOutput(e.response?.data?.details || '');
         }
     };
@@ -37,22 +78,54 @@ export default function MigrationTool() {
                     <div>
                         <h2 className="text-xl font-bold">Migración de Datos Legacy</h2>
                         <p className="text-sm text-muted-foreground">
-                            Importa productos desde el sistema .mnx anterior
+                            Importa productos desde el archivo .mnx del sistema anterior
                         </p>
                     </div>
                 </div>
 
                 <div className="space-y-4">
-                    <div className="p-4 rounded-xl bg-slate-900/50 border border-slate-700">
-                        <h3 className="font-semibold mb-2 flex items-center gap-2">
-                            <Upload className="w-4 h-4" />
-                            Requisitos
-                        </h3>
-                        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                            <li>Archivo <code>backup_legacy.db</code> en /uploads</li>
-                            <li>Imágenes extraídas en <code>/uploads/temp_mnx/</code></li>
-                            <li>Permisos de administrador</li>
-                        </ul>
+                    {/* File Upload Area */}
+                    <div 
+                        className={`
+                            border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all
+                            ${status === 'uploading' ? 'border-cyan-500 bg-cyan-500/5' : 'border-slate-700 hover:border-slate-500'}
+                        `}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFileSelect}
+                            accept=".mnx"
+                            className="hidden"
+                        />
+                        
+                        {selectedFile ? (
+                            <div className="flex flex-col items-center gap-2">
+                                <FileArchive className="w-12 h-12 text-cyan-400" />
+                                <p className="font-medium">{selectedFile.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                    {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                                </p>
+                                <button 
+                                    className="text-sm text-cyan-400 hover:underline mt-2"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedFile(null);
+                                    }}
+                                >
+                                    Cambiar archivo
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center gap-2">
+                                <Upload className="w-12 h-12 text-slate-500" />
+                                <p className="font-medium">Click para seleccionar archivo .mnx</p>
+                                <p className="text-sm text-muted-foreground">
+                                    o arrastra y suelta aquí
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {status === 'success' && (
@@ -84,24 +157,28 @@ export default function MigrationTool() {
                     )}
 
                     <button
-                        onClick={handleMigrate}
-                        disabled={status === 'processing'}
+                        onClick={handleUploadAndMigrate}
+                        disabled={!selectedFile || status === 'uploading' || status === 'processing'}
                         className="w-full py-3 px-4 bg-cyan-500 hover:bg-cyan-600 disabled:bg-cyan-500/50 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
                     >
-                        {status === 'processing' ? (
+                        {status === 'uploading' ? (
                             <>
                                 <Loader2 className="w-5 h-5 animate-spin" />
-                                Procesando...
+                                Subiendo...
+                            </>
+                        ) : status === 'processing' ? (
+                            <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Migrando...
                             </>
                         ) : (
                             <>
                                 <Database className="w-5 h-5" />
-                                Ejecutar Migración
+                                Subir y Ejecutar Migración
                             </>
                         )}
                     </button>
                 </div>
-            </div>
-        </div>
+            </div>        </div>
     );
 }
