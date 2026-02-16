@@ -385,6 +385,8 @@ export default function POSLayout() {
     const { cart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory } = useCart();
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
+    const [searchResults, setSearchResults] = useState([]);
+    const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
     // Modals
     const [showExpense, setShowExpense] = useState(false);
@@ -397,20 +399,73 @@ export default function POSLayout() {
     const [recentSales, setRecentSales] = useState([]);
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
 
-    // Logic
-    const handleSearch = async (e) => {
+    // Search with debounce
+    useEffect(() => {
+        const timeoutId = setTimeout(() => {
+            if (search.trim().length >= 2) {
+                performSearch(search.trim());
+            } else {
+                setSearchResults([]);
+                setShowSearchDropdown(false);
+            }
+        }, 300);
+
+        return () => clearTimeout(timeoutId);
+    }, [search]);
+
+    const performSearch = async (query) => {
+        setLoadingProduct(true);
+        try {
+            const products = await api.fetchProducts(query);
+            // Filter products that have stock in current inventory
+            const availableProducts = products.filter(p => {
+                const stock = p.inventory?.[currentInventory] || 0;
+                return stock > 0;
+            });
+            setSearchResults(availableProducts);
+            setShowSearchDropdown(availableProducts.length > 0);
+        } catch (err) {
+            console.error(err);
+            setSearchResults([]);
+        } finally {
+            setLoadingProduct(false);
+        }
+    };
+
+    const handleSearchKeyDown = async (e) => {
         if (e.key === 'Enter' && search.trim()) {
+            setShowSearchDropdown(false);
             setLoadingProduct(true);
             try {
                 const products = await api.fetchProducts(search.trim());
                 if (products && products.length > 0) {
                     const p = products[0];
-                    if (p.quantity > 0) { addToCart(p); setSearch(''); }
-                    else { alert("Producto agotado"); }
-                } else { alert("Producto no encontrado"); }
-            } catch (err) { console.error(err); }
-            finally { setLoadingProduct(false); }
+                    const stock = p.inventory?.[currentInventory] || 0;
+                    if (stock > 0) { 
+                        addToCart(p); 
+                        setSearch(''); 
+                        setSearchResults([]);
+                    }
+                    else { 
+                        alert("Producto agotado en esta sede"); 
+                    }
+                } else { 
+                    alert("Producto no encontrado"); 
+                }
+            } catch (err) { 
+                console.error(err); 
+            }
+            finally { 
+                setLoadingProduct(false); 
+            }
         }
+    };
+
+    const handleSelectProduct = (product) => {
+        addToCart(product);
+        setSearch('');
+        setSearchResults([]);
+        setShowSearchDropdown(false);
     };
 
     const handleCheckoutClick = () => { if (cart.length > 0) setShowPayment(true); };
@@ -467,7 +522,7 @@ export default function POSLayout() {
                                     type="text"
                                     value={search}
                                     onChange={e => setSearch(e.target.value)}
-                                    onKeyDown={handleSearch}
+                                    onKeyDown={handleSearchKeyDown}
                                     placeholder="Escanear código o buscar producto..."
                                     className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-12 py-2.5 text-foreground placeholder:text-muted-foreground/60 text-base font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all"
                                     autoFocus
@@ -475,6 +530,50 @@ export default function POSLayout() {
                                 {loadingProduct && (
                                     <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-cyan-500 w-5 h-5" />
                                 )}
+                                
+                                {/* Search Results Dropdown */}
+                                <AnimatePresence>
+                                    {showSearchDropdown && searchResults.length > 0 && (
+                                        <motion.div
+                                            initial={{ opacity: 0, y: -10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: -10 }}
+                                            className="absolute top-full left-0 right-0 mt-2 bg-card/95 backdrop-blur-xl border border-border/50 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto"
+                                        >
+                                            <div className="p-2 space-y-1">
+                                                {searchResults.map((product) => {
+                                                    const stock = product.inventory?.[currentInventory] || 0;
+                                                    return (
+                                                        <button
+                                                            key={product.id}
+                                                            onClick={() => handleSelectProduct(product)}
+                                                            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-all text-left group"
+                                                        >
+                                                            <div className="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                                                                <Package2 className="w-5 h-5 text-cyan-500" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="font-medium text-foreground truncate">{product.name}</div>
+                                                                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                                                                    <span className="font-mono">{product.code || 'SIN CÓDIGO'}</span>
+                                                                    <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
+                                                                    <span className={stock < 5 ? "text-rose-400" : "text-emerald-400"}>
+                                                                        Stock: {stock}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="font-bold text-emerald-400 font-mono">${product.sale_price_manual}</div>
+                                                                <div className="text-xs text-muted-foreground">${product.cost_mx} costo</div>
+                                                            </div>
+                                                            <Plus className="w-5 h-5 text-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
                         </div>
 
