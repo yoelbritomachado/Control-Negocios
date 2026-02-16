@@ -1103,41 +1103,45 @@ export default function POSLayout() {
                     )}
                     
                     {/* Confirm Modals */}
-                    <ConfirmModal
-                        isOpen={showCartConfirm}
-                        onClose={() => setShowCartConfirm(false)}
-                        onConfirm={() => handleCartConfirm(true)}
-                        title="Carrito con productos"
-                        message={
-                            <>
-                                Tienes <strong>{cart.length} producto(s)</strong> en el carrito por <strong>${total.toFixed(2)}</strong>.
-                                <br /><br />
-                                ¿Deseas <strong>COBRAR</strong> esta venta antes de cerrar sesión?
-                            </>
-                        }
-                        confirmText="Cobrar venta"
-                        cancelText="Borrar carrito"
-                        type="warning"
-                        icon={ShoppingCart}
-                    />
+                    {showCartConfirm && (
+                        <ConfirmModal
+                            isOpen={showCartConfirm}
+                            onClose={() => setShowCartConfirm(false)}
+                            onConfirm={() => handleCartConfirm(true)}
+                            title="Carrito con productos"
+                            message={
+                                <>
+                                    Tienes <strong>{cart.length} producto(s)</strong> en el carrito por <strong>${total.toFixed(2)}</strong>.
+                                    <br /><br />
+                                    ¿Deseas <strong>COBRAR</strong> esta venta antes de cerrar sesión?
+                                </>
+                            }
+                            confirmText="Cobrar venta"
+                            cancelText="Borrar carrito"
+                            type="warning"
+                            icon={ShoppingCart}
+                        />
+                    )}
                     
-                    <ConfirmModal
-                        isOpen={showSavedConfirm}
-                        onClose={() => setShowSavedConfirm(false)}
-                        onConfirm={() => handleSavedConfirm(true)}
-                        title="Ventas guardadas pendientes"
-                        message={
-                            <>
-                                Tienes <strong>{savedSales.length} venta(s) guardada(s)</strong> por <strong>${savedSales.reduce((sum, s) => sum + s.total, 0).toFixed(2)}</strong>.
-                                <br /><br />
-                                ¿Deseas <strong>COBRARLAS</strong> antes de cerrar sesión?
-                            </>
-                        }
-                        confirmText="Cobrar ventas"
-                        cancelText="Eliminar guardadas"
-                        type="info"
-                        icon={Save}
-                    />
+                    {showSavedConfirm && (
+                        <ConfirmModal
+                            isOpen={showSavedConfirm}
+                            onClose={() => setShowSavedConfirm(false)}
+                            onConfirm={() => handleSavedConfirm(true)}
+                            title="Ventas guardadas pendientes"
+                            message={
+                                <>
+                                    Tienes <strong>{savedSales.length} venta(s) guardada(s)</strong> por <strong>${savedSales.reduce((sum, s) => sum + s.total, 0).toFixed(2)}</strong>.
+                                    <br /><br />
+                                    ¿Deseas <strong>COBRARLAS</strong> antes de cerrar sesión?
+                                </>
+                            }
+                            confirmText="Cobrar ventas"
+                            cancelText="Eliminar guardadas"
+                            type="info"
+                            icon={Save}
+                        />
+                    )}
                 </AnimatePresence>
             </div>
         </SessionGuard>
