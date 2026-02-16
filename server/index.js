@@ -547,6 +547,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    code TEXT,
     quantity INTEGER DEFAULT 0,
     cost_mx REAL DEFAULT 0.0,
     sale_price_manual REAL DEFAULT 0.0,
@@ -555,6 +556,14 @@ db.exec(`
     inventory_id INTEGER DEFAULT 1
   )
 `);
+
+// Add code column if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE products ADD COLUMN code TEXT`);
+  console.log('Added code column to products table');
+} catch (e) {
+  // Column already exists, ignore error
+}
 
 // Inventories table (Modified for MCH Multi-site)
 db.exec(`
