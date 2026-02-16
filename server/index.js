@@ -530,54 +530,6 @@ const checkEditor = (req, res, next) => {
     next();
 };
 
-// Get all expense types
-app.get('/api/expense-types', authenticate, (req, res) => {
-    try {
-        const types = db.prepare('SELECT * FROM expense_types WHERE is_active = 1 ORDER BY name').all();
-        res.json(types);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Create new expense type (admin only)
-app.post('/api/expense-types', authenticate, checkAdmin, (req, res) => {
-    try {
-        const { name, amount } = req.body;
-        if (!name || amount === undefined) {
-            return res.status(400).json({ error: 'Nombre y monto son requeridos' });
-        }
-        const result = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)').run(name, amount);
-        res.json({ success: true, id: result.lastInsertRowid });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Update expense type (admin only)
-app.put('/api/expense-types/:id', authenticate, checkAdmin, (req, res) => {
-    try {
-        const { name, amount, is_active } = req.body;
-        const { id } = req.params;
-        db.prepare('UPDATE expense_types SET name = ?, amount = ?, is_active = ? WHERE id = ?')
-            .run(name, amount, is_active, id);
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Delete expense type (admin only)
-app.delete('/api/expense-types/:id', authenticate, checkAdmin, (req, res) => {
-    try {
-        const { id } = req.params;
-        db.prepare('UPDATE expense_types SET is_active = 0 WHERE id = ?').run(id);
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
 // Database setup
 const db = new Database(dbPath); // Use absolute path
 
@@ -909,6 +861,56 @@ const requireAdmin = (req, res, next) => {
     }
     next();
 };
+
+// --- EXPENSE TYPES ENDPOINTS ---
+
+// Get all expense types
+app.get('/api/expense-types', authenticate, (req, res) => {
+    try {
+        const types = db.prepare('SELECT * FROM expense_types WHERE is_active = 1 ORDER BY name').all();
+        res.json(types);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new expense type (admin only)
+app.post('/api/expense-types', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { name, amount } = req.body;
+        if (!name || amount === undefined) {
+            return res.status(400).json({ error: 'Nombre y monto son requeridos' });
+        }
+        const result = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)').run(name, amount);
+        res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Update expense type (admin only)
+app.put('/api/expense-types/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { name, amount, is_active } = req.body;
+        const { id } = req.params;
+        db.prepare('UPDATE expense_types SET name = ?, amount = ?, is_active = ? WHERE id = ?')
+            .run(name, amount, is_active, id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete expense type (admin only)
+app.delete('/api/expense-types/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        db.prepare('UPDATE expense_types SET is_active = 0 WHERE id = ?').run(id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 const requireEditor = (req, res, next) => {
     if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
