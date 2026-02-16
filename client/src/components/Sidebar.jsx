@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
+import { Database } from 'lucide-react';
 
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
@@ -27,6 +28,10 @@ const menuItems = [
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/entradas', category: 'management' },
     { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
+];
+
+const adminMenuItems = [
+    { id: 'migration', label: 'Migración', icon: Database, path: '/admin/migracion', category: 'admin' },
 ];
 
 const inventories = [
@@ -42,6 +47,10 @@ export function Sidebar({ isDark, toggleTheme }) {
     
     // Usar el contexto global del carrito para el inventario
     const { currentInventory, setCurrentInventory } = useCart();
+    
+    // Obtener usuario actual
+    const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'owner';
 
     // Obtener el label del inventario actual
     const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
@@ -279,6 +288,41 @@ export function Sidebar({ isDark, toggleTheme }) {
                         </NavLink>
                     ))}
                 </div>
+                
+                {/* Admin Section - Solo para admin/owner */}
+                {isAdmin && (
+                    <div className="mt-6">
+                        {!isCollapsed && (
+                            <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                                Administración
+                            </p>
+                        )}
+                        {adminMenuItems.map((item) => (
+                            <NavLink
+                                key={item.id}
+                                to={item.path}
+                                className={({ isActive }) => cn(
+                                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
+                                    isActive
+                                        ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/10 text-purple-400 border border-purple-500/30'
+                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                )}
+                            >
+                                {({ isActive }) => (
+                                    <>
+                                        <item.icon className={cn(
+                                            'w-5 h-5 transition-colors',
+                                            isActive && 'text-purple-400'
+                                        )} />
+                                        {!isCollapsed && (
+                                            <span className="font-medium text-sm">{item.label}</span>
+                                        )}
+                                    </>
+                                )}
+                            </NavLink>
+                        ))}
+                    </div>
+                )}
             </nav>
 
             {/* Bottom Section */}

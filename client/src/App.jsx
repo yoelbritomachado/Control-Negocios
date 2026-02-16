@@ -8,6 +8,7 @@ import InventoryPage from './pages/InventoryPage';
 import PurchaseSection from './components/PurchaseSection';
 import Login from './components/Login';
 import DashboardPage from './pages/DashboardPage';
+import MigrationTool from './components/MigrationTool';
 import api from './api';
 import './index.css';
 
@@ -162,6 +163,7 @@ function App() {
               <Route path="entradas" element={<InventoryPage />} />
               <Route path="compras" element={<PurchaseSection />} />
               <Route path="usuarios" element={<div className="p-10">Módulo de Usuarios (En Construcción)</div>} />
+              <Route path="admin/migracion" element={<MigrationTool />} />
             </Route>
           </Routes>
         ) : (
