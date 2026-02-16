@@ -330,8 +330,8 @@ const CloseSessionModal = ({ onClose, onSave, metrics }) => {
                         <LogOut className="w-6 h-6 text-violet-500" />
                     </div>
                     <div>
-                        <h3 className="text-xl font-bold text-white">Cerrar Turno</h3>
-                        <p className="text-sm text-muted-foreground">Finaliza tu sesión y calcula tu salario</p>
+                        <h3 className="text-xl font-bold text-white">Cerrar Sesión</h3>
+                        <p className="text-sm text-muted-foreground">Finaliza tu sesión de trabajo</p>
                     </div>
                 </div>
 
@@ -617,29 +617,6 @@ export default function POSLayout() {
     };
 
     const handleCloseSession = async (cash, notes) => {
-        // Verificar si hay ventas guardadas
-        if (savedSales.length > 0) {
-            const totalSaved = savedSales.reduce((sum, s) => sum + s.total, 0);
-            const action = confirm(
-                `Tienes ${savedSales.length} venta(s) guardada(s) por $${totalSaved.toFixed(2)}.\n\n` +
-                `¿Deseas COBRARLAS antes de cerrar? (Aceptar = Cobrar, Cancelar = Eliminar)`
-            );
-
-            if (action) {
-                // Cobrar todas las ventas guardadas
-                savedSales.forEach(sale => {
-                    setRecentSales(prev => [{
-                        id: sale.id,
-                        total: sale.total,
-                        time: sale.time,
-                        method: 'cash'
-                    }, ...prev]);
-                });
-            }
-            // Si cancela, simplemente se eliminan (no se suman al total)
-            setSavedSales([]);
-        }
-
         try {
             const res = await api.post('/sessions/close', { declared_cash: cash, notes });
             alert(`Sesion Cerrada. Salario Calculado: $${res.data.wage}`);
@@ -647,7 +624,54 @@ export default function POSLayout() {
         } catch (e) { alert("Error al cerrar sesion"); }
     };
 
+    const checkBeforeCloseSession = () => {
+        // Verificar si hay items en el carrito
+        if (cart.length > 0) {
+            const action = confirm(
+                `Tienes ${cart.length} producto(s) en el carrito por $${total.toFixed(2)}.\n\n` +
+                `¿Deseas COBRAR esta venta antes de cerrar?\n\n` +
+                `Aceptar = Cobrar venta\nCancelar = Borrar carrito y continuar`
+            );
+
+            if (action) {
+                // Volver al POS para cobrar
+                setShowClose(false);
+                return false;
+            } else {
+                // Borrar carrito
+                setCart([]);
+            }
+        }
+
+        // Verificar si hay ventas guardadas
+        if (savedSales.length > 0) {
+            const totalSaved = savedSales.reduce((sum, s) => sum + s.total, 0);
+            const action = confirm(
+                `Tienes ${savedSales.length} venta(s) guardada(s) por $${totalSaved.toFixed(2)}.\n\n` +
+                `¿Deseas COBRARLAS antes de cerrar?\n\n` +
+                `Aceptar = Volver a cobrar\nCancelar = Eliminar ventas guardadas`
+            );
+
+            if (action) {
+                // Volver al POS para cobrar las ventas guardadas
+                setShowClose(false);
+                return false;
+            } else {
+                // Eliminar ventas guardadas
+                setSavedSales([]);
+            }
+        }
+
+        // Si llegamos aquí, no hay nada pendiente
+        return true;
+    };
+
     const fetchMetrics = async () => {
+        // Verificar si hay items pendientes antes de mostrar el modal
+        if (!checkBeforeCloseSession()) {
+            return; // No mostrar el modal, el usuario quiere cobrar primero
+        }
+        
         const res = await api.get('/sessions/status');
         setSessionMetrics(res.data);
         setShowClose(true);
@@ -819,7 +843,7 @@ export default function POSLayout() {
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/20 transition-all"
                             >
                                 <LogOut className="w-3 h-3" />
-                                Cerrar Turno
+                                Cerrar Sesión
                             </button>
                         </div>
 
