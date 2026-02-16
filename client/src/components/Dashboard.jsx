@@ -26,7 +26,6 @@ const Widget = ({ title, value, subtext, icon: Icon, colorClass, trend }) => (
 );
 
 const Dashboard = ({ totals, currentInventory, settings }) => {
-  // Helpers
   const formatMoney = (amount) => amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
@@ -86,7 +85,7 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
         />
       </div>
 
-      {/* Main Chart Area (Mockup for Visuals) */}
+      {/* Main Chart Area */}
       <div className="bg-[#1A1D21] rounded-3xl p-6 border border-gray-800 mb-8 relative overflow-hidden">
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -108,7 +107,7 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
             const height = Math.floor(Math.random() * 80) + 20;
             const isToday = i === 28;
             return (
-              <div k={i} className="flex-1 flex flex-col items-center gap-2 group">
+              <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
                 <div
                   className={`w-full rounded-t-sm transition-all duration-500 ${isToday ? 'bg-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.5)]' : 'bg-gray-700 group-hover:bg-gray-600'}`}
                   style={{ height: `${height}%` }}
@@ -121,7 +120,6 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
 
       {/* Footer Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Total Estimado */}
         <div className="bg-[#1A1D21] p-5 rounded-2xl border border-gray-800 flex items-center justify-between">
           <div>
             <h3 className="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-1">Total Estimado General</h3>
@@ -134,7 +132,6 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
           </button>
         </div>
 
-        {/* Health Bar */}
         <div className="bg-[#1A1D21] p-5 rounded-2xl border border-gray-800 flex flex-col justify-center">
           <div className="flex justify-between items-center mb-2">
             <span className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Salud del Inventario</span>
