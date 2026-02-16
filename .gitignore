@@ -4,6 +4,7 @@ server/node_modules/
 dist/
 build/
 .env
+.env.local
 ngrok.exe
 *.zip
 .vscode/
@@ -11,3 +12,12 @@ _trash/
 backups/
 *.db
 *.db-journal
+backup.mnx
+.agent/
+.agents/
+_incoming_review/
+temp_extract/
+CLAW_PROJECT_MANIFEST.md
+MEMORIA_*.md
+RAILWAY_DEPLOY.md
+Procfile
