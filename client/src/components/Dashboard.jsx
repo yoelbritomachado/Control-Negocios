@@ -1,9 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { FaArrowUp, FaArrowDown, FaWallet, FaExchangeAlt, FaExclamationTriangle, FaPlus, FaChartPie } from 'react-icons/fa';
+import { FaArrowUp, FaArrowDown, FaWallet, FaExchangeAlt, FaExclamationTriangle, FaPlus } from 'react-icons/fa';
+import { PieChart } from 'lucide-react';
 import InventorySelector from './InventorySelector';
-
-// Dashboard Component v2 - Fixed imports
 
 const Widget = ({ title, value, subtext, icon: Icon, colorClass, trend }) => (
   <div className="bg-[#1A1D21] p-5 rounded-2xl border border-gray-800 relative overflow-hidden group hover:border-gray-700 transition-all">
@@ -92,7 +91,7 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
         <div className="flex justify-between items-center mb-6">
           <div>
             <div className="w-8 h-8 bg-pink-500/10 rounded-lg flex items-center justify-center mb-2">
-              <FaChartPie className="text-pink-500" />
+              <PieChart className="text-pink-500 w-5 h-5" />
             </div>
             <h2 className="font-bold text-lg">Evolución de Ventas</h2>
             <p className="text-[10px] text-gray-500 uppercase tracking-widest">VENTAS DIARIAS - SEPTIEMBRE</p>
