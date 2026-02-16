@@ -182,8 +182,7 @@ export default function LegacyHistoryPage() {
                             </thead>
                             <tbody className="divide-y divide-border/30">
                                 {filteredData.map((item, index) => (
-                                    <tr key={index} className="hover:bg-card/50 transition-colors"
-003e
+                                    <tr key={index} className="hover:bg-card/50 transition-colors">
                                         <td className="px-4 py-3 text-sm">
                                             {item.fecha ? new Date(item.fecha).toLocaleDateString() : 'N/A'}
                                         </td>
