@@ -10,6 +10,7 @@ import Login from './components/Login';
 import DashboardPage from './pages/DashboardPage';
 import MigrationTool from './components/MigrationTool';
 import LegacyHistoryPage from './pages/LegacyHistoryPage';
+import HistoryPage from './pages/HistoryPage';
 import api from './api';
 import './index.css';
 
@@ -168,6 +169,7 @@ function App() {
               {/* Historial Legacy deshabilitado temporalmente
               <Route path="admin/historial-legacy" element={<LegacyHistoryPage />} />
               */}
+              <Route path="historial" element={<HistoryPage />} />
             </Route>
           </Routes>
         ) : (

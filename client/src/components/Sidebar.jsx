@@ -27,6 +27,7 @@ const menuItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/entradas', category: 'management' },
     { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
+    { id: 'history', label: 'Historial', icon: History, path: '/historial', category: 'management' },
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
 ];
 

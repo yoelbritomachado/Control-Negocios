@@ -726,6 +726,52 @@ db.exec(`
   )
 `);
 
+// Historial Nativo - Tablas para compras y mermas
+console.log("Creating native history tables...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier TEXT,
+    total REAL DEFAULT 0,
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER,
+    notes TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS purchase_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    purchase_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER DEFAULT 0,
+    cost_price REAL DEFAULT 0,
+    FOREIGN KEY(purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS losses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER DEFAULT 0,
+    reason TEXT,
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER,
+    FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )
+`);
+
+// Eliminar tablas legacy si existen (ya no se usan)
+db.exec(`DROP TABLE IF EXISTS legacy_sales`);
+db.exec(`DROP TABLE IF EXISTS legacy_purchases`);
+db.exec(`DROP TABLE IF EXISTS legacy_losses`);
+
+console.log("Native history tables ready");
+
 // Helper to get system config safely
 const getSystemConfig = (key) => {
     try {
@@ -1042,6 +1088,52 @@ if (resetInventories.count === 0) {
     insertInv.run('mch2', 'MCH 2', 'MCH2', 'ph-shopping-bag', '#d29922', 'kiosk');
     console.log("Seeded MCH inventories: ALM, MCH1, MCH2");
 }
+
+// --- HISTORY ENDPOINTS ---
+app.get('/api/history/sales', authenticate, (req, res) => {
+    try {
+        const sales = db.prepare(`
+            SELECT s.id, s.total, s.date, s.user_id, COUNT(si.id) as items_count
+            FROM sales s
+            LEFT JOIN sale_items si ON s.id = si.sale_id
+            GROUP BY s.id
+            ORDER BY s.date DESC
+            LIMIT 1000
+        `).all();
+        res.json(sales);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/history/purchases', authenticate, (req, res) => {
+    try {
+        const purchases = db.prepare(`
+            SELECT p.id, p.supplier, p.total, p.date, p.notes
+            FROM purchases p
+            ORDER BY p.date DESC
+            LIMIT 1000
+        `).all();
+        res.json(purchases);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/history/losses', authenticate, (req, res) => {
+    try {
+        const losses = db.prepare(`
+            SELECT l.id, l.product_id, l.quantity, l.reason, l.date, p.name as product_name
+            FROM losses l
+            LEFT JOIN products p ON l.product_id = p.id
+            ORDER BY l.date DESC
+            LIMIT 1000
+        `).all();
+        res.json(losses);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Start Server
 app.listen(port, () => {
