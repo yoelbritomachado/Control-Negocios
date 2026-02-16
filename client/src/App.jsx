@@ -9,6 +9,7 @@ import PurchaseSection from './components/PurchaseSection';
 import Login from './components/Login';
 import DashboardPage from './pages/DashboardPage';
 import MigrationTool from './components/MigrationTool';
+import LegacyHistoryPage from './pages/LegacyHistoryPage';
 import api from './api';
 import './index.css';
 
@@ -164,6 +165,7 @@ function App() {
               <Route path="compras" element={<PurchaseSection />} />
               <Route path="usuarios" element={<div className="p-10">Módulo de Usuarios (En Construcción)</div>} />
               <Route path="admin/migracion" element={<MigrationTool />} />
+              <Route path="admin/historial-legacy" element={<LegacyHistoryPage />} />
             </Route>
           </Routes>
         ) : (

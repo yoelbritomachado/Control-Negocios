@@ -113,4 +113,10 @@ export const extractLocalMnx = async () => {
   return res.data;
 };
 
+// Legacy History
+export const fetchLegacyHistory = async (type) => {
+  const res = await api.get(`/admin/legacy-history/${type}`);
+  return res.data;
+};
+
 export default api;

@@ -1048,6 +1048,50 @@ app.listen(port, () => {
     console.log(`Server listening at http://localhost:${port}`);
 });
 
+// --- LEGACY HISTORY ENDPOINTS ---
+app.get('/api/admin/legacy-history/:type', (req, res) => {
+    // Authenticate manually
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+
+    const { type } = req.params;
+    
+    try {
+        let query;
+        let tableName;
+        
+        switch (type) {
+            case 'sales':
+                tableName = 'legacy_sales';
+                query = `SELECT * FROM ${tableName} ORDER BY fecha DESC LIMIT 1000`;
+                break;
+            case 'purchases':
+                tableName = 'legacy_purchases';
+                query = `SELECT * FROM ${tableName} ORDER BY fecha DESC LIMIT 1000`;
+                break;
+            case 'losses':
+                tableName = 'legacy_losses';
+                query = `SELECT * FROM ${tableName} ORDER BY fecha DESC LIMIT 1000`;
+                break;
+            default:
+                return res.status(400).json({ error: 'Tipo de historial inválido' });
+        }
+        
+        // Check if table exists
+        const tableCheck = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'`).get();
+        if (!tableCheck) {
+            return res.json([]);
+        }
+        
+        const data = db.prepare(query).all();
+        res.json(data);
+        
+    } catch (e) {
+        console.error('Legacy History Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- MIGRATION ENDPOINT (Legacy Data) ---
 app.post('/api/admin/migrate-legacy', (req, res) => {
     // Only admin can run migration

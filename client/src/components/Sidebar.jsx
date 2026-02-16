@@ -32,6 +32,7 @@ const menuItems = [
 
 const adminMenuItems = [
     { id: 'migration', label: 'Migración', icon: Database, path: '/admin/migracion', category: 'admin' },
+    { id: 'legacy-history', label: 'Historial Legacy', icon: History, path: '/admin/historial-legacy', category: 'admin' },
 ];
 
 const inventories = [
