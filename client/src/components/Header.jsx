@@ -2,7 +2,6 @@ import { motion } from 'framer-motion';
 import {
   Plus,
   Bell,
-  Search,
   User,
   ChevronDown
 } from 'lucide-react';
@@ -40,22 +39,6 @@ export function Header({ businessName, userName, userRole }) {
 
       {/* Right Side - Actions */}
       <div className="flex items-center gap-3">
-        {/* Search */}
-        <div className="relative hidden sm:block">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Buscar..."
-            className={cn(
-              'pl-10 pr-4 py-2.5 rounded-xl text-sm',
-              'bg-secondary/50 border border-border/50',
-              'focus:outline-none focus:ring-2 focus:ring-cyan-500/30',
-              'transition-all duration-300',
-              'w-48 focus:w-64'
-            )}
-          />
-        </div>
-
         {/* Notifications */}
         <motion.button
           whileHover={{ scale: 1.05 }}
