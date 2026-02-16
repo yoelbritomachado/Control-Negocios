@@ -152,11 +152,11 @@ app.get('/api/admin/check-mnx', (req, res) => {
 
 // Extract local MNX file
 app.post('/api/admin/extract-local-mnx', (req, res) => {
+// Extract local MNX file
+app.post('/api/admin/extract-local-mnx', (req, res) => {
     // Authenticate manually
     const user = authenticateAdmin(req, res);
     if (!user) return;
-
-    try {
         // Find the MNX file
         const possiblePaths = [
             path.join(__dirname, '..', 'backup.mnx'),
