@@ -37,20 +37,48 @@ const ModalOverlay = ({ children, onClose, className }) => (
 );
 
 const ExpenseModal = ({ onClose, onSave }) => {
-    const [type, setType] = useState('other');
+    const [type, setType] = useState('');
     const [amount, setAmount] = useState('');
     const [desc, setDesc] = useState('');
+    const [expenseTypes, setExpenseTypes] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        loadExpenseTypes();
+    }, []);
+
+    const loadExpenseTypes = async () => {
+        try {
+            const res = await api.get('/expense-types');
+            setExpenseTypes(res.data);
+            // Set first type as default if available
+            if (res.data.length > 0) {
+                setType(res.data[0].id.toString());
+                setAmount(res.data[0].amount.toString());
+            }
+        } catch (e) {
+            console.error('Error loading expense types:', e);
+        }
+        setLoading(false);
+    };
+
+    const handleTypeChange = (typeId) => {
+        setType(typeId);
+        const selectedType = expenseTypes.find(t => t.id.toString() === typeId);
+        if (selectedType) {
+            setAmount(selectedType.amount.toString());
+        }
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        await onSave({ type, amount: parseFloat(amount), description: desc });
+        const selectedType = expenseTypes.find(t => t.id.toString() === type);
+        await onSave({ 
+            type: selectedType?.name || 'Otro', 
+            amount: parseFloat(amount), 
+            description: desc 
+        });
     };
-
-    const expenseTypes = [
-        { value: 'other', label: 'Otros', icon: Receipt },
-        { value: 'area', label: 'Pago de Área', icon: Wallet },
-        { value: 'cleaning', label: 'Limpieza', icon: Sparkles },
-    ];
 
     return (
         <ModalOverlay onClose={onClose}>
@@ -68,24 +96,17 @@ const ExpenseModal = ({ onClose, onSave }) => {
                 <form onSubmit={handleSubmit} className="space-y-5">
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de Gasto</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {expenseTypes.map(({ value, label, icon: Icon }) => (
-                                <button
-                                    key={value}
-                                    type="button"
-                                    onClick={() => setType(value)}
-                                    className={cn(
-                                        "flex flex-col items-center gap-2 p-3 rounded-xl border transition-all",
-                                        type === value
-                                            ? "bg-amber-500/20 border-amber-500/50 text-amber-400"
-                                            : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
-                                    )}
-                                >
-                                    <Icon className="w-5 h-5" />
-                                    <span className="text-[10px] font-medium">{label}</span>
-                                </button>
+                        <select
+                            value={type}
+                            onChange={(e) => handleTypeChange(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+                        >
+                            {expenseTypes.map((expenseType) => (
+                                <option key={expenseType.id} value={expenseType.id} className="bg-gray-900">
+                                    {expenseType.name} (${expenseType.amount.toFixed(2)})
+                                </option>
                             ))}
-                        </div>
+                        </select>
                     </div>
 
                     <div className="space-y-2">

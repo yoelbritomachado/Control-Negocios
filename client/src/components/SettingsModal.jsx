@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FaSave, FaTimes, FaShieldAlt, FaTrash, FaUserShield, FaBan, FaSignOutAlt, FaToggleOn, FaToggleOff, FaCoins, FaUpload, FaExclamationTriangle } from 'react-icons/fa';
+import { FaSave, FaTimes, FaShieldAlt, FaTrash, FaUserShield, FaBan, FaSignOutAlt, FaToggleOn, FaToggleOff, FaCoins, FaUpload, FaExclamationTriangle, FaReceipt } from 'react-icons/fa';
+import ExpenseTypesConfig from './ExpenseTypesConfig';
 
 const SettingsModal = ({
   isOpen,
@@ -56,6 +57,14 @@ const SettingsModal = ({
                 Admin Panel
               </button>
             )}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('expenses')}
+                className={`text-sm font-bold px-4 py-2 rounded-lg transition-all duration-200 ${activeTab === 'expenses' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                Tipos de Gastos
+              </button>
+            )}
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
             <FaTimes size={20} />
@@ -64,7 +73,7 @@ const SettingsModal = ({
 
         {/* Content */}
         <div className="p-6 overflow-y-auto custom-scrollbar bg-white dark:bg-gray-800">
-          {activeTab === 'general' ? (
+          {activeTab === 'general' && (
             <div className="space-y-8">
               {/* Form Settings */}
               <form onSubmit={onSaveSettings} className="space-y-6">
@@ -173,8 +182,26 @@ const SettingsModal = ({
                 </div>
               )}
             </div>
-          ) : (
-            // ADMIN PANEL TAB
+          )}
+          
+          {activeTab === 'expenses' && isAdmin && (
+            <div className="space-y-6 animate-fade-in">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                  <FaReceipt size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 dark:text-white">Tipos de Gastos</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Define los gastos preestablecidos para el registro rápido
+                  </p>
+                </div>
+              </div>
+              <ExpenseTypesConfig />
+            </div>
+          )}
+          
+          {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6 animate-fade-in">
               <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex justify-between items-center group hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                 <div>
