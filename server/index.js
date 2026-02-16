@@ -8,8 +8,13 @@ const archiver = require('archiver');
 const nodemailer = require('nodemailer'); // Added
 
 const app = express();
-const port = 3001;
-const ADMIN_EMAIL = 'yoelbritomachado@gmail.com';
+const port = process.env.PORT || 3001;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'yoelbritomachado@gmail.com';
+
+// Database path - use Railway's persistent storage or local
+const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
+    ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'inventory.db')
+    : path.join(__dirname, 'inventory.db');
 
 // Ensure directories exist
 const uploadDir = path.join(__dirname, 'uploads');
@@ -18,6 +23,10 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
 // Middleware
+app.use(cors({
+    origin: process.env.FRONTEND_URL || '*',
+    credentials: true
+}));
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -520,7 +529,7 @@ const checkEditor = (req, res, next) => {
 };
 
 // Database setup
-const db = new Database(path.join(__dirname, 'inventory.db')); // Use absolute path
+const db = new Database(dbPath); // Use absolute path
 
 // Helper for error logging
 const logError = (context, error) => {
@@ -1177,6 +1186,11 @@ app.post('/api/admin/migrate-legacy', (req, res) => {
         logError("POST /api/admin/migrate-legacy", e);
         res.status(500).json({ error: e.message });
     }
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // Start Server
