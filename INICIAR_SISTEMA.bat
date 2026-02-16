@@ -28,9 +28,19 @@ echo 🔽 PASO 1: Descargando ultimos cambios de GitHub...
 echo ════════════════════════════════════════════════════════════
 echo.
 
-:: Resetear cambios locales y actualizar
+:: Resetear cambios locales y actualizar (preservando .env.local)
+cd client
+if exist ".env.local" (
+    copy ".env.local" ".env.local.backup" >nul
+)
+cd ..
 git checkout -- .
 git pull origin main
+cd client
+if exist ".env.local.backup" (
+    move ".env.local.backup" ".env.local" >nul
+)
+cd ..
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
