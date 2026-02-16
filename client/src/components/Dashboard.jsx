@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { FaArrowUp, FaArrowDown, FaWallet, FaExchangeAlt, FaExclamationTriangle, FaPlus } from 'react-icons/fa';
+import { FaArrowUp, FaArrowDown, FaWallet, FaExchangeAlt, FaExclamationTriangle, FaPlus, FaChartPie } from 'react-icons/fa';
 import InventorySelector from './InventorySelector';
 
 const Widget = ({ title, value, subtext, icon: Icon, colorClass, trend }) => (
