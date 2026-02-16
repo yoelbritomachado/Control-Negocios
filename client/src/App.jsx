@@ -165,7 +165,9 @@ function App() {
               <Route path="compras" element={<PurchaseSection />} />
               <Route path="usuarios" element={<div className="p-10">Módulo de Usuarios (En Construcción)</div>} />
               <Route path="admin/migracion" element={<MigrationTool />} />
+              {/* Historial Legacy deshabilitado temporalmente
               <Route path="admin/historial-legacy" element={<LegacyHistoryPage />} />
+              */}
             </Route>
           </Routes>
         ) : (
