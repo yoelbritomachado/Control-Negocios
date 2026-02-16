@@ -8,7 +8,7 @@ import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
-    Sparkles, TrendingUp, ArrowRight, Wallet
+    Sparkles, TrendingUp, ArrowRight, Wallet, Edit
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
@@ -506,6 +506,24 @@ export default function POSLayout() {
         }
     };
 
+    const handleEditSale = (sale) => {
+        if (confirm('¿Cargar esta venta en el carrito para editar?')) {
+            // Cargar items de la venta al carrito
+            sale.items.forEach(item => {
+                addToCart(item, item.quantity);
+            });
+            // Eliminar la venta original
+            setRecentSales(prev => prev.filter(s => s.id !== sale.id));
+        }
+    };
+
+    const handleDeleteSale = (saleId) => {
+        if (confirm('¿Eliminar esta venta? Esta accion no se puede deshacer.')) {
+            setRecentSales(prev => prev.filter(s => s.id !== saleId));
+            // TODO: Llamar al backend para eliminar la venta de la base de datos
+        }
+    };
+
     const handleCheckoutClick = () => { if (cart.length > 0) setShowPayment(true); };
 
     const processPayment = async (paymentData) => {
@@ -876,6 +894,20 @@ export default function POSLayout() {
                                                 </div>
                                             </div>
                                             <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
+                                        </div>
+                                        <div className="flex gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                                onClick={() => handleEditSale(sale)}
+                                                className="flex-1 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
+                                            >
+                                                <Edit className="w-3 h-3" /> Editar
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteSale(sale.id)}
+                                                className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/30 transition-all flex items-center justify-center gap-1"
+                                            >
+                                                <Trash2 className="w-3 h-3" /> Borrar
+                                            </button>
                                         </div>
                                     </motion.div>
                                 ))}
