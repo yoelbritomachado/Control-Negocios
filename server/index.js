@@ -513,7 +513,9 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
     }
 });
 
-// Helper for Permissions
+// --- EXPENSE TYPES MANAGEMENT ---
+
+// Helper for Permissions - MOVED HERE before use
 const checkAdmin = (req, res, next) => {
     if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
         return res.status(403).json({ error: 'Requiere permisos de administrador.' });
@@ -527,6 +529,54 @@ const checkEditor = (req, res, next) => {
     }
     next();
 };
+
+// Get all expense types
+app.get('/api/expense-types', authenticate, (req, res) => {
+    try {
+        const types = db.prepare('SELECT * FROM expense_types WHERE is_active = 1 ORDER BY name').all();
+        res.json(types);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new expense type (admin only)
+app.post('/api/expense-types', authenticate, checkAdmin, (req, res) => {
+    try {
+        const { name, amount } = req.body;
+        if (!name || amount === undefined) {
+            return res.status(400).json({ error: 'Nombre y monto son requeridos' });
+        }
+        const result = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)').run(name, amount);
+        res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Update expense type (admin only)
+app.put('/api/expense-types/:id', authenticate, checkAdmin, (req, res) => {
+    try {
+        const { name, amount, is_active } = req.body;
+        const { id } = req.params;
+        db.prepare('UPDATE expense_types SET name = ?, amount = ?, is_active = ? WHERE id = ?')
+            .run(name, amount, is_active, id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete expense type (admin only)
+app.delete('/api/expense-types/:id', authenticate, checkAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        db.prepare('UPDATE expense_types SET is_active = 0 WHERE id = ?').run(id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Database setup
 const db = new Database(dbPath); // Use absolute path
@@ -789,6 +839,34 @@ db.exec(`DROP TABLE IF EXISTS legacy_purchases`);
 db.exec(`DROP TABLE IF EXISTS legacy_losses`);
 
 console.log("Native history tables ready");
+
+// Expense Types table for predefined expenses
+console.log("Creating expense types table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS expense_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    amount REAL NOT NULL,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+// Insert default expense types if none exist
+const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_types').get();
+if (expenseTypesCount.count === 0) {
+  console.log("Inserting default expense types...");
+  const defaultTypes = [
+    { name: 'Área (Luz/Agua)', amount: 3000 },
+    { name: 'Limpieza', amount: 100 },
+    { name: 'Transporte', amount: 200 },
+    { name: 'Otros', amount: 0 }
+  ];
+  const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)');
+  for (const type of defaultTypes) {
+    insertExpenseType.run(type.name, type.amount);
+  }
+}
 
 // Helper to get system config safely
 const getSystemConfig = (key) => {
