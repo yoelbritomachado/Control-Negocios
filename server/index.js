@@ -12,7 +12,7 @@ const port = process.env.PORT || 3001;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'yoelbritomachado@gmail.com';
 
 // Database path - use Railway's persistent storage or local
-const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH 
+const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH
     ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'inventory.db')
     : path.join(__dirname, 'inventory.db');
 
@@ -39,12 +39,12 @@ app.use((req, res, next) => {
     if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
         return next();
     }
-    
+
     // If req.user is not set (no auth middleware applied yet), set default user
     if (!req.user) {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
-        
+
         if (!token) {
             // No token - use default user with full permissions
             req.user = {
@@ -297,6 +297,9 @@ app.use((req, res, next) => {
     // Only check /api routes
     if (!req.path.startsWith('/api')) return next();
 
+    // If a user is already set (e.g. by default user middleware), allow access
+    if (req.user) return next();
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -372,7 +375,7 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
 
         const newSaleId = transaction();
         console.log(`Sale #${newSaleId} completed in Session #${session.id}`);
-        
+
         // Fetch the complete sale with items for the response
         const saleItems = db.prepare(`
             SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
@@ -380,9 +383,9 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
             JOIN products p ON si.product_id = p.id
             WHERE si.sale_id = ?
         `).all(newSaleId);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             saleId: newSaleId,
             items: saleItems
         });
@@ -603,10 +606,10 @@ db.exec(`
 
 // Add code column if it doesn't exist (migration)
 try {
-  db.exec(`ALTER TABLE products ADD COLUMN code TEXT`);
-  console.log('Added code column to products table');
+    db.exec(`ALTER TABLE products ADD COLUMN code TEXT`);
+    console.log('Added code column to products table');
 } catch (e) {
-  // Column already exists, ignore error
+    // Column already exists, ignore error
 }
 
 // Inventories table (Modified for MCH Multi-site)
@@ -849,17 +852,17 @@ db.exec(`
 // Insert default expense types if none exist
 const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_types').get();
 if (expenseTypesCount.count === 0) {
-  console.log("Inserting default expense types...");
-  const defaultTypes = [
-    { name: 'Área (Luz/Agua)', amount: 3000 },
-    { name: 'Limpieza', amount: 100 },
-    { name: 'Transporte', amount: 200 },
-    { name: 'Otros', amount: 0 }
-  ];
-  const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)');
-  for (const type of defaultTypes) {
-    insertExpenseType.run(type.name, type.amount);
-  }
+    console.log("Inserting default expense types...");
+    const defaultTypes = [
+        { name: 'Área (Luz/Agua)', amount: 3000 },
+        { name: 'Limpieza', amount: 100 },
+        { name: 'Transporte', amount: 200 },
+        { name: 'Otros', amount: 0 }
+    ];
+    const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)');
+    for (const type of defaultTypes) {
+        insertExpenseType.run(type.name, type.amount);
+    }
 }
 
 // Helper to get system config safely
@@ -1304,38 +1307,38 @@ app.post('/api/admin/migrate-legacy', (req, res) => {
     if (req.user.role !== 'admin' && req.user.role !== 'owner') {
         return res.status(403).json({ error: 'Solo administradores pueden ejecutar migraciones' });
     }
-    
+
     try {
         const { exec } = require('child_process');
         const scriptPath = path.join(__dirname, 'scripts', 'migrate_legacy.js');
-        
+
         // Check if legacy database exists
         const legacyDbPath = path.join(__dirname, 'uploads', 'backup_legacy.db');
         if (!fs.existsSync(legacyDbPath)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'No se encontró la base de datos legacy',
                 message: 'Asegúrate de haber subido y descomprimido el archivo .mnx'
             });
         }
-        
+
         // Run migration script
         exec(`node "${scriptPath}"`, (error, stdout, stderr) => {
             if (error) {
                 console.error('Migration error:', error);
-                return res.status(500).json({ 
+                return res.status(500).json({
                     error: 'Error en la migración',
-                    details: stderr 
+                    details: stderr
                 });
             }
-            
+
             console.log('Migration output:', stdout);
-            res.json({ 
-                success: true, 
+            res.json({
+                success: true,
                 message: 'Migración completada',
-                output: stdout 
+                output: stdout
             });
         });
-        
+
     } catch (e) {
         logError("POST /api/admin/migrate-legacy", e);
         res.status(500).json({ error: e.message });
