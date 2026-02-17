@@ -368,14 +368,28 @@ export default function POSLayout() {
     };
 
     const handleEditSavedSale = (sale) => {
-        if (confirm('¿Cargar esta venta guardada en el carrito para editar?')) {
-            // Cargar items de la venta al carrito
-            sale.items.forEach(item => {
-                addToCart(item, item.quantity);
-            });
-            // Eliminar la venta guardada
-            setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+        // Si hay productos en el carrito, guardarlos primero como venta guardada
+        if (cart.length > 0) {
+            if (!confirm('Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?')) {
+                return;
+            }
+            // Guardar carrito actual como venta guardada
+            const savedSale = {
+                id: Date.now(),
+                items: [...cart],
+                total: total,
+                time: new Date().toLocaleTimeString(),
+                date: new Date().toISOString()
+            };
+            setSavedSales(prev => [savedSale, ...prev]);
         }
+        
+        // Cargar items de la venta al carrito
+        sale.items.forEach(item => {
+            addToCart(item, item.quantity);
+        });
+        // Eliminar la venta guardada
+        setSavedSales(prev => prev.filter(s => s.id !== sale.id));
     };
 
     const handleDeleteSavedSale = (saleId) => {
@@ -390,21 +404,36 @@ export default function POSLayout() {
             return;
         }
         
-        if (confirm('¿Cargar esta venta en el carrito para editar?')) {
-            // Cargar items de la venta al carrito
-            sale.items.forEach(item => {
-                addToCart({
-                    id: item.id,
-                    name: item.name,
-                    code: item.code,
-                    sale_price_manual: item.sale_price_manual || item.price,
-                    cost_mn: item.cost_mn || item.cost,
-                    quantity: item.quantity
-                }, item.quantity);
-            });
-            // Eliminar la venta original
-            setRecentSales(prev => prev.filter(s => s.id !== sale.id));
+        // Si hay productos en el carrito, guardarlos primero como venta guardada
+        if (cart.length > 0) {
+            if (!confirm('Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?')) {
+                return;
+            }
+            // Guardar carrito actual como venta guardada
+            const savedSale = {
+                id: Date.now(),
+                items: [...cart],
+                total: total,
+                time: new Date().toLocaleTimeString(),
+                date: new Date().toISOString()
+            };
+            setSavedSales(prev => [savedSale, ...prev]);
+            clearCart();
         }
+        
+        // Cargar items de la venta al carrito
+        sale.items.forEach(item => {
+            addToCart({
+                id: item.id,
+                name: item.name,
+                code: item.code,
+                sale_price_manual: item.sale_price_manual || item.price,
+                cost_mn: item.cost_mn || item.cost,
+                quantity: item.quantity
+            }, item.quantity);
+        });
+        // Eliminar la venta original
+        setRecentSales(prev => prev.filter(s => s.id !== sale.id));
     };
 
     const handleDeleteSale = (saleId) => {
