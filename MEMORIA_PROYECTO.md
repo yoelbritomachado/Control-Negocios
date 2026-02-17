@@ -367,3 +367,9 @@
 - **Feature**: Integración de captura de evidencia (Cámara/Archivo/Portapapeles).
 - **UI**: Botón "Devolución" agregado al panel de acciones rápidas del POS (`POSLayout.jsx`).
 - **Estado**: Funcionalidad desplegada y verificada.
+
+### 2026-02-17 - Barra de Búsqueda en Inventario (Agente Kimi)
+- **Nuevo**: Implementada barra de búsqueda en el módulo de Inventario (`InventoryPage.jsx`).
+- **Funcionalidad**: Permite buscar productos por nombre o código en tiempo real.
+- **UI**: Barra de búsqueda posicionada junto al botón "Nuevo Producto".
+- **Estado**: Funcionalidad desplegada y documentada.

@@ -3,14 +3,16 @@ import ProductTable from '../components/ProductTable';
 import ProductForm from '../components/ProductForm';
 import { useCart } from '../components/CartProvider';
 import { fetchProducts, fetchSettings, updateProduct } from '../api';
-import { Package, AlertCircle, Plus } from 'lucide-react';
+import { Package, AlertCircle, Plus, Search } from 'lucide-react';
 
 export default function InventoryPage() {
     const { currentInventory } = useCart();
     const [products, setProducts] = useState([]);
+    const [filteredProducts, setFilteredProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [settings, setSettings] = useState({});
     const [refresh, setRefresh] = useState(0);
+    const [searchQuery, setSearchQuery] = useState('');
     
     // Estado para el formulario de edición
     const [isFormOpen, setIsFormOpen] = useState(false);
@@ -20,12 +22,26 @@ export default function InventoryPage() {
         loadData();
     }, [currentInventory, refresh]);
 
+    // Filtrar productos cuando cambia la búsqueda
+    useEffect(() => {
+        if (searchQuery.trim() === '') {
+            setFilteredProducts(products);
+        } else {
+            const filtered = products.filter(p => 
+                p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (p.code && p.code.toLowerCase().includes(searchQuery.toLowerCase()))
+            );
+            setFilteredProducts(filtered);
+        }
+    }, [searchQuery, products]);
+
     const loadData = async () => {
         setLoading(true);
         try {
             const prods = await fetchProducts('', currentInventory);
             const sets = await fetchSettings();
             setProducts(Array.isArray(prods) ? prods : []);
+            setFilteredProducts(Array.isArray(prods) ? prods : []);
             setSettings(sets);
         } catch (e) {
             console.error("Error loading inventory page:", e);
@@ -81,14 +97,24 @@ export default function InventoryPage() {
 
     return (
         <div className="h-full overflow-y-auto p-6 space-y-6">
-            {/* Botón Nuevo Producto */}
-            <div className="flex justify-end">
+            {/* Barra de búsqueda y Botón Nuevo Producto */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between">
+                <div className="relative flex-1 max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Buscar producto por nombre o código..."
+                        className="w-full pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                    />
+                </div>
                 <button
                     onClick={() => {
                         setEditingProduct(null);
                         setIsFormOpen(true);
                     }}
-                    className="flex items-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium transition-colors"
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium transition-colors"
                 >
                     <Plus className="w-5 h-5" />
                     Nuevo Producto
@@ -122,11 +148,16 @@ export default function InventoryPage() {
             )}
 
             <div className="bg-card/30 rounded-2xl border border-border/50 overflow-hidden">
-                <div className="p-4 border-b border-border/50">
+                <div className="p-4 border-b border-border/50 flex items-center justify-between">
                     <h2 className="font-semibold">Gestion de Productos</h2>
+                    {searchQuery && (
+                        <span className="text-sm text-slate-400">
+                            {filteredProducts.length} resultado(s)
+                        </span>
+                    )}
                 </div>
                 <ProductTable
-                    products={products}
+                    products={filteredProducts}
                     currentInventory={currentInventory}
                     onProductUpdated={handleProductUpdated}
                     onEdit={handleEdit}
