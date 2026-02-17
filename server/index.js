@@ -32,6 +32,46 @@ app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Global middleware to set default user if no authentication
+// This allows the system to work without login
+app.use((req, res, next) => {
+    // Skip for login/register/auth endpoints
+    if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
+        return next();
+    }
+    
+    // If req.user is not set (no auth middleware applied yet), set default user
+    if (!req.user) {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        
+        if (!token) {
+            // No token - use default user
+            req.user = {
+                id: 1,
+                username: 'default',
+                role: 'admin',
+                email: 'default@system.local'
+            };
+        } else {
+            // Try to get user from token
+            const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
+            if (user) {
+                req.user = user;
+            } else {
+                // Invalid token - use default user
+                req.user = {
+                    id: 1,
+                    username: 'default',
+                    role: 'admin',
+                    email: 'default@system.local'
+                };
+            }
+        }
+    }
+    next();
+});
+
 // Multer Storage for MNX files
 const mnxStorage = multer.diskStorage({
     destination: (req, file, cb) => {
