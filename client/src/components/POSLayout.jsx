@@ -6,6 +6,7 @@ import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
 import SearchDropdown from './SearchDropdown';
 import ConfirmModal from './ConfirmModal';
+import ReturnsModule from './ReturnsModule';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
@@ -161,168 +162,6 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-amber-500/25 transition-all"
                         >
                             Registrar
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </ModalOverlay>
-    );
-};
-
-const ReturnModal = ({ onClose, onSave }) => {
-    const [type, setType] = useState('broken_business');
-    const [amount, setAmount] = useState('');
-    const [action, setAction] = useState('discard');
-    const [image, setImage] = useState(null);
-    const [loading, setLoading] = useState(false);
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        const formData = new FormData();
-        formData.append('type', type);
-        formData.append('amount', amount);
-        formData.append('action', action);
-        if (image) formData.append('evidence', image);
-        await onSave(formData);
-        setLoading(false);
-    };
-
-    const returnReasons = [
-        { value: 'broken_business', label: 'Rotura (Negocio)', desc: 'Producto dañado en el local' },
-        { value: 'broken_client', label: 'Rotura (Cliente)', desc: 'Producto dañado por el cliente' },
-        { value: 'taste', label: 'Gusto (Cliente)', desc: 'No le gustó al cliente' },
-    ];
-
-    return (
-        <ModalOverlay onClose={onClose}>
-            <div className="p-6 space-y-6">
-                <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-rose-500/20 flex items-center justify-center">
-                        <RotateCcw className="w-6 h-6 text-rose-500" />
-                    </div>
-                    <div>
-                        <h3 className="text-xl font-bold text-white">Registrar Devolución</h3>
-                        <p className="text-sm text-muted-foreground">Procesa una devolución de producto</p>
-                    </div>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-5">
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Motivo</label>
-                        <div className="space-y-2">
-                            {returnReasons.map(({ value, label, desc }) => (
-                                <button
-                                    key={value}
-                                    type="button"
-                                    onClick={() => setType(value)}
-                                    className={cn(
-                                        "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
-                                        type === value
-                                            ? "bg-rose-500/10 border-rose-500/50"
-                                            : "bg-white/5 border-white/10 hover:bg-white/10"
-                                    )}
-                                >
-                                    <div className={cn(
-                                        "w-4 h-4 rounded-full border-2 flex items-center justify-center",
-                                        type === value ? "border-rose-500" : "border-white/30"
-                                    )}>
-                                        {type === value && <div className="w-2 h-2 rounded-full bg-rose-500" />}
-                                    </div>
-                                    <div>
-                                        <div className={cn("font-medium", type === value ? "text-rose-400" : "text-white")}>{label}</div>
-                                        <div className="text-xs text-muted-foreground">{desc}</div>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monto a Devolver</label>
-                        <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
-                            <input
-                                type="number"
-                                placeholder="0.00"
-                                value={amount}
-                                onChange={e => setAmount(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white focus:border-rose-500/50 focus:ring-1 focus:ring-rose-500/50 outline-none transition-all font-mono text-lg"
-                                required
-                            />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Acción</label>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setAction('discard')}
-                                className={cn(
-                                    "flex items-center justify-center gap-2 p-3 rounded-xl border transition-all",
-                                    action === 'discard'
-                                        ? "bg-rose-500/20 border-rose-500/50 text-rose-400"
-                                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
-                                )}
-                            >
-                                <Trash2 className="w-4 h-4" />
-                                <span className="text-sm font-medium">Descartar</span>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setAction('restock')}
-                                className={cn(
-                                    "flex items-center justify-center gap-2 p-3 rounded-xl border transition-all",
-                                    action === 'restock'
-                                        ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
-                                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
-                                )}
-                            >
-                                <Package2 className="w-4 h-4" />
-                                <span className="text-sm font-medium">Re-stock</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Evidencia Fotográfica</label>
-                        <div className="border-2 border-dashed border-white/20 hover:border-rose-500/50 bg-white/5 hover:bg-rose-500/5 p-6 rounded-xl text-center cursor-pointer relative transition-all group">
-                            <input type="file" accept="image/*" onChange={e => setImage(e.target.files[0])} className="absolute inset-0 opacity-0 cursor-pointer" required />
-                            <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-rose-400 transition-colors">
-                                {image ? (
-                                    <>
-                                        <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-                                        <span className="text-sm font-medium text-white">{image.name}</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center">
-                                            <Camera className="w-6 h-6" />
-                                        </div>
-                                        <span className="text-sm font-medium">Subir foto del producto</span>
-                                        <span className="text-xs text-muted-foreground">Obligatorio para devoluciones</span>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="flex gap-3 pt-2">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 px-4 py-3 rounded-xl text-muted-foreground hover:text-white hover:bg-white/5 font-medium transition-all"
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="flex-1 px-4 py-3 bg-gradient-to-r from-rose-600 to-rose-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-rose-500/25 transition-all flex items-center justify-center gap-2"
-                        >
-                            {loading && <Loader2 className="animate-spin w-4 h-4" />}
-                            Procesar
                         </button>
                     </div>
                 </form>
@@ -1073,16 +912,32 @@ export default function POSLayout() {
                         />
                     )}
                     {showReturn && (
-                        <ReturnModal
+                        <ReturnsModule
                             onClose={() => setShowReturn(false)}
-                            onSave={async (formData) => {
-                                formData.append('inventoryId', currentInventory);
+                            onSave={async (returnData) => {
                                 try {
-                                    await api.post('/returns', formData);
+                                    // Crear FormData para enviar imágenes
+                                    const formData = new FormData();
+                                    formData.append('type', returnData.type);
+                                    formData.append('items', JSON.stringify(returnData.items));
+                                    formData.append('total_amount', returnData.total_amount);
+                                    formData.append('notes', returnData.notes);
+                                    formData.append('inventory_id', returnData.inventory_id);
+                                    
+                                    // Agregar imágenes
+                                    returnData.images.forEach((image, index) => {
+                                        formData.append(`evidence_${index}`, image);
+                                    });
+                                    
+                                    await api.post('/returns', formData, {
+                                        headers: { 'Content-Type': 'multipart/form-data' }
+                                    });
+                                    
                                     setShowReturn(false);
-                                    alert("Devolución registrada");
+                                    alert('Devolución registrada exitosamente');
                                 } catch (e) {
-                                    alert(e.response?.data?.error || "Error");
+                                    console.error('Error saving return:', e);
+                                    alert(e.response?.data?.error || 'Error al registrar la devolución');
                                 }
                             }}
                         />
