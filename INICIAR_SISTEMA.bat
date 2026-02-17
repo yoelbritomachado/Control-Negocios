@@ -22,42 +22,22 @@ echo 📂 Proyecto: %PROJECT_PATH%
 echo.
 
 :: ============================================
-:: PASO 1: Actualizar desde GitHub
+:: ADVERTENCIA IMPORTANTE
 echo ════════════════════════════════════════════════════════════
-echo 🔽 PASO 1: Descargando ultimos cambios de GitHub...
+echo ⚠️  MODO SEGURO: Iniciando SIN actualizar desde GitHub
 echo ════════════════════════════════════════════════════════════
 echo.
-
-:: Resetear cambios locales y actualizar (preservando .env.local)
-cd client
-if exist ".env.local" (
-    copy ".env.local" ".env.local.backup" >nul
-)
-cd ..
-git checkout -- .
-git pull origin main
-cd client
-if exist ".env.local.backup" (
-    move ".env.local.backup" ".env.local" >nul
-)
-cd ..
-
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ⚠️  Advertencia: No se pudieron descargar cambios.
-    echo    Verifica tu conexion a internet.
-    echo.
-    timeout /t 3 >nul
-) else (
-    echo.
-    echo ✅ Codigo actualizado correctamente!
-    echo.
-)
+echo    ℹ️  Este script NO descarga cambios de la nube.
+echo    ℹ️  Usa ACTUALIZAR_SISTEMA.bat para descargar cambios.
+echo    ℹ️  Usa SINCRONIZAR_MANUAL.bat para subir tus cambios.
+echo.
+timeout /t 3 >nul
 
 :: ============================================
-:: PASO 2: Verificar dependencias
+:: PASO 1: Verificar dependencias
+echo.
 echo ════════════════════════════════════════════════════════════
-echo 📦 PASO 2: Verificando dependencias...
+echo 📦 PASO 1: Verificando dependencias...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -92,9 +72,9 @@ if not exist "client\node_modules" (
 echo.
 
 :: ============================================
-:: PASO 3: Iniciar Backend
+:: PASO 2: Iniciar Backend
 echo ════════════════════════════════════════════════════════════
-echo 🚀 PASO 3: Iniciando Backend (Puerto 3001)...
+echo 🚀 PASO 2: Iniciando Backend (Puerto 3001)...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -106,9 +86,9 @@ echo    ✅ Backend iniciado
 echo.
 
 :: ============================================
-:: PASO 4: Iniciar Frontend
+:: PASO 3: Iniciar Frontend
 echo ════════════════════════════════════════════════════════════
-echo 🎨 PASO 4: Iniciando Frontend (Puerto 5173)...
+echo 🎨 PASO 3: Iniciando Frontend (Puerto 5173)...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -120,9 +100,9 @@ echo    ✅ Frontend iniciado
 echo.
 
 :: ============================================
-:: PASO 5: Abrir navegador
+:: PASO 4: Abrir navegador
 echo ════════════════════════════════════════════════════════════
-echo 🌐 PASO 5: Abriendo navegador...
+echo 🌐 PASO 4: Abriendo navegador...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -144,6 +124,13 @@ echo    - Backend (Puerto 3001)
 echo    - Frontend (Puerto 5173)
 echo.
 echo ⚠️  NO CIERRES esas ventanas mientras uses el sistema!
+echo.
+echo ════════════════════════════════════════════════════════════
+echo 📋 COMANDOS GIT UTILES:
+echo ════════════════════════════════════════════════════════════
+echo.
+echo    ACTUALIZAR_SISTEMA.bat  → Descargar cambios de GitHub
+echo    SINCRONIZAR_MANUAL.bat  → Subir tus cambios a GitHub
 echo.
 echo Presiona cualquier tecla para cerrar esta ventana...
 pause >nul

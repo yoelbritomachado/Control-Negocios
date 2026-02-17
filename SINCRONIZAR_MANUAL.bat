@@ -1,5 +1,5 @@
 @echo off
-TITLE Sincronizacion Manual - Control Negocios
+TITLE Subir Cambios a GitHub - Control Negocios
 chcp 65001 >nul
 color 0A
 cls
@@ -7,9 +7,9 @@ cls
 echo.
 echo   ╔══════════════════════════════════════════════════════════╗
 echo   ║                                                          ║
-echo   ║   🔄 SINCRONIZACION MANUAL CON GITHUB                    ║
+echo   ║   ⬆️  SUBIR CAMBIOS A GITHUB                             ║
 echo   ║                                                          ║
-echo   ║   Usar cuando haya conflictos con inventory.db          ║
+echo   ║   Sube tus cambios locales al repositorio remoto         ║
 echo   ║                                                          ║
 echo   ╚══════════════════════════════════════════════════════════╝
 echo.
@@ -19,103 +19,123 @@ cd /d "%~dp0"
 echo 📂 Ubicacion: %CD%
 echo.
 
+:: ============================================
+:: PASO 1: Verificar estado
 echo ════════════════════════════════════════════════════════════
-echo PASO 1: Guardando base de datos local (backup)...
+echo PASO 1: Verificando estado del repositorio...
 echo ════════════════════════════════════════════════════════════
 echo.
 
-if exist "server\inventory.db" (
-    copy "server\inventory.db" "server\inventory.db.backup.%date:~-4,4%%date:~-10,2%%date:~-7,2%.%time:~0,2%%time:~3,2%%time:~6,2%.bak" >nul 2>&1
-    echo ✅ Backup creado: server\inventory.db.backup.*
-) else (
-    echo ⚠️  No se encontro inventory.db
+git status --short
+
+echo.
+set /p CONFIRMAR="¿Deseas subir estos cambios? (S/N): "
+if /I not "%CONFIRMAR%"=="S" (
+    echo.
+    echo ❌ Operacion cancelada por el usuario.
+    pause
+    exit /b 0
 )
 
 echo.
+
+:: ============================================
+:: PASO 2: Agregar cambios
 echo ════════════════════════════════════════════════════════════
-echo PASO 2: Descargando cambios de GitHub (git fetch)...
+echo PASO 2: Agregando cambios...
 echo ════════════════════════════════════════════════════════════
 echo.
 
-git fetch origin
+git add .
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo ❌ Error al conectar con GitHub
-    echo    Verifica tu conexion a internet
+    echo ❌ Error al agregar archivos
+    pause
+    exit /b 1
+)
+echo ✅ Archivos agregados al stage
+echo.
+
+:: ============================================
+:: PASO 3: Pedir mensaje de commit
+echo ════════════════════════════════════════════════════════════
+echo PASO 3: Mensaje del commit
+echo ════════════════════════════════════════════════════════════
+echo.
+echo 💡 Tipos de commit comunes:
+echo    feat:  Nueva funcionalidad
+echo    fix:   Correccion de bug
+echo    docs:  Documentacion
+echo    style: Cambios de estilo/CSS
+echo    chore: Tareas de mantenimiento
+echo.
+set /p MENSAJE="Escribe el mensaje del commit: "
+
+if "%MENSAJE%"=="" (
+    set MENSAJE=update: cambios locales
+    echo.
+    echo ℹ️  Usando mensaje por defecto: "%MENSAJE%"
+)
+
+echo.
+
+:: ============================================
+:: PASO 4: Crear commit
+echo ════════════════════════════════════════════════════════════
+echo PASO 4: Creando commit...
+echo ════════════════════════════════════════════════════════════
+echo.
+
+git commit -m "%MENSAJE%"
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ⚠️  No se pudo crear el commit (puede que no haya cambios)
+    pause
+    exit /b 1
+)
+echo ✅ Commit creado correctamente
+echo.
+
+:: ============================================
+:: PASO 5: Subir a GitHub
+echo ════════════════════════════════════════════════════════════
+echo PASO 5: Subiendo a GitHub (git push)...
+echo ════════════════════════════════════════════════════════════
+echo.
+
+git push origin main
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ❌ Error al subir cambios.
+    echo.
+    echo Posibles causas:
+    echo    1. No tienes conexion a internet
+    echo    2. Hay cambios en GitHub que no tienes localmente
+    echo    3. Problema de autenticacion
+    echo.
+    echo Solucion:
+    echo    Ejecuta ACTUALIZAR_SISTEMA.bat primero para descargar
+    echo    los cambios de la nube, luego vuelve a subir.
     pause
     exit /b 1
 )
 
-echo ✅ Cambios descargados
+echo.
+echo ✅ Cambios subidos correctamente a GitHub!
 echo.
 
-echo ════════════════════════════════════════════════════════════
-echo PASO 3: Reseteando archivos de codigo (sin tocar DB)...
-echo ════════════════════════════════════════════════════════════
-echo.
-
-:: Guardar DB temporalmente
-if exist "server\inventory.db" (
-    move "server\inventory.db" "server\inventory.db.temp" >nul 2>&1
-)
-
-:: Resetear todo excepto la DB
-git checkout -- .
-
-:: Restaurar DB
-echo.
-echo ════════════════════════════════════════════════════════════
-echo PASO 4: Aplicando cambios de GitHub...
-echo ════════════════════════════════════════════════════════════
-echo.
-
-if exist "server\inventory.db.temp" (
-    move "server\inventory.db.temp" "server\inventory.db" >nul 2>&1
-)
-
-git pull origin main --strategy-option=theirs
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo ⚠️  Hubo conflictos. Resolviendo automaticamente...
-    git reset --hard origin/main
-    if exist "server\inventory.db.temp" (
-        move "server\inventory.db.temp" "server\inventory.db" >nul 2>&1
-    )
-)
-
-echo.
-echo ════════════════════════════════════════════════════════════
-echo PASO 5: Verificando estructura...
-echo ════════════════════════════════════════════════════════════
-echo.
-
-if exist "server\inventory.db" (
-    echo ✅ Base de datos: OK
-) else (
-    echo ⚠️  Base de datos no encontrada
-)
-
-if exist "client\src\App.jsx" (
-    echo ✅ Codigo cliente: OK
-) else (
-    echo ❌ Codigo cliente: ERROR
-)
-
-if exist "server\index.js" (
-    echo ✅ Codigo servidor: OK
-) else (
-    echo ❌ Codigo servidor: ERROR
-)
-
-echo.
+:: ============================================
+:: VERIFICACION FINAL
 echo ════════════════════════════════════════════════════════════
 echo ✅ SINCRONIZACION COMPLETADA
--echo ════════════════════════════════════════════════════════════
+echo ════════════════════════════════════════════════════════════
 echo.
-echo 📝 Notas:
-echo    - Tu base de datos local se ha preservado
-echo    - El codigo esta actualizado con GitHub
-echo    - Ejecuta INICIAR_SISTEMA.bat para reiniciar
+echo 📝 Resumen:
+echo    - Cambios agregados al stage
+echo    - Commit creado con mensaje: "%MENSAJE%"
+echo    - Subido a la rama main de GitHub
+echo.
+echo ℹ️  Railway detectara los cambios y hara deploy automatico.
 echo.
 echo Presiona cualquier tecla para cerrar...
 pause >nul
