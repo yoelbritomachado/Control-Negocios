@@ -837,6 +837,58 @@ db.exec(`DROP TABLE IF EXISTS legacy_losses`);
 
 console.log("Native history tables ready");
 
+// Sales table
+console.log("Creating sales table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    total REAL NOT NULL,
+    items_count INTEGER DEFAULT 0,
+    payment_method TEXT DEFAULT 'cash',
+    date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER,
+    inventory_id TEXT DEFAULT 'mch1',
+    session_id INTEGER,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(session_id) REFERENCES sales_sessions(id)
+  )
+`);
+
+// Sale Items table
+console.log("Creating sale_items table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sale_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sale_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL DEFAULT 0,
+    cost REAL DEFAULT 0,
+    FOREIGN KEY(sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  )
+`);
+
+// Sales Sessions table (for POS session management)
+console.log("Creating sales_sessions table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sales_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    end_time DATETIME,
+    initial_cash REAL DEFAULT 0,
+    declared_cash REAL,
+    total_sales REAL DEFAULT 0,
+    total_cost REAL DEFAULT 0,
+    total_profit REAL DEFAULT 0,
+    wage_amount REAL DEFAULT 0,
+    status TEXT DEFAULT 'open',
+    notes TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )
+`);
+
 // Expense Types table for predefined expenses
 console.log("Creating expense types table...");
 db.exec(`
