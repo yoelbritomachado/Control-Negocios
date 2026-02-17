@@ -23,7 +23,10 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   response => response,
   error => {
-    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+    // No redirigir si es el endpoint de sesión (para permitir SessionGuard funcionar)
+    const isSessionEndpoint = error.config?.url?.includes('/sessions/');
+    
+    if (error.response && (error.response.status === 401 || error.response.status === 403) && !isSessionEndpoint) {
       // Si es un error de autenticación, cerrar sesión limpiamente
       console.warn('Sesión expirada o inválida. Cerrando sesión...');
       localStorage.removeItem('session_token');

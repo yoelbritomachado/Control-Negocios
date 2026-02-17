@@ -21,7 +21,10 @@ export default function SessionGuard({ children }) {
             const res = await api.get('/sessions/status');
             setStatus(res.data.isOpen);
         } catch (e) {
-            console.error("Session check failed", e);
+            // Si hay error (401, 403, etc.), asumir que no hay sesión abierta
+            // pero NO redirigir - solo mostrar pantalla de iniciar turno
+            console.warn("Session check failed (expected without auth):", e.response?.status);
+            setStatus(false);
         } finally {
             setLoading(false);
         }
