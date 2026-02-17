@@ -4,7 +4,8 @@ import InventorySelector from './InventorySelector';
 import api, { fetchProducts } from '../api';
 import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
-import SearchDropdown from './SearchDropdown';
+import SearchBar from './SearchBar';
+import SearchDropdown from './SearchDropdown'; // Mantenido para compatibilidad
 import ConfirmModal from './ConfirmModal';
 import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
@@ -286,19 +287,8 @@ export default function POSLayout() {
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
 
-    // Search with debounce
-    useEffect(() => {
-        const timeoutId = setTimeout(() => {
-            if (search.trim().length >= 2) {
-                performSearch(search.trim());
-            } else {
-                setSearchResults([]);
-                setShowSearchDropdown(false);
-            }
-        }, 300);
-
-        return () => clearTimeout(timeoutId);
-    }, [search]);
+    // Nota: La búsqueda ahora la maneja el componente SearchBar internamente
+    // con debounce y búsqueda desde la primera letra
 
     const performSearch = async (query) => {
         setLoadingProduct(true);
@@ -678,32 +668,67 @@ export default function POSLayout() {
                     {/* LEFT COLUMN: Cart (60%) */}
                     <div className="w-[60%] flex flex-col h-full border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
 
-                        {/* Search Bar Premium */}
+                        {/* Search Bar Premium - Componente Modular */}
                         <div className="h-16 flex-none px-4 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
                             <div className="relative flex-1">
-                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                                <input
+                                <SearchBar
                                     ref={inputRef}
-                                    type="text"
                                     value={search}
-                                    onChange={e => setSearch(e.target.value)}
-                                    onKeyDown={handleSearchKeyDown}
-                                    placeholder="Escanear código o buscar producto..."
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-12 py-2.5 text-foreground placeholder:text-muted-foreground/60 text-base font-medium focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30 transition-all"
-                                    autoFocus
-                                />
-                                {loadingProduct && (
-                                    <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-cyan-500 w-5 h-5" />
-                                )}
-
-                                {/* Search Results Dropdown usando Portal */}
-                                <SearchDropdown
-                                    isOpen={showSearchDropdown && searchResults.length > 0}
-                                    onClose={() => setShowSearchDropdown(false)}
-                                    searchResults={searchResults}
-                                    currentInventory={currentInventory}
-                                    onSelectProduct={handleSelectProduct}
-                                    inputRef={inputRef}
+                                    onChange={setSearch}
+                                    onSearch={(query, isNumber) => {
+                                        if (query.length >= 1) {
+                                            performSearch(query);
+                                        } else {
+                                            setSearchResults([]);
+                                        }
+                                    }}
+                                    onSelect={handleSelectProduct}
+                                    results={searchResults}
+                                    loading={loadingProduct}
+                                    placeholder="Escanear código, nombre o precio..."
+                                    variant="large"
+                                    showDropdown={true}
+                                    autoFocus={true}
+                                    renderResult={(product, index) => {
+                                        const stock = product.inventory?.[currentInventory] || 0;
+                                        return (
+                                            <motion.button
+                                                key={product.id}
+                                                initial={{ opacity: 0, x: -10 }}
+                                                animate={{ opacity: 1, x: 0 }}
+                                                transition={{ delay: index * 0.03 }}
+                                                onClick={() => handleSelectProduct(product)}
+                                                className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/80 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/40 transition-all text-left group"
+                                            >
+                                                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/30 shrink-0">
+                                                    <Package2 className="w-5 h-5 text-cyan-400" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-semibold text-foreground truncate group-hover:text-cyan-300 transition-colors">
+                                                        {product.name}
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                                                        <span className="font-mono bg-slate-900 px-1.5 py-0.5 rounded text-slate-400">
+                                                            {product.code || 'SIN CÓDIGO'}
+                                                        </span>
+                                                        <span className="w-1 h-1 rounded-full bg-slate-600"></span>
+                                                        <span className={stock < 5 ? "text-rose-400 font-medium" : "text-emerald-400 font-medium"}>
+                                                            Stock: {stock}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <div className="font-bold text-emerald-400 font-mono text-lg">
+                                                        ${product.sale_price_manual}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500">${product.cost_mx} costo</div>
+                                                </div>
+                                                <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/40 shrink-0">
+                                                    <Plus className="w-5 h-5 text-cyan-400" />
+                                                </div>
+                                            </motion.button>
+                                        );
+                                    }}
                                 />
                             </div>
                         </div>

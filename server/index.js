@@ -1184,8 +1184,19 @@ app.get('/api/products', authenticate, (req, res) => {
         const params = [];
 
         if (search) {
-            query += " WHERE lower(name) LIKE ?";
-            params.push(`%${search.trim().toLowerCase()}%`);
+            const cleanSearch = search.trim();
+            // Si la búsqueda son solo números, buscar por precio
+            const isNumberSearch = /^\d+$/.test(cleanSearch);
+            
+            if (isNumberSearch) {
+                // Buscar productos con precio que contenga esos números
+                query += " WHERE CAST(sale_price_manual AS TEXT) LIKE ? OR CAST(cost_mx AS TEXT) LIKE ?";
+                params.push(`%${cleanSearch}%`, `%${cleanSearch}%`);
+            } else {
+                // Búsqueda normal por nombre o código
+                query += " WHERE lower(name) LIKE ? OR lower(code) LIKE ?";
+                params.push(`%${cleanSearch.toLowerCase()}%`, `%${cleanSearch.toLowerCase()}%`);
+            }
         }
 
         query += " ORDER BY name ASC";
