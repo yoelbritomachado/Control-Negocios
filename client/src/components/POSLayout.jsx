@@ -6,6 +6,7 @@ import SessionGuard from './SessionGuard';
 import PaymentModal from './PaymentModal';
 import SearchDropdown from './SearchDropdown';
 import ConfirmModal from './ConfirmModal';
+import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
@@ -275,6 +276,10 @@ export default function POSLayout() {
     const [showSavedConfirm, setShowSavedConfirm] = useState(false);
     const [pendingAction, setPendingAction] = useState(null);
 
+    // Alert Modals
+    const [alertModal, setAlertModal] = useState({ isOpen: false, title: '', message: '', type: 'info' });
+    const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'warning' });
+
     // State
     const [recentSales, setRecentSales] = useState([]);
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
@@ -329,10 +334,20 @@ export default function POSLayout() {
                         setSearchResults([]);
                     }
                     else {
-                        alert("Producto agotado en esta sede");
+                        setAlertModal({
+                            isOpen: true,
+                            title: 'Producto agotado',
+                            message: 'Producto agotado en esta sede',
+                            type: 'warning'
+                        });
                     }
                 } else {
-                    alert("Producto no encontrado");
+                    setAlertModal({
+                        isOpen: true,
+                        title: 'Producto no encontrado',
+                        message: 'No se encontró el producto buscado',
+                        type: 'warning'
+                    });
                 }
             } catch (err) {
                 console.error(err);
@@ -364,24 +379,42 @@ export default function POSLayout() {
 
         setSavedSales(prev => [savedSale, ...prev]);
         clearCart();
-        alert('Venta guardada. No se suma al total de la sesion hasta que se cobre.');
+        setAlertModal({
+            isOpen: true,
+            title: 'Venta guardada',
+            message: 'Venta guardada. No se suma al total de la sesion hasta que se cobre.',
+            type: 'info'
+        });
     };
 
     const handleEditSavedSale = (sale) => {
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
-            if (!confirm('Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?')) {
-                return;
-            }
-            // Guardar carrito actual como venta guardada
-            const savedSale = {
-                id: Date.now(),
-                items: [...cart],
-                total: total,
-                time: new Date().toLocaleTimeString(),
-                date: new Date().toISOString()
-            };
-            setSavedSales(prev => [savedSale, ...prev]);
+            setConfirmModal({
+                isOpen: true,
+                title: 'Carrito con productos',
+                message: 'Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?',
+                type: 'warning',
+                onConfirm: () => {
+                    // Guardar carrito actual como venta guardada
+                    const savedSale = {
+                        id: Date.now(),
+                        items: [...cart],
+                        total: total,
+                        time: new Date().toLocaleTimeString(),
+                        date: new Date().toISOString()
+                    };
+                    setSavedSales(prev => [savedSale, ...prev]);
+                    
+                    // Cargar items de la venta al carrito
+                    sale.items.forEach(item => {
+                        addToCart(item, item.quantity);
+                    });
+                    // Eliminar la venta guardada
+                    setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+                }
+            });
+            return;
         }
         
         // Cargar items de la venta al carrito
@@ -393,32 +426,63 @@ export default function POSLayout() {
     };
 
     const handleDeleteSavedSale = (saleId) => {
-        if (confirm('¿Eliminar esta venta guardada?')) {
-            setSavedSales(prev => prev.filter(s => s.id !== saleId));
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar venta guardada',
+            message: '¿Eliminar esta venta guardada?',
+            type: 'danger',
+            onConfirm: () => {
+                setSavedSales(prev => prev.filter(s => s.id !== saleId));
+            }
+        });
     };
 
     const handleEditSale = (sale) => {
         if (!sale.items || sale.items.length === 0) {
-            alert('Esta venta no puede ser editada porque no tiene items guardados.');
+            setAlertModal({
+                isOpen: true,
+                title: 'Venta no editable',
+                message: 'Esta venta no puede ser editada porque no tiene items guardados.',
+                type: 'warning'
+            });
             return;
         }
         
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
-            if (!confirm('Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?')) {
-                return;
-            }
-            // Guardar carrito actual como venta guardada
-            const savedSale = {
-                id: Date.now(),
-                items: [...cart],
-                total: total,
-                time: new Date().toLocaleTimeString(),
-                date: new Date().toISOString()
-            };
-            setSavedSales(prev => [savedSale, ...prev]);
-            clearCart();
+            setConfirmModal({
+                isOpen: true,
+                title: 'Carrito con productos',
+                message: 'Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?',
+                type: 'warning',
+                onConfirm: () => {
+                    // Guardar carrito actual como venta guardada
+                    const savedSale = {
+                        id: Date.now(),
+                        items: [...cart],
+                        total: total,
+                        time: new Date().toLocaleTimeString(),
+                        date: new Date().toISOString()
+                    };
+                    setSavedSales(prev => [savedSale, ...prev]);
+                    clearCart();
+                    
+                    // Cargar items de la venta al carrito
+                    sale.items.forEach(item => {
+                        addToCart({
+                            id: item.id,
+                            name: item.name,
+                            code: item.code,
+                            sale_price_manual: item.sale_price_manual || item.price,
+                            cost_mn: item.cost_mn || item.cost,
+                            quantity: item.quantity
+                        }, item.quantity);
+                    });
+                    // Eliminar la venta original
+                    setRecentSales(prev => prev.filter(s => s.id !== sale.id));
+                }
+            });
+            return;
         }
         
         // Cargar items de la venta al carrito
@@ -437,10 +501,16 @@ export default function POSLayout() {
     };
 
     const handleDeleteSale = (saleId) => {
-        if (confirm('¿Eliminar esta venta? Esta accion no se puede deshacer.')) {
-            setRecentSales(prev => prev.filter(s => s.id !== saleId));
-            // TODO: Llamar al backend para eliminar la venta de la base de datos
-        }
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar venta',
+            message: '¿Eliminar esta venta? Esta accion no se puede deshacer.',
+            type: 'danger',
+            onConfirm: () => {
+                setRecentSales(prev => prev.filter(s => s.id !== saleId));
+                // TODO: Llamar al backend para eliminar la venta de la base de datos
+            }
+        });
     };
 
     const handleCheckoutClick = () => { if (cart.length > 0) setShowPayment(true); };
@@ -496,7 +566,12 @@ export default function POSLayout() {
             }
         } catch (e) {
             console.error('Error al cobrar:', e);
-            alert(e.response?.data?.error || "Error al cobrar");
+            setAlertModal({
+                isOpen: true,
+                title: 'Error al cobrar',
+                message: e.response?.data?.error || "Error al cobrar",
+                type: 'danger'
+            });
         }
         finally {
             setCheckoutProcessing(false);
@@ -506,9 +581,21 @@ export default function POSLayout() {
     const handleCloseSession = async (cash, notes) => {
         try {
             const res = await api.post('/sessions/close', { declared_cash: cash, notes });
-            alert(`Sesion Cerrada. Salario Calculado: $${res.data.wage}`);
-            window.location.reload();
-        } catch (e) { alert("Error al cerrar sesion"); }
+            setAlertModal({
+                isOpen: true,
+                title: 'Sesión cerrada',
+                message: `Sesion Cerrada. Salario Calculado: $${res.data.wage}`,
+                type: 'success',
+                onClose: () => window.location.reload()
+            });
+        } catch (e) { 
+            setAlertModal({
+                isOpen: true,
+                title: 'Error',
+                message: "Error al cerrar sesion",
+                type: 'danger'
+            });
+        }
     };
 
     const checkBeforeCloseSession = () => {
@@ -948,7 +1035,12 @@ export default function POSLayout() {
                                     setExpenses(prev => [newExpense, ...prev]);
                                     setShowExpense(false);
                                 } catch (e) {
-                                    alert("Error");
+                                    setAlertModal({
+                                        isOpen: true,
+                                        title: 'Error',
+                                        message: "Error al registrar el gasto",
+                                        type: 'danger'
+                                    });
                                 }
                             }}
                         />
@@ -976,10 +1068,20 @@ export default function POSLayout() {
                                     });
                                     
                                     setShowReturn(false);
-                                    alert('Devolución registrada exitosamente');
+                                    setAlertModal({
+                                        isOpen: true,
+                                        title: 'Devolución registrada',
+                                        message: 'Devolución registrada exitosamente',
+                                        type: 'success'
+                                    });
                                 } catch (e) {
                                     console.error('Error saving return:', e);
-                                    alert(e.response?.data?.error || 'Error al registrar la devolución');
+                                    setAlertModal({
+                                        isOpen: true,
+                                        title: 'Error',
+                                        message: e.response?.data?.error || 'Error al registrar la devolución',
+                                        type: 'danger'
+                                    });
                                 }
                             }}
                         />
@@ -1039,6 +1141,35 @@ export default function POSLayout() {
                             icon={Save}
                         />
                     )}
+
+                    {/* Dynamic Alert Modal */}
+                    <AlertModal
+                        isOpen={alertModal.isOpen}
+                        onClose={() => {
+                            if (alertModal.onClose) {
+                                alertModal.onClose();
+                            }
+                            setAlertModal({ ...alertModal, isOpen: false });
+                        }}
+                        title={alertModal.title}
+                        message={alertModal.message}
+                        type={alertModal.type}
+                    />
+
+                    {/* Dynamic Confirm Modal */}
+                    <ConfirmModal
+                        isOpen={confirmModal.isOpen}
+                        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+                        onConfirm={() => {
+                            if (confirmModal.onConfirm) {
+                                confirmModal.onConfirm();
+                            }
+                            setConfirmModal({ ...confirmModal, isOpen: false });
+                        }}
+                        title={confirmModal.title}
+                        message={confirmModal.message}
+                        type={confirmModal.type}
+                    />
                 </AnimatePresence>
             </div>
         </SessionGuard>
