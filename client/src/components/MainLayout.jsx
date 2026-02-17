@@ -66,7 +66,10 @@ function AnimatedBackground() {
 // Welcome Animation
 function WelcomeAnimation({ onComplete }) {
     useEffect(() => {
-        const timer = setTimeout(onComplete, 2500);
+        const timer = setTimeout(() => {
+            sessionStorage.setItem('welcomeShown', 'true');
+            onComplete();
+        }, 2500);
         return () => clearTimeout(timer);
     }, [onComplete]);
 
@@ -129,7 +132,10 @@ function WelcomeAnimation({ onComplete }) {
 
 export default function MainLayout() {
     const [isDark, setIsDark] = useState(true);
-    const [showWelcome, setShowWelcome] = useState(true);
+    const [showWelcome, setShowWelcome] = useState(() => {
+        // Solo mostrar welcome animation una vez por sesión
+        return !sessionStorage.getItem('welcomeShown');
+    });
 
     // Get user info from localStorage if available
     const [userInfo, setUserInfo] = useState({
