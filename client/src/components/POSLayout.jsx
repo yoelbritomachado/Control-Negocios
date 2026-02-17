@@ -13,7 +13,8 @@ import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
-    Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle
+    Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
+    CreditCard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
