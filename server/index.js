@@ -46,12 +46,13 @@ app.use((req, res, next) => {
         const token = authHeader && authHeader.split(' ')[1];
         
         if (!token) {
-            // No token - use default user
+            // No token - use default user with full permissions
             req.user = {
                 id: 1,
                 username: 'default',
                 role: 'admin',
-                email: 'default@system.local'
+                email: 'default@system.local',
+                can_edit: 1
             };
         } else {
             // Try to get user from token
@@ -59,12 +60,13 @@ app.use((req, res, next) => {
             if (user) {
                 req.user = user;
             } else {
-                // Invalid token - use default user
+                // Invalid token - use default user with full permissions
                 req.user = {
                     id: 1,
                     username: 'default',
                     role: 'admin',
-                    email: 'default@system.local'
+                    email: 'default@system.local',
+                    can_edit: 1
                 };
             }
         }

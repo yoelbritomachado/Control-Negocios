@@ -3,9 +3,10 @@ import { FaEdit, FaTrash, FaTag } from 'react-icons/fa';
 import { Package2 } from 'lucide-react';
 import ProductThumbnail from './ProductThumbnail';
 
-const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, isDarkMode, currentUser }) => {
+const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, isDarkMode }) => {
   const primaryCurrency = settings?.PRIMARY_CURRENCY || 'MXN';
-  const canEdit = currentUser?.role === 'admin' || currentUser?.can_edit === 1;
+  // Siempre permitir editar (sin autenticación)
+  const canEdit = true;
 
   // Helper for label color (Using inline styles for reliability)
   const getRowStyle = (color) => {
