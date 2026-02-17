@@ -485,17 +485,16 @@ export default function POSLayout() {
             return;
         }
         
-        // Cargar items de la venta al carrito
-        sale.items.forEach(item => {
-            addToCart({
-                id: item.id,
-                name: item.name,
-                code: item.code,
-                sale_price_manual: item.sale_price_manual || item.price,
-                cost_mn: item.cost_mn || item.cost,
-                quantity: item.quantity
-            }, item.quantity);
-        });
+        // Cargar items de la venta al carrito (reemplazo completo)
+        const newCartItems = sale.items.map(item => ({
+            id: item.id,
+            name: item.name,
+            code: item.code,
+            sale_price_manual: item.sale_price_manual || item.price,
+            cost_mn: item.cost_mn || item.cost,
+            quantity: item.quantity
+        }));
+        setCart(newCartItems);
         // Eliminar la venta original
         setRecentSales(prev => prev.filter(s => s.id !== sale.id));
     };
@@ -518,6 +517,12 @@ export default function POSLayout() {
     const processPayment = async (paymentData) => {
         setCheckoutProcessing(true);
         try {
+            // Validar que todos los items tengan ID válido
+            const invalidItems = cart.filter(item => !item.id);
+            if (invalidItems.length > 0) {
+                throw new Error(`Hay ${invalidItems.length} producto(s) sin ID válido. Por favor elimínelos y vuelva a agregarlos.`);
+            }
+
             // Determinar el método de pago principal
             let paymentMethod = 'cash';
             if (paymentData.method === 'mixed') {
@@ -708,9 +713,9 @@ export default function POSLayout() {
                             {cart.length > 0 ? (
                                 <div className="space-y-2">
                                     <AnimatePresence mode="popLayout">
-                                        {cart.map((item) => (
+                                        {cart.map((item, index) => (
                                             <motion.div
-                                                key={item.id}
+                                                key={item.id || `item-${index}`}
                                                 layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
