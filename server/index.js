@@ -1352,19 +1352,28 @@ app.get('/api/health', (req, res) => {
 
 // Serve static files from client/dist (for Railway deployment)
 const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+console.log('Checking for client build at:', clientDistPath);
+console.log('Exists:', fs.existsSync(clientDistPath));
+
 if (fs.existsSync(clientDistPath)) {
     console.log('Serving static files from:', clientDistPath);
     app.use(express.static(clientDistPath));
     
     // Serve index.html for all non-API routes (SPA support)
-    app.get('*', (req, res) => {
-        if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
-            res.sendFile(path.join(clientDistPath, 'index.html'));
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
+            return next();
+        }
+        const indexPath = path.join(clientDistPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+            res.sendFile(indexPath);
+        } else {
+            next();
         }
     });
 } else {
-    console.log('Client dist not found at:', clientDistPath);
-    console.log('Running in API-only mode');
+    console.log('Client dist not found. Running in API-only mode.');
+    console.log('To enable full app, run: cd client && npm run build');
 }
 
 // Start Server
