@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { FaEdit, FaTrash, FaTag } from 'react-icons/fa';
 import { Package2, Loader2 } from 'lucide-react';
 
 // ProductThumbnail Component
@@ -40,11 +39,11 @@ const ProductThumbnail = ({ product, onClick }) => {
     setIsLoading(false);
   };
 
-  // Si no hay imágenes válidas o hubo error
+  // Si no hay imágenes válidas o hubo error, mostrar icono genérico
   if (validImages.length === 0 || hasError) {
     return (
-      <div className="w-12 h-12 bg-slate-800 rounded-lg flex items-center justify-center border border-slate-700">
-        <Package2 className="w-5 h-5 text-slate-500" />
+      <div className="w-12 h-12 bg-gradient-to-br from-slate-800 to-slate-700 rounded-lg flex items-center justify-center border border-slate-600">
+        <Package2 className="w-6 h-6 text-slate-400" />
       </div>
     );
   }
@@ -55,9 +54,9 @@ const ProductThumbnail = ({ product, onClick }) => {
     <div
       onClick={(e) => {
         e.stopPropagation();
-        if (!hasError) onClick(validImages, index);
+        if (!hasError && onClick) onClick(validImages, index);
       }}
-      className="w-12 h-12 cursor-pointer relative overflow-hidden rounded-lg bg-slate-800 border border-slate-700"
+      className="w-12 h-12 cursor-pointer relative overflow-hidden rounded-lg bg-slate-800 border border-slate-600 hover:border-cyan-500/50 transition-colors"
     >
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-800">

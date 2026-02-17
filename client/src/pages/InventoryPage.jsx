@@ -98,15 +98,15 @@ export default function InventoryPage() {
     return (
         <div className="h-full overflow-y-auto p-6 space-y-6">
             {/* Barra de búsqueda y Botón Nuevo Producto */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-between">
-                <div className="relative flex-1 max-w-md">
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+                <div className="relative flex-1 max-w-md w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Buscar producto por nombre o código..."
-                        className="w-full pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
                     />
                 </div>
                 <button
@@ -114,7 +114,7 @@ export default function InventoryPage() {
                         setEditingProduct(null);
                         setIsFormOpen(true);
                     }}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium transition-colors"
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl font-medium transition-colors whitespace-nowrap"
                 >
                     <Plus className="w-5 h-5" />
                     Nuevo Producto
