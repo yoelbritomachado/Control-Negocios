@@ -173,9 +173,20 @@ function App() {
             </Route>
           </Routes>
         ) : (
-          <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 p-4">
-            <div className="w-full max-w-md bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
-              <h1 className="text-2xl font-bold text-center mb-6 text-gray-800 dark:text-gray-400">MCH Control</h1>
+          <div className="min-h-screen w-full flex items-center justify-center bg-[#09090b] relative overflow-hidden">
+            {/* Background Elements */}
+            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/20 via-[#09090b] to-[#09090b]" />
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[100px]" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-cyan-500/10 rounded-full blur-[100px]" />
+
+            <div className="w-full max-w-md relative z-10 glass-card border border-white/5 p-8 shadow-2xl backdrop-blur-xl">
+              <div className="text-center mb-8">
+                <h1 className="text-3xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 mb-2">
+                  MCH Control
+                </h1>
+                <p className="text-slate-400 text-sm font-medium tracking-wide uppercase">Premium Business System</p>
+              </div>
+
               <Login
                 onLogin={handleLogin}
                 onSendCode={handleSendCode}
@@ -202,6 +213,10 @@ function App() {
                 loginPassword={loginPassword}
                 setLoginPassword={setLoginPassword}
               />
+            </div>
+
+            <div className="absolute bottom-4 text-center w-full text-slate-600 text-xs font-mono z-10">
+              v2.5.0 • Miss Chulerías System
             </div>
           </div>
         )}

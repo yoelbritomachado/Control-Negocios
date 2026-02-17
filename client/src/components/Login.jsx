@@ -144,35 +144,35 @@ const Login = ({
 
   // LOGIN FLOW
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in space-y-6">
       {isLoginByCode ? (
         /* Code Login Form */
         <div className="space-y-6">
-          <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30 flex items-start gap-3">
-            <FaShieldAlt className="text-blue-500 mt-1 shrink-0" />
-            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium leading-relaxed">
+          <div className="bg-blue-500/10 p-4 rounded-xl border border-blue-500/20 flex items-start gap-3">
+            <FaShieldAlt className="text-blue-400 mt-1 shrink-0" />
+            <p className="text-xs text-blue-200 font-medium leading-relaxed">
               {codeSent
-                ? `Hemos enviado un código de acceso temporal a ${loginUsername}`
-                : "Te enviaremos un código de acceso seguro a tu correo registrado."}
+                ? `Hemos enviado un código a ${loginUsername}`
+                : "Te enviaremos un código de acceso seguro."}
             </p>
           </div>
 
           {!codeSent ? (
             <div className="space-y-4">
               <div className="relative group">
-                <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-400 transition-colors z-10" />
+                <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-400 transition-colors z-10" />
                 <input
                   type="text"
-                  placeholder="Tu Usuario o Correo"
+                  placeholder="Usuario o Correo"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
-                  className="glass-input pl-12 text-center font-bold text-gray-700 dark:text-white placeholder-gray-400"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all font-medium text-center"
                 />
               </div>
               <button
                 onClick={onSendCode}
                 disabled={loginLoading || !loginUsername}
-                className="btn-liquid-3d w-full text-xs uppercase tracking-widest"
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition-all uppercase text-xs tracking-wider border border-white/10"
               >
                 {loginLoading ? 'Enviando...' : 'Enviar Código'}
               </button>
@@ -180,20 +180,20 @@ const Login = ({
           ) : (
             <div className="space-y-4">
               <div className="relative group">
-                <FaKey className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors z-10" />
+                <FaKey className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-400 transition-colors z-10" />
                 <input
                   type="text"
-                  placeholder="Código de acceso"
+                  placeholder="000000"
                   value={emailCode}
                   onChange={(e) => setEmailCode(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-2xl text-center font-black tracking-[0.5em] text-indigo-600 dark:text-white placeholder-gray-400"
+                  className="w-full pl-12 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all text-2xl text-center font-mono tracking-[0.5em]"
                   maxLength={6}
                 />
               </div>
               <button
                 onClick={onLogin}
                 disabled={loginLoading || emailCode.length < 6}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition-all uppercase text-xs tracking-wider"
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold rounded-xl shadow-lg transition-all uppercase text-xs tracking-wider"
               >
                 {loginLoading ? 'Verificando...' : 'Entrar'}
               </button>
@@ -202,7 +202,7 @@ const Login = ({
 
           <button
             onClick={() => { setIsLoginByCode(false); setCodeSent(false); }}
-            className="w-full py-2 text-gray-500 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400 font-bold text-xs uppercase transition-colors"
+            className="w-full py-2 text-slate-400 hover:text-white font-bold text-xs uppercase transition-colors"
           >
             Usar PIN / Contraseña
           </button>
@@ -211,31 +211,31 @@ const Login = ({
         /* Standard PIN Login Form */
         <form onSubmit={onLogin} className="space-y-6">
           {loginError && (
-            <div className="p-3 bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-900/30 rounded-lg text-xs font-bold text-center animate-shake">
+            <div className="p-3 bg-red-500/10 text-red-200 border border-red-500/20 rounded-lg text-xs font-bold text-center animate-shake">
               {loginError}
             </div>
           )}
 
           <div className="space-y-4">
             <div className="relative group">
-              <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors z-10" />
+              <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-400 transition-colors z-10" />
               <input
                 type="text"
                 placeholder="Usuario o Correo"
                 value={loginUsername}
                 onChange={(e) => setLoginUsername(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center font-bold text-gray-900 dark:text-white placeholder-gray-400"
+                className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all font-medium text-center"
               />
             </div>
 
             <div className="relative group">
-              <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors z-10" />
+              <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-400 transition-colors z-10" />
               <input
                 type="password"
                 placeholder="PIN / Contraseña"
                 value={loginPassword}
                 onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center font-bold tracking-widest text-gray-900 dark:text-white placeholder-gray-400"
+                className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50 transition-all text-center font-bold tracking-widest"
               />
             </div>
           </div>
@@ -243,7 +243,7 @@ const Login = ({
           <button
             type="submit"
             disabled={loginLoading}
-            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-md transition-all uppercase text-xs tracking-wider flex justify-center items-center"
+            className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-900/20 transition-all uppercase text-xs tracking-wider flex justify-center items-center border border-white/10"
           >
             {loginLoading ? (
               <span className="animate-pulse">Iniciando...</span>
@@ -252,18 +252,18 @@ const Login = ({
             )}
           </button>
 
-          <div className="flex justify-between items-center px-2">
+          <div className="flex justify-between items-center px-2 pt-2 border-t border-white/5">
             <button
               type="button"
               onClick={() => setIsLoginByCode(true)}
-              className="text-[10px] font-bold text-gray-500 hover:text-indigo-600 dark:text-gray-400 dark:hover:text-indigo-400 uppercase transition-colors"
+              className="text-[10px] font-bold text-slate-500 hover:text-cyan-400 uppercase transition-colors"
             >
               Olvidé mi PIN
             </button>
             <button
               type="button"
               onClick={() => setIsRegistering(true)}
-              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 uppercase transition-colors"
+              className="text-[10px] font-bold text-indigo-400 hover:text-white uppercase transition-colors"
             >
               Crear Cuenta
             </button>
