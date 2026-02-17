@@ -883,6 +883,11 @@ const authenticate = (req, res, next) => {
         return next();
     }
 
+    // Si req.user ya existe (establecido por middleware global), usarlo
+    if (req.user && req.user.id) {
+        return next();
+    }
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -892,7 +897,8 @@ const authenticate = (req, res, next) => {
             id: 1,
             username: 'default',
             role: 'admin',
-            email: 'default@system.local'
+            email: 'default@system.local',
+            can_edit: 1
         };
         return next();
     }
@@ -904,7 +910,8 @@ const authenticate = (req, res, next) => {
             id: 1,
             username: 'default',
             role: 'admin',
-            email: 'default@system.local'
+            email: 'default@system.local',
+            can_edit: 1
         };
         return next();
     }
