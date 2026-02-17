@@ -131,7 +131,7 @@ function WelcomeAnimation({ onComplete }) {
 }
 
 export default function MainLayout() {
-    const [isDark, setIsDark] = useState(false);
+    const [isDark, setIsDark] = useState(true);
     const [showWelcome, setShowWelcome] = useState(() => {
         // Solo mostrar welcome animation una vez por sesión
         return !sessionStorage.getItem('welcomeShown');
@@ -166,14 +166,10 @@ export default function MainLayout() {
         document.documentElement.classList.toggle('dark');
     };
 
-    // Initialize theme
+    // Initialize dark mode
     useEffect(() => {
-        if (isDark) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    }, [isDark]);
+        document.documentElement.classList.add('dark');
+    }, []);
 
     return (
         <div className={cn(
