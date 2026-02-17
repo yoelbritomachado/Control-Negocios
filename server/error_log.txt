@@ -1,0 +1,11 @@
+[2026-02-17T09:13:46.684Z] Open Session: SqliteError: no such table: sales_sessions
+    at Database.prepare (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\better-sqlite3\lib\methods\wrappers.js:5:21)
+    at D:\J work\Documentos\Miss Chulerías\business_control_system\server\index.js:405:29
+    at Layer.handleRequest (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\lib\layer.js:152:17)
+    at next (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\lib\route.js:157:13)
+    at Route.dispatch (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\lib\route.js:117:3)
+    at handle (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\index.js:435:11)
+    at Layer.handleRequest (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\lib\layer.js:152:17)
+    at D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\index.js:295:15
+    at processParams (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\index.js:582:12)
+    at next (D:\J work\Documentos\Miss Chulerías\business_control_system\server\node_modules\router\index.js:291:5)

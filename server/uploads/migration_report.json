@@ -1,0 +1,15 @@
+{
+  "fecha": "2026-02-16T08:18:14.057Z",
+  "productos": {
+    "total": 676,
+    "migrados": 0,
+    "saltados": 676,
+    "errores": 0
+  },
+  "transacciones": {
+    "ventas": 0,
+    "compras": 0,
+    "mermas": 0,
+    "errores": 1001
+  }
+}
