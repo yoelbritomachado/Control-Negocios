@@ -19,6 +19,27 @@ api.interceptors.request.use(config => {
   return config;
 });
 
+// Interceptor para Errores de Auth (401/403)
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      // Si es un error de autenticación, cerrar sesión limpiamente
+      console.warn('Sesión expirada o inválida. Cerrando sesión...');
+      localStorage.removeItem('session_token');
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('user_id');
+
+      // Redirigir al inicio (que mostrará el Login)
+      if (window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // --- AUTH ---
 export const login = async (username, pin) => {
   const res = await api.post('/login', { username, pin });
