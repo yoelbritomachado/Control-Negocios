@@ -497,10 +497,17 @@ export default function POSLayout() {
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
                     
-                    // Cargar items de la venta al carrito
-                    sale.items.forEach(item => {
-                        addToCart(item, item.quantity);
-                    });
+                    // Cargar items de la venta al carrito (reemplazar, no sumar)
+                    const newCartItems = sale.items.map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        code: item.code,
+                        sale_price_manual: item.sale_price_manual || item.price,
+                        cost_mn: item.cost_mn || item.cost,
+                        quantity: item.quantity
+                    }));
+                    setCart(newCartItems);
+                    
                     // Eliminar la venta guardada
                     setSavedSales(prev => prev.filter(s => s.id !== sale.id));
                 }
@@ -508,10 +515,17 @@ export default function POSLayout() {
             return;
         }
         
-        // Cargar items de la venta al carrito
-        sale.items.forEach(item => {
-            addToCart(item, item.quantity);
-        });
+        // Cargar items de la venta al carrito (reemplazar, no sumar)
+        const newCartItems = sale.items.map(item => ({
+            id: item.id,
+            name: item.name,
+            code: item.code,
+            sale_price_manual: item.sale_price_manual || item.price,
+            cost_mn: item.cost_mn || item.cost,
+            quantity: item.quantity
+        }));
+        setCart(newCartItems);
+        
         // Eliminar la venta guardada
         setSavedSales(prev => prev.filter(s => s.id !== sale.id));
     };
