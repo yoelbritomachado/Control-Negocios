@@ -640,7 +640,20 @@ export default function POSLayout() {
                                                         >
                                                             <Minus className="w-3.5 h-3.5" />
                                                         </button>
-                                                        <span className="w-8 text-center font-bold tabular-nums">{item.quantity}</span>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={item.quantity}
+                                                            onChange={(e) => {
+                                                                const val = parseInt(e.target.value);
+                                                                if (val > 0) updateQuantity(item.id, val);
+                                                            }}
+                                                            onBlur={(e) => {
+                                                                const val = parseInt(e.target.value);
+                                                                if (!val || val < 1) updateQuantity(item.id, 1);
+                                                            }}
+                                                            className="w-10 text-center font-bold tabular-nums bg-transparent border-none outline-none text-foreground"
+                                                        />
                                                         <button
                                                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
                                                             className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
