@@ -257,7 +257,7 @@ const CloseSessionModal = ({ onClose, onSave, metrics }) => {
 // --- MAIN LAYOUT ---
 
 export default function POSLayout() {
-    const { cart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory } = useCart();
+    const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory } = useCart();
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
@@ -465,19 +465,19 @@ export default function POSLayout() {
                         date: new Date().toISOString()
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
-                    clearCart();
                     
-                    // Cargar items de la venta al carrito
-                    sale.items.forEach(item => {
-                        addToCart({
-                            id: item.id,
-                            name: item.name,
-                            code: item.code,
-                            sale_price_manual: item.sale_price_manual || item.price,
-                            cost_mn: item.cost_mn || item.cost,
-                            quantity: item.quantity
-                        }, item.quantity);
-                    });
+                    // Reemplazar completamente el carrito con los items de la venta
+                    // Usar setCart directamente para evitar problemas de sincronización
+                    const newCartItems = sale.items.map(item => ({
+                        id: item.id,
+                        name: item.name,
+                        code: item.code,
+                        sale_price_manual: item.sale_price_manual || item.price,
+                        cost_mn: item.cost_mn || item.cost,
+                        quantity: item.quantity
+                    }));
+                    setCart(newCartItems);
+                    
                     // Eliminar la venta original
                     setRecentSales(prev => prev.filter(s => s.id !== sale.id));
                 }
