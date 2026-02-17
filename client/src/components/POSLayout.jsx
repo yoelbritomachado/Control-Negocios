@@ -387,6 +387,9 @@ export default function POSLayout() {
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
+    
+    // Mobile view state
+    const [mobileView, setMobileView] = useState('cart'); // 'cart' | 'tickets'
 
     // Nota: La búsqueda ahora la maneja el componente SearchBar internamente
     // con debounce y búsqueda desde la primera letra
@@ -793,17 +796,17 @@ export default function POSLayout() {
 
     return (
         <SessionGuard>
-            <div className="h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
+            <div className="h-[calc(100vh-6rem)] sm:h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
 
                 {/* --- CONTENT AREA --- */}
-                <div className="flex h-full">
+                <div className="flex flex-col lg:flex-row h-full">
 
-                    {/* LEFT COLUMN: Cart (60%) */}
-                    <div className="w-[60%] flex flex-col h-full border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
+                    {/* LEFT COLUMN: Cart - Full width on mobile, 60% on desktop */}
+                    <div className="w-full lg:w-[60%] flex flex-col h-full border-b lg:border-b-0 lg:border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
 
                         {/* Search Bar Premium - Componente Modular */}
-                        <div className="h-16 flex-none px-4 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
-                            <div className="relative flex-1">
+                        <div className="h-14 sm:h-16 flex-none px-3 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
+                            <div className="relative flex-1 min-w-0">
                                 <SearchBar
                                     ref={inputRef}
                                     value={search}
@@ -818,7 +821,7 @@ export default function POSLayout() {
                                     onSelect={handleSelectProduct}
                                     results={searchResults}
                                     loading={loadingProduct}
-                                    placeholder="Escanear código, nombre o precio..."
+                                    placeholder="Buscar producto..."
                                     variant="large"
                                     showDropdown={true}
                                     autoFocus={true}
@@ -866,8 +869,11 @@ export default function POSLayout() {
                             </div>
                         </div>
 
-                        {/* Cart List Premium */}
-                        <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+                        {/* Cart List Premium - Hidden on mobile when viewing tickets */}
+                        <div className={cn(
+                            "flex-1 overflow-y-auto p-3 scrollbar-thin",
+                            mobileView !== 'cart' && "hidden lg:block"
+                        )}>
                             {cart.length > 0 ? (
                                 <div className="space-y-2">
                                     <AnimatePresence mode="popLayout">
@@ -954,13 +960,41 @@ export default function POSLayout() {
                             )}
                         </div>
 
+                        {/* Mobile View Tabs - Only visible on mobile */}
+                        <div className="lg:hidden h-12 flex-none bg-card/50 border-t border-border/50 flex">
+                            <button
+                                onClick={() => setMobileView('cart')}
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    mobileView === 'cart' 
+                                        ? "bg-cyan-500/10 text-cyan-400 border-b-2 border-cyan-500" 
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <ShoppingCart className="w-4 h-4" />
+                                Carrito {cart.length > 0 && <span className="bg-cyan-500 text-white text-xs px-1.5 py-0.5 rounded-full">{cart.length}</span>}
+                            </button>
+                            <button
+                                onClick={() => setMobileView('tickets')}
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    mobileView === 'tickets' 
+                                        ? "bg-violet-500/10 text-violet-400 border-b-2 border-violet-500" 
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <History className="w-4 h-4" />
+                                Tickets {recentSales.length > 0 && <span className="bg-violet-500 text-white text-xs px-1.5 py-0.5 rounded-full">{recentSales.length}</span>}
+                            </button>
+                        </div>
+
                         {/* Footer Premium */}
-                        <div className="h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-4 flex items-center justify-between">
+                        <div className="h-16 sm:h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-3 sm:px-4 flex items-center justify-between">
                             <div>
-                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total a Pagar</div>
+                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total</div>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-xl text-emerald-500 font-medium">$</span>
-                                    <span className="text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
+                                    <span className="text-lg sm:text-xl text-emerald-500 font-medium">$</span>
+                                    <span className="text-2xl sm:text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
                                 </div>
                             </div>
 
@@ -968,31 +1002,34 @@ export default function POSLayout() {
                                 <button
                                     onClick={handleSaveSale}
                                     disabled={cart.length === 0}
-                                    className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="h-10 sm:h-12 px-3 sm:px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-1 sm:gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Save className="w-4 h-4" />
-                                    <span className="text-sm font-semibold">Guardar</span>
+                                    <span className="text-xs sm:text-sm font-semibold hidden sm:inline">Guardar</span>
                                 </button>
 
                                 <button
                                     onClick={handleCheckoutClick}
                                     disabled={cart.length === 0 || checkoutProcessing}
-                                    className="h-12 px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    className="h-10 sm:h-12 px-4 sm:px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2"
                                 >
                                     {checkoutProcessing ? (
                                         <Loader2 className="animate-spin w-4 h-4" />
                                     ) : (
                                         <Banknote className="w-4 h-4" />
                                     )}
-                                    <span className="text-base">Cobrar</span>
-                                    <ArrowRight className="w-4 h-4" />
+                                    <span className="text-sm sm:text-base">Cobrar</span>
+                                    <ArrowRight className="w-4 h-4 hidden sm:block" />
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Sidebar (40%) */}
-                    <div className="w-[40%] flex flex-col h-full bg-card/30">
+                    {/* RIGHT COLUMN: Sidebar - Full width on mobile when viewing tickets, 40% on desktop */}
+                    <div className={cn(
+                        "flex-col h-full bg-card/30",
+                        mobileView === 'tickets' ? "flex lg:hidden w-full" : "hidden lg:flex lg:w-[40%]"
+                    )}>
 
                         {/* Session Info */}
                         <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">

@@ -3,7 +3,8 @@ import { FaEdit, FaTrash, FaTag } from 'react-icons/fa';
 import { Package2 } from 'lucide-react';
 import ProductThumbnail from './ProductThumbnail';
 
-const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, isDarkMode }) => {
+const ProductTable = ({ products, currentInventory, onProductUpdated, onEdit, settings }) => {
+  const isDarkMode = document.documentElement.classList.contains('dark');
   const primaryCurrency = settings?.PRIMARY_CURRENCY || 'MXN';
   // Siempre permitir editar (sin autenticación)
   const canEdit = true;
@@ -39,6 +40,21 @@ const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, is
     }
   };
 
+  // Helper to get stock for current inventory
+  const getStock = (product) => {
+    return product.inventory?.[currentInventory] || 0;
+  };
+
+  const handleDelete = async (productId) => {
+    if (!confirm('¿Eliminar este producto? Esta acción no se puede deshacer.')) return;
+    try {
+      // TODO: Implement delete API call
+      onProductUpdated();
+    } catch (e) {
+      console.error('Error deleting product:', e);
+    }
+  };
+
   if (products.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 py-12 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 text-center">
@@ -53,94 +69,96 @@ const ProductTable = ({ products, onEdit, onDelete, setViewGallery, settings, is
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
-              <th className="px-6 py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Producto</th>
-              <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Stock</th>
-              <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Venta Final</th>
-              <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Costo {primaryCurrency}</th>
-              <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Costo MN</th>
-              <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Margen</th>
-              {canEdit && <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>}
+              <th className="px-3 sm:px-6 py-3 sm:py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Producto</th>
+              <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Stock</th>
+              <th className="px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Precio</th>
+              <th className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo {primaryCurrency}</th>
+              <th className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo MN</th>
+              <th className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Margen</th>
+              {canEdit && <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {products.map((product) => (
-              <tr
-                key={product.id}
-                style={getRowStyle(product.label_color)}
-                className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-4">
-                    <ProductThumbnail
-                      product={product}
-                      onClick={(images, idx) => setViewGallery({ images, index: idx })}
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                         <p className="font-bold text-gray-900 dark:text-white text-sm">{product.name}</p>
-                         {product.label_color && product.label_color !== 'none' && (
-                           <FaTag className={`text-xs ${
-                             product.label_color === 'red' ? 'text-red-500' :
-                             product.label_color === 'blue' ? 'text-blue-500' :
-                             product.label_color === 'green' ? 'text-emerald-500' :
-                             product.label_color === 'yellow' ? 'text-amber-500' :
-                             product.label_color === 'purple' ? 'text-purple-500' : ''
-                           }`} />
-                         )}
+            {products.map((product) => {
+              const stock = getStock(product);
+              return (
+                <tr
+                  key={product.id}
+                  style={getRowStyle(product.label_color)}
+                  className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  <td className="px-3 sm:px-6 py-3 sm:py-4">
+                    <div className="flex items-center gap-2 sm:gap-4">
+                      <ProductThumbnail
+                        product={product}
+                        className="w-10 h-10 sm:w-12 sm:h-12"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
+                          <p className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm truncate max-w-[120px] sm:max-w-[200px]">{product.name}</p>
+                          {product.label_color && product.label_color !== 'none' && (
+                            <FaTag className={`text-xs flex-shrink-0 ${
+                              product.label_color === 'red' ? 'text-red-500' :
+                              product.label_color === 'blue' ? 'text-blue-500' :
+                              product.label_color === 'green' ? 'text-emerald-500' :
+                              product.label_color === 'yellow' ? 'text-amber-500' :
+                              product.label_color === 'purple' ? 'text-purple-500' : ''
+                            }`} />
+                          )}
+                        </div>
+                        <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                          {product.code || 'Sin código'}
+                        </p>
                       </div>
-                      
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-center">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${product.quantity > 5
-                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : product.quantity > 0
-                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                    }`}>
-                    {product.quantity}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-right">
-                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                    ${(product.actual_sale_price || product.sale_price_manual || 0).toFixed(2)}
-                  </span>
-                  {product.sale_price_manual > 0 && (
-                    <span className="block text-[9px] text-gray-400 uppercase font-bold tracking-wide mt-0.5">Manual</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-right font-mono text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                  ${(getDynamicCost(product) || 0).toFixed(2)}
-                </td>
-                <td className="px-6 py-4 text-right font-mono text-sm text-gray-600 dark:text-gray-400">
-                  ${(product.cost_mn || 0).toFixed(2)}
-                </td>
-                <td className="px-6 py-4 text-right font-mono text-xs text-gray-500 dark:text-gray-500 font-medium">
-                  {product.margin_percent || 0}%
-                </td>
-                {canEdit && (
-                  <td className="px-6 py-4 text-center">
-                    <div className="flex justify-center gap-2">
-                      <button
-                        onClick={() => onEdit(product)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-                        title="Editar"
-                      >
-                        <FaEdit size={16} />
-                      </button>
-                      <button
-                        onClick={() => onDelete(product.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                        title="Eliminar"
-                      >
-                        <FaTrash size={16} />
-                      </button>
                     </div>
                   </td>
-                )}
-              </tr>
-            ))}
+                  <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stock > 5
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                      : stock > 0
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                      }`}>
+                      {stock}
+                    </span>
+                  </td>
+                  <td className="px-3 sm:px-6 py-3 sm:py-4 text-right">
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                      ${(product.sale_price_manual || 0).toFixed(2)}
+                    </span>
+                  </td>
+                  <td className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                    ${(getDynamicCost(product) || 0).toFixed(2)}
+                  </td>
+                  <td className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                    ${(product.cost_mn || 0).toFixed(2)}
+                  </td>
+                  <td className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs text-gray-500 dark:text-gray-500 font-medium">
+                    {product.margin_percent || 0}%
+                  </td>
+                  {canEdit && (
+                    <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
+                      <div className="flex justify-center gap-1 sm:gap-2">
+                        <button
+                          onClick={() => onEdit(product)}
+                          className="p-1.5 sm:p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                          title="Editar"
+                        >
+                          <FaEdit size={14} className="sm:w-4 sm:h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(product.id)}
+                          className="p-1.5 sm:p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                          title="Eliminar"
+                        >
+                          <FaTrash size={14} className="sm:w-4 sm:h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

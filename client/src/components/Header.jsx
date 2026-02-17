@@ -45,53 +45,53 @@ export function Header({ userName, userRole }) {
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-      className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8"
+      className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 lg:gap-4 mb-6 lg:mb-8"
     >
       {/* Left Side - Title */}
-      <div>
-        <div className="flex items-center gap-3 mb-1">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 lg:gap-3 mb-1">
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"
+            className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full bg-cyan-400 animate-pulse flex-shrink-0"
           />
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <p className="text-[10px] lg:text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
             {currentPage.subtitle}
           </p>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-          <PageIcon className="w-7 h-7 text-cyan-400" />
-          <span>{currentPage.title}:</span>
-          <span className="gradient-text-cyan">{inventoryLabel}</span>
+        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight flex items-center gap-2 lg:gap-3">
+          <PageIcon className="w-5 h-5 lg:w-7 lg:h-7 text-cyan-400 flex-shrink-0" />
+          <span className="truncate">{currentPage.title}:</span>
+          <span className="gradient-text-cyan truncate">{inventoryLabel}</span>
         </h1>
       </div>
 
       {/* Right Side - Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 lg:gap-3">
         {/* Notifications */}
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          className="relative p-2.5 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors"
+          className="relative p-2 lg:p-2.5 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors"
         >
-          <Bell className="w-5 h-5 text-muted-foreground" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+          <Bell className="w-4 h-4 lg:w-5 lg:h-5 text-muted-foreground" />
+          <span className="absolute top-1 right-1 w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full bg-rose-500 animate-pulse" />
         </motion.button>
 
         {/* User Profile */}
         <motion.div
           whileHover={{ scale: 1.02 }}
-          className="flex items-center gap-3 p-2 pl-3 pr-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
+          className="flex items-center gap-2 lg:gap-3 p-1.5 lg:p-2 pl-2 lg:pl-3 pr-2 lg:pr-4 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors cursor-pointer"
         >
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-            <User className="w-4 h-4 text-white" />
+          <div className="w-7 h-7 lg:w-8 lg:h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+            <User className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-white" />
           </div>
-          <div className="hidden sm:block">
-            <p className="text-sm font-medium">{userName}</p>
-            <p className="text-xs text-muted-foreground">{userRole}</p>
+          <div className="hidden sm:block min-w-0">
+            <p className="text-sm font-medium truncate">{userName}</p>
+            <p className="text-xs text-muted-foreground hidden lg:block">{userRole}</p>
           </div>
-          <ChevronDown className="w-4 h-4 text-muted-foreground" />
+          <ChevronDown className="w-4 h-4 text-muted-foreground hidden sm:block" />
         </motion.div>
 
         {/* New Sale Button - Solo mostrar si no estamos en POS */}
@@ -101,7 +101,7 @@ export function Header({ userName, userRole }) {
             whileHover={{ scale: 1.02, y: -1 }}
             whileTap={{ scale: 0.98 }}
             className={cn(
-              'flex items-center gap-2 px-5 py-2.5 rounded-xl',
+              'flex items-center gap-1.5 lg:gap-2 px-3 lg:px-5 py-2 lg:py-2.5 rounded-xl',
               'bg-gradient-to-r from-cyan-500 to-blue-600',
               'text-white font-medium text-sm',
               'shadow-lg shadow-cyan-500/30',
@@ -110,7 +110,8 @@ export function Header({ userName, userRole }) {
             )}
           >
             <Plus className="w-4 h-4" />
-            <span>Nueva Venta</span>
+            <span className="hidden sm:inline">Nueva Venta</span>
+            <span className="sm:hidden">Venta</span>
           </motion.button>
         )}
       </div>
