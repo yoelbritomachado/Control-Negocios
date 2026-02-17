@@ -428,7 +428,7 @@ app.post('/api/sessions/close', (req, res) => {
         const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
         if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
 
-        // Calculate Totals
+        // Calculate Sales Totals
         const salesData = db.prepare(`
             SELECT 
                 COALESCE(SUM(s.total), 0) as total_sales,
@@ -438,8 +438,46 @@ app.post('/api/sessions/close', (req, res) => {
             WHERE s.session_id = ?
         `).get(session.id);
 
+        // Calculate Sales by Payment Method
+        const salesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(total), 0) as total
+            FROM sales
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Calculate Expenses Totals
+        const expensesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(amount), 0) as total_expenses
+            FROM expenses
+            WHERE session_id = ?
+        `).get(session.id);
+
+        // Calculate Expenses by Payment Method
+        const expensesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
         const totalProfit = salesData.total_sales - salesData.total_cost;
         const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0; // 5% of profit
+
+        // Calculate final cash to deliver
+        // Efectivo en ventas - Gastos en efectivo
+        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
+        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+        const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+        
+        const finalCash = cashSales - cashExpenses;
+        const finalTransfer = transferSales - transferExpenses;
 
         db.prepare(`
             UPDATE sales_sessions 
@@ -463,7 +501,27 @@ app.post('/api/sessions/close', (req, res) => {
             session.id
         );
 
-        res.json({ success: true, wage: wage });
+        res.json({ 
+            success: true, 
+            wage: wage,
+            summary: {
+                sales: {
+                    total: salesData.total_sales,
+                    cash: cashSales,
+                    transfer: transferSales
+                },
+                expenses: {
+                    total: expensesData.total_expenses,
+                    cash: cashExpenses,
+                    transfer: transferExpenses
+                },
+                final: {
+                    cash: finalCash,
+                    transfer: finalTransfer,
+                    total: finalCash + finalTransfer
+                }
+            }
+        });
 
     } catch (e) {
         logError("Close Session", e);
@@ -492,7 +550,7 @@ app.get('/api/sessions/status', (req, res) => {
 // Create Expense
 app.post('/api/expenses', (req, res) => {
     try {
-        const { type, amount, description } = req.body;
+        const { type, amount, description, payment_method } = req.body;
         // type: area ($3000), cleaning ($100), other (manual)
 
         // Optional: Link to session
@@ -500,9 +558,9 @@ app.post('/api/expenses', (req, res) => {
         const sessionId = session ? session.id : null;
 
         db.prepare(`
-            INSERT INTO expenses (session_id, user_id, type, amount, description, date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `).run(sessionId, req.user.id, type, amount, description, new Date().toISOString());
+            INSERT INTO expenses (session_id, user_id, type, amount, description, payment_method, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(sessionId, req.user.id, type, amount, description || '', payment_method || 'cash', new Date().toISOString());
 
         res.json({ success: true });
     } catch (e) {
@@ -896,24 +954,45 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     amount REAL NOT NULL,
+    payment_method TEXT DEFAULT 'cash',
     is_active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
+
+// Migration: Add payment_method to expense_types if not exists
+try {
+    const expenseTypeCols = db.prepare("PRAGMA table_info(expense_types)").all();
+    const hasPaymentMethod = expenseTypeCols.some(c => c.name === 'payment_method');
+    if (!hasPaymentMethod) {
+        console.log("Migrating: Adding payment_method to expense_types...");
+        db.exec("ALTER TABLE expense_types ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+} catch (e) { console.log("Migration check (expense_types):", e.message); }
+
+// Migration: Add payment_method to expenses if not exists
+try {
+    const expenseCols = db.prepare("PRAGMA table_info(expenses)").all();
+    const hasPaymentMethod = expenseCols.some(c => c.name === 'payment_method');
+    if (!hasPaymentMethod) {
+        console.log("Migrating: Adding payment_method to expenses...");
+        db.exec("ALTER TABLE expenses ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+} catch (e) { console.log("Migration check (expenses):", e.message); }
 
 // Insert default expense types if none exist
 const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_types').get();
 if (expenseTypesCount.count === 0) {
     console.log("Inserting default expense types...");
     const defaultTypes = [
-        { name: 'Área (Luz/Agua)', amount: 3000 },
-        { name: 'Limpieza', amount: 100 },
-        { name: 'Transporte', amount: 200 },
-        { name: 'Otros', amount: 0 }
+        { name: 'Área (Luz/Agua)', amount: 3000, payment_method: 'cash' },
+        { name: 'Limpieza', amount: 100, payment_method: 'cash' },
+        { name: 'Transporte', amount: 200, payment_method: 'cash' },
+        { name: 'Otros', amount: 0, payment_method: 'cash' }
     ];
-    const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)');
+    const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount, payment_method) VALUES (?, ?, ?)');
     for (const type of defaultTypes) {
-        insertExpenseType.run(type.name, type.amount);
+        insertExpenseType.run(type.name, type.amount, type.payment_method);
     }
 }
 
@@ -997,11 +1076,11 @@ app.get('/api/expense-types', authenticate, (req, res) => {
 // Create new expense type (admin only)
 app.post('/api/expense-types', authenticate, requireAdmin, (req, res) => {
     try {
-        const { name, amount } = req.body;
+        const { name, amount, payment_method } = req.body;
         if (!name || amount === undefined) {
             return res.status(400).json({ error: 'Nombre y monto son requeridos' });
         }
-        const result = db.prepare('INSERT INTO expense_types (name, amount) VALUES (?, ?)').run(name, amount);
+        const result = db.prepare('INSERT INTO expense_types (name, amount, payment_method) VALUES (?, ?, ?)').run(name, amount, payment_method || 'cash');
         res.json({ success: true, id: result.lastInsertRowid });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1011,10 +1090,10 @@ app.post('/api/expense-types', authenticate, requireAdmin, (req, res) => {
 // Update expense type (admin only)
 app.put('/api/expense-types/:id', authenticate, requireAdmin, (req, res) => {
     try {
-        const { name, amount, is_active } = req.body;
+        const { name, amount, is_active, payment_method } = req.body;
         const { id } = req.params;
-        db.prepare('UPDATE expense_types SET name = ?, amount = ?, is_active = ? WHERE id = ?')
-            .run(name, amount, is_active, id);
+        db.prepare('UPDATE expense_types SET name = ?, amount = ?, is_active = ?, payment_method = ? WHERE id = ?')
+            .run(name, amount, is_active, payment_method || 'cash', id);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });

@@ -44,6 +44,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
     const [type, setType] = useState('');
     const [amount, setAmount] = useState('');
     const [desc, setDesc] = useState('');
+    const [paymentMethod, setPaymentMethod] = useState('cash');
     const [expenseTypes, setExpenseTypes] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -59,6 +60,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
             if (res.data.length > 0) {
                 setType(res.data[0].id.toString());
                 setAmount(res.data[0].amount.toString());
+                setPaymentMethod(res.data[0].payment_method || 'cash');
             }
         } catch (e) {
             console.error('Error loading expense types:', e);
@@ -71,6 +73,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
         const selectedType = expenseTypes.find(t => t.id.toString() === typeId);
         if (selectedType) {
             setAmount(selectedType.amount.toString());
+            setPaymentMethod(selectedType.payment_method || 'cash');
             // Limpiar descripción al cambiar de tipo
             setDesc('');
         }
@@ -89,7 +92,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
         await onSave({ 
             type: selectedType?.name || 'Otro', 
             amount: parseFloat(amount), 
-            description: isCustomExpense() ? desc : selectedType?.name 
+            description: isCustomExpense() ? desc : selectedType?.name,
+            payment_method: paymentMethod
         });
     };
 
@@ -122,26 +126,33 @@ const ExpenseModal = ({ onClose, onSave }) => {
                         </select>
                     </div>
 
+                    {/* Descripción para gasto "Otros" */}
                     {isCustomExpense() && (
                         <div className="space-y-2">
-                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Nombre del Gasto</label>
-                            <input
-                                type="text"
-                                placeholder="Ej: Compra de material de oficina..."
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                Descripción del Gasto
+                            </label>
+                            <textarea
+                                placeholder="Describe el gasto... Ej: Compra de material de oficina, reparación de equipo, etc."
                                 value={desc}
                                 onChange={e => setDesc(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all h-20 resize-none"
                                 required={isCustomExpense()}
                             />
+                            <p className="text-xs text-slate-500">
+                                El tipo se registrará como "Otros" con esta descripción
+                            </p>
                         </div>
                     )}
 
+                    {/* Monto */}
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monto</label>
                         <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
                             <input
                                 type="number"
+                                step="0.01"
                                 placeholder="0.00"
                                 value={amount}
                                 onChange={e => setAmount(e.target.value)}
@@ -149,6 +160,44 @@ const ExpenseModal = ({ onClose, onSave }) => {
                                 required
                             />
                         </div>
+                    </div>
+
+                    {/* Método de Pago */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                            Método de Pago
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setPaymentMethod('cash')}
+                                className={cn(
+                                    "flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all",
+                                    paymentMethod === 'cash'
+                                        ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
+                                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                                )}
+                            >
+                                <Banknote className="w-5 h-5" />
+                                Efectivo
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPaymentMethod('transfer')}
+                                className={cn(
+                                    "flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all",
+                                    paymentMethod === 'transfer'
+                                        ? "bg-blue-500/20 border-blue-500/50 text-blue-400"
+                                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                                )}
+                            >
+                                <CreditCard className="w-5 h-5" />
+                                Transferencia
+                            </button>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2">
+                            Este gasto se restará del {paymentMethod === 'cash' ? 'efectivo' : 'transferencia'} al cerrar la sesión
+                        </p>
                     </div>
 
                     <div className="flex gap-3 pt-2">
@@ -172,13 +221,22 @@ const ExpenseModal = ({ onClose, onSave }) => {
     );
 };
 
-const CloseSessionModal = ({ onClose, onSave, metrics }) => {
+const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
     const [cash, setCash] = useState('');
     const [notes, setNotes] = useState('');
 
+    // Calcular diferencia si hay resumen
+    const cashSales = summary?.sales?.cash || 0;
+    const transferSales = summary?.sales?.transfer || 0;
+    const cashExpenses = summary?.expenses?.cash || 0;
+    const transferExpenses = summary?.expenses?.transfer || 0;
+    const finalCash = summary?.final?.cash || cashSales - cashExpenses;
+    const finalTransfer = summary?.final?.transfer || transferSales - transferExpenses;
+    const totalExpenses = summary?.expenses?.total || 0;
+
     return (
         <ModalOverlay onClose={onClose}>
-            <div className="p-6 space-y-6">
+            <div className="p-6 space-y-5 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center">
                         <LogOut className="w-6 h-6 text-violet-500" />
@@ -189,21 +247,63 @@ const CloseSessionModal = ({ onClose, onSave, metrics }) => {
                     </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-violet-500/20 flex items-center justify-center">
-                                <TrendingUp className="w-5 h-5 text-violet-400" />
+                {/* Resumen Detallado */}
+                <div className="space-y-3">
+                    {/* Ventas */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/20">
+                        <div className="text-xs text-emerald-400 uppercase tracking-wider mb-2 font-semibold">Ventas del Turno</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-xs text-slate-400">Efectivo</div>
+                                <div className="text-lg font-bold text-white font-mono">${cashSales.toFixed(2)}</div>
                             </div>
                             <div>
-                                <div className="text-xs text-muted-foreground uppercase tracking-wider">Ventas del Turno</div>
-                                <div className="text-2xl font-bold text-white font-mono">${metrics?.currentSales || '0.00'}</div>
+                                <div className="text-xs text-slate-400">Transferencia</div>
+                                <div className="text-lg font-bold text-white font-mono">${transferSales.toFixed(2)}</div>
                             </div>
                         </div>
-                        <div className="text-right">
-                            <div className="text-xs text-muted-foreground">Tu 5%</div>
-                            <div className="text-lg font-bold text-violet-400 font-mono">${((metrics?.currentSales || 0) * 0.05).toFixed(2)}</div>
+                    </div>
+
+                    {/* Gastos */}
+                    {totalExpenses > 0 && (
+                        <div className="p-4 rounded-xl bg-gradient-to-br from-rose-500/10 to-rose-600/10 border border-rose-500/20">
+                            <div className="text-xs text-rose-400 uppercase tracking-wider mb-2 font-semibold">Gastos Registrados</div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-xs text-slate-400">Efectivo</div>
+                                    <div className="text-lg font-bold text-rose-400 font-mono">-${cashExpenses.toFixed(2)}</div>
+                                </div>
+                                <div>
+                                    <div className="text-xs text-slate-400">Transferencia</div>
+                                    <div className="text-lg font-bold text-rose-400 font-mono">-${transferExpenses.toFixed(2)}</div>
+                                </div>
+                            </div>
                         </div>
+                    )}
+
+                    {/* Totales a Entregar */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
+                        <div className="text-xs text-violet-400 uppercase tracking-wider mb-2 font-semibold">Total a Entregar</div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-xs text-slate-400">Efectivo Neto</div>
+                                <div className="text-xl font-bold text-emerald-400 font-mono">${finalCash.toFixed(2)}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-slate-400">Transferencia</div>
+                                <div className="text-xl font-bold text-blue-400 font-mono">${finalTransfer.toFixed(2)}</div>
+                            </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                            <div className="text-xs text-slate-400">Total General</div>
+                            <div className="text-2xl font-bold text-white font-mono">${(finalCash + finalTransfer).toFixed(2)}</div>
+                        </div>
+                    </div>
+
+                    {/* Comisión */}
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-violet-500/5 border border-violet-500/10">
+                        <div className="text-sm text-slate-400">Tu comisión (5%)</div>
+                        <div className="text-lg font-bold text-violet-400 font-mono">${((summary?.sales?.total || metrics?.currentSales || 0) * 0.05).toFixed(2)}</div>
                     </div>
                 </div>
 
@@ -573,13 +673,31 @@ export default function POSLayout() {
         }
     };
 
+    const [closeSummary, setCloseSummary] = useState(null);
+
     const handleCloseSession = async (cash, notes) => {
         try {
             const res = await api.post('/sessions/close', { declared_cash: cash, notes });
+            setCloseSummary(res.data.summary);
             setAlertModal({
                 isOpen: true,
-                title: 'Sesión cerrada',
-                message: `Sesion Cerrada. Salario Calculado: $${res.data.wage}`,
+                title: 'Sesión cerrada exitosamente',
+                message: (
+                    <div className="space-y-2">
+                        <p>Resumen del turno:</p>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div className="text-slate-400">Ventas:</div>
+                            <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
+                            <div className="text-slate-400">Gastos:</div>
+                            <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
+                            <div className="text-slate-400">Neto Efectivo:</div>
+                            <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
+                            <div className="text-slate-400">Transferencia:</div>
+                            <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+                        </div>
+                        <p className="pt-2 border-t border-white/10">Tu comisión (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                    </div>
+                ),
                 type: 'success',
                 onClose: () => window.location.reload()
             });
@@ -1119,6 +1237,7 @@ export default function POSLayout() {
                     {showClose && (
                         <CloseSessionModal
                             metrics={sessionMetrics}
+                            summary={closeSummary}
                             onClose={() => setShowClose(false)}
                             onSave={handleCloseSession}
                         />
