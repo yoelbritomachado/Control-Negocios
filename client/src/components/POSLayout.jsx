@@ -857,7 +857,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {savedSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id}
+                                        key={sale.id || `saved-${index}`}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -930,7 +930,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id}
+                                        key={sale.id || `recent-${index}`}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
