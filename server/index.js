@@ -1350,6 +1350,23 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Serve static files from client/dist (for Railway deployment)
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(clientDistPath)) {
+    console.log('Serving static files from:', clientDistPath);
+    app.use(express.static(clientDistPath));
+    
+    // Serve index.html for all non-API routes (SPA support)
+    app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+            res.sendFile(path.join(clientDistPath, 'index.html'));
+        }
+    });
+} else {
+    console.log('Client dist not found at:', clientDistPath);
+    console.log('Running in API-only mode');
+}
+
 // Start Server
 app.listen(port, () => {
     console.log(`Server listening at http://localhost:${port}`);
