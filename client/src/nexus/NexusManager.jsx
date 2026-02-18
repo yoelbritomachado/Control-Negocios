@@ -258,9 +258,10 @@ export const NexusManager = () => {
 
   // TAMAÑOS DEL NODO
   const NODE_WIDTH = 260;
-  const NODE_HEIGHT = 160;
+  const NODE_HEIGHT = 160; // Altura base, los nodos pueden crecer con min-h-[160px]
   // Los puntos están en el borde: -top-[5px] y -bottom-[5px]
-  // Centro del punto está a 5px del borde (puntos de 10x10px)
+  // Input: centro a -5px desde borde superior
+  // Output: centro a +5px desde borde inferior (100% + 5px)
 
   // Convertir coordenadas
   const screenToCanvas = (screenX, screenY) => ({
@@ -539,12 +540,12 @@ export const NexusManager = () => {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
     >
-      {/* Grid Background */}
+      {/* Grid Background - color contrastante con el fondo slate-950 */}
       {showGrid && (
         <div 
-          className="absolute inset-0 opacity-20 pointer-events-none"
+          className="absolute inset-0 pointer-events-none"
           style={{
-            backgroundImage: `radial-gradient(circle, rgba(148,163,184,0.3) 1px, transparent 1px)`,
+            backgroundImage: `radial-gradient(circle, rgba(71, 85, 105, 0.4) 1px, transparent 1px)`,
             backgroundSize: '20px 20px',
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
           }}

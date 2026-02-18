@@ -106,7 +106,7 @@ export const NexusNode = React.memo(({
             : `0 4px 15px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05)`
       }}
       className={`
-        relative w-[260px] h-[160px] rounded-xl cursor-grab active:cursor-grabbing
+        relative w-[260px] min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
         border-2 transition-all duration-200
         ${isSelected ? 'ring-2 ring-offset-2 ring-offset-slate-900' : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
