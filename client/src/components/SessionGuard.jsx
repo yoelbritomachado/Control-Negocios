@@ -34,6 +34,8 @@ export default function SessionGuard({ children }) {
         e.preventDefault();
         setProcessing(true);
         try {
+            // Limpiar editing_session al abrir nueva sesión (no es edición, es venta nueva)
+            localStorage.removeItem('editing_session');
             await api.post('/sessions/open', { initial_cash: parseFloat(initialCash) || 0 });
             await checkSession(); // Refresh status
         } catch (e) {

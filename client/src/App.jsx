@@ -9,6 +9,13 @@ import DashboardPage from './pages/DashboardPage';
 import MigrationTool from './components/MigrationTool';
 import LegacyHistoryPage from './pages/LegacyHistoryPage';
 import HistoryPage from './pages/HistoryPage';
+import SettingsPage from './pages/SettingsPage';
+import MermasPage from './pages/MermasPage';
+import { NexusManager } from './nexus';
+import HistorySalesPage from './pages/HistorySalesPage';
+import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
+import HistoryMermasPage from './pages/HistoryMermasPage';
+import TrasladosPage from './pages/TrasladosPage';
 import './index.css';
 
 function App() {
@@ -28,6 +35,13 @@ function App() {
               <Route path="admin/historial-legacy" element={<LegacyHistoryPage />} />
               */}
             <Route path="historial" element={<HistoryPage />} />
+            <Route path="historial/ventas" element={<HistorySalesPage />} />
+            <Route path="historial/compras" element={<HistoryPurchasesPage />} />
+            <Route path="historial/mermas" element={<HistoryMermasPage />} />
+            <Route path="mermas" element={<MermasPage />} />
+            <Route path="traslados" element={<TrasladosPage />} />
+            <Route path="configuracion" element={<SettingsPage />} />
+            <Route path="nexus" element={<NexusManager />} />
           </Route>
         </Routes>
       </CartProvider>

@@ -96,17 +96,17 @@ export default function InventoryPage() {
     }
 
     return (
-        <div className="h-full overflow-y-auto p-6 space-y-6">
+        <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
             {/* Barra de búsqueda y Botón Nuevo Producto */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-between items-stretch sm:items-center">
                 <div className="relative flex-1 max-w-md w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Buscar producto por nombre o código..."
-                        className="w-full pl-10 pr-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
+                        placeholder="Buscar producto..."
+                        className="w-full pl-10 pr-4 py-2.5 sm:py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 text-sm sm:text-base"
                     />
                 </div>
                 <button
@@ -114,27 +114,28 @@ export default function InventoryPage() {
                         setEditingProduct(null);
                         setIsFormOpen(true);
                     }}
-                    className="flex items-center justify-center gap-2 px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl font-medium transition-colors whitespace-nowrap"
+                    className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-cyan-500 hover:bg-cyan-600 text-white rounded-xl font-medium transition-colors whitespace-nowrap text-sm sm:text-base"
                 >
-                    <Plus className="w-5 h-5" />
-                    Nuevo Producto
+                    <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="sm:hidden">Nuevo</span>
+                    <span className="hidden sm:inline">Nuevo Producto</span>
                 </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-xl bg-card/50 border border-border/50">
-                    <div className="text-sm text-muted-foreground">Total Productos</div>
-                    <div className="text-2xl font-bold">{totalProducts}</div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                <div className="p-3 sm:p-4 rounded-xl bg-card/50 border border-border/50">
+                    <div className="text-[10px] sm:text-sm text-muted-foreground">Total</div>
+                    <div className="text-lg sm:text-2xl font-bold">{totalProducts}</div>
                 </div>
-                <div className="p-4 rounded-xl bg-card/50 border border-border/50">
-                    <div className="text-sm text-muted-foreground">Stock Bajo</div>
-                    <div className={lowStockProducts > 0 ? 'text-2xl font-bold text-rose-400' : 'text-2xl font-bold'}>
+                <div className="p-3 sm:p-4 rounded-xl bg-card/50 border border-border/50">
+                    <div className="text-[10px] sm:text-sm text-muted-foreground">Stock Bajo</div>
+                    <div className={lowStockProducts > 0 ? 'text-lg sm:text-2xl font-bold text-rose-400' : 'text-lg sm:text-2xl font-bold'}>
                         {lowStockProducts}
                     </div>
                 </div>
-                <div className="p-4 rounded-xl bg-card/50 border border-border/50">
-                    <div className="text-sm text-muted-foreground">Sede Activa</div>
-                    <div className="text-2xl font-bold text-cyan-400">{currentInventory.toUpperCase()}</div>
+                <div className="p-3 sm:p-4 rounded-xl bg-card/50 border border-border/50">
+                    <div className="text-[10px] sm:text-sm text-muted-foreground">Sede</div>
+                    <div className="text-lg sm:text-2xl font-bold text-cyan-400">{currentInventory.toUpperCase()}</div>
                 </div>
             </div>
 

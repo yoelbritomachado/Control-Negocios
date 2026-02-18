@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCart } from './CartProvider';
 import InventorySelector from './InventorySelector';
 import api, { fetchProducts } from '../api';
@@ -9,6 +9,7 @@ import SearchDropdown from './SearchDropdown'; // Mantenido para compatibilidad
 import ConfirmModal from './ConfirmModal';
 import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
+import { useRole } from '../hooks/useRole';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
@@ -18,6 +19,21 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+
+// Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
+// NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
+const generateSafeKey = (prefix, item, index) => {
+    const itemId = item?.id || item?.code || item?.product_id || item?.sale_id;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
+    return `${prefix}-${safeId || 'no-id'}-${index}`;
+};
+
+// Helper para verificar si un ID es temporal
+const isTempId = (id) => {
+    if (!id) return true;
+    const strId = String(id);
+    return strId.startsWith('session_') || strId.startsWith('temp_');
+};
 
 // --- SUBCOMPONENTS (MODALS) ---
 
@@ -82,17 +98,17 @@ const ExpenseModal = ({ onClose, onSave }) => {
 
     const isCustomExpense = () => {
         const selectedType = expenseTypes.find(t => t.id.toString() === type);
-        return selectedType?.name?.toLowerCase().includes('otro') || 
-               selectedType?.name?.toLowerCase().includes('otros') ||
-               selectedType?.amount === 0;
+        return selectedType?.name?.toLowerCase().includes('otro') ||
+            selectedType?.name?.toLowerCase().includes('otros') ||
+            selectedType?.amount === 0;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         const selectedType = expenseTypes.find(t => t.id.toString() === type);
-        await onSave({ 
-            type: selectedType?.name || 'Otro', 
-            amount: parseFloat(amount), 
+        await onSave({
+            type: selectedType?.name || 'Otro',
+            amount: parseFloat(amount),
             description: isCustomExpense() ? desc : selectedType?.name,
             payment_method: paymentMethod
         });
@@ -119,8 +135,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             onChange={(e) => handleTypeChange(e.target.value)}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
                         >
-                            {expenseTypes.map((expenseType) => (
-                                <option key={expenseType.id} value={expenseType.id} className="bg-gray-900">
+                            {expenseTypes.map((expenseType, index) => (
+                                <option key={generateSafeKey('expense-type', expenseType, index)} value={expenseType?.id} className="bg-gray-900">
                                     {expenseType.name} (${expenseType.amount.toFixed(2)})
                                 </option>
                             ))}
@@ -222,31 +238,73 @@ const ExpenseModal = ({ onClose, onSave }) => {
     );
 };
 
-const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
+const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const [cash, setCash] = useState('');
     const [notes, setNotes] = useState('');
+    const [requestWagePayment, setRequestWagePayment] = useState(false);
+    const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
+    const isSeller = role === 'seller';
 
-    // Calcular diferencia si hay resumen
-    const cashSales = summary?.sales?.cash || 0;
-    const transferSales = summary?.sales?.transfer || 0;
-    const cashExpenses = summary?.expenses?.cash || 0;
-    const transferExpenses = summary?.expenses?.transfer || 0;
-    const finalCash = summary?.final?.cash || cashSales - cashExpenses;
-    const finalTransfer = summary?.final?.transfer || transferSales - transferExpenses;
-    const totalExpenses = summary?.expenses?.total || 0;
+    // Support both old format (summary) and new format (metrics.current)
+    const data = metrics?.current || summary || {};
+    const accumulated = metrics?.accumulated || {};
+    const finalData = metrics?.final || {};
+    
+    // Extract values from the correct format
+    const cashSales = data.sales?.cash || 0;
+    const transferSales = data.sales?.transfer || 0;
+    const totalSales = data.sales?.total || 0;
+    const totalCost = data.cost?.total || 0;
+    const cashExpenses = data.expenses?.cash || 0;
+    const transferExpenses = data.expenses?.transfer || 0;
+    const totalExpenses = data.expenses?.total || 0;
+    
+    // Calculate derived values
+    const profit = Math.max(0, totalSales - totalCost);
+    const currentWage = data.wage || (profit * 0.05);
+    
+    // Final amounts to deliver
+    const finalCash = finalData.cash || (cashSales - cashExpenses);
+    const finalTransfer = finalData.transfer || (transferSales - transferExpenses);
+    
+    // Accumulated wage (all unpaid sessions)
+    const totalPendingWage = accumulated.total_pending_wage || currentWage;
+    const previousWage = accumulated.previous_sessions_wage || 0;
+    const pendingSessions = accumulated.pending_sessions_count || 0;
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(cash, notes, requestWagePayment, wagePaymentMethod, totalPendingWage);
+    };
 
     return (
         <ModalOverlay onClose={onClose}>
             <div className="p-6 space-y-5 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center">
-                        <LogOut className="w-6 h-6 text-violet-500" />
+                    <div className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center",
+                        isSeller ? "bg-emerald-500/20" : "bg-violet-500/20"
+                    )}>
+                        <LogOut className={cn("w-6 h-6", isSeller ? "text-emerald-500" : "text-violet-500")} />
                     </div>
                     <div>
-                        <h3 className="text-xl font-bold text-white">Cerrar Sesión</h3>
-                        <p className="text-sm text-muted-foreground">Finaliza tu sesión de trabajo</p>
+                        <h3 className="text-xl font-bold text-white">
+                            {isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                            {isSeller ? 'Envía tu sesión para revisión del administrador' : 'Finaliza la sesión de trabajo'}
+                        </p>
                     </div>
                 </div>
+                
+                {/* Banner informativo para vendedor */}
+                {isSeller && (
+                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <p className="text-sm text-emerald-400">
+                            Al enviar tu sesión, el administrador podrá revisar tus ventas y aprobar el cierre.
+                        </p>
+                    </div>
+                )}
 
                 {/* Resumen Detallado */}
                 <div className="space-y-3">
@@ -301,14 +359,95 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
                         </div>
                     </div>
 
-                    {/* Comisión */}
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-violet-500/5 border border-violet-500/10">
-                        <div className="text-sm text-slate-400">Tu comisión (5%)</div>
-                        <div className="text-lg font-bold text-violet-400 font-mono">${((summary?.sales?.total || metrics?.currentSales || 0) * 0.05).toFixed(2)}</div>
+                    {/* Comisión - 5% de ganancia real */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs text-amber-400 uppercase tracking-wider font-semibold">
+                                Tu Salario Acumulado ({pendingSessions > 1 ? `${pendingSessions} sesiones` : 'Esta sesión'})
+                            </div>
+                            <div className="text-lg font-bold text-amber-400 font-mono">${totalPendingWage.toFixed(2)}</div>
+                        </div>
+                        
+                        {/* Breakdown */}
+                        <div className="space-y-2 text-xs border-t border-white/10 pt-2 mt-2">
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Esta sesión:</span>
+                                <span className="text-white font-mono">${currentWage.toFixed(2)}</span>
+                            </div>
+                            {previousWage > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Sesiones anteriores:</span>
+                                    <span className="text-amber-300 font-mono">${previousWage.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
+                                <span className="text-emerald-400">Total a cobrar:</span>
+                                <span className="text-emerald-400 font-bold font-mono">${totalPendingWage.toFixed(2)}</span>
+                            </div>
+                        </div>
+                        
+                        {/* Cálculo de esta sesión */}
+                        <div className="mt-3 pt-2 border-t border-white/10">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Cálculo esta sesión</div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="text-slate-400">Ventas: <span className="text-white">${totalSales.toFixed(2)}</span></div>
+                                <div className="text-slate-400">Costos: <span className="text-rose-400">-${totalCost.toFixed(2)}</span></div>
+                                <div className="text-slate-400 col-span-2">Ganancia: <span className="text-emerald-400">${profit.toFixed(2)} × 5% = ${currentWage.toFixed(2)}</span></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <form onSubmit={(e) => { e.preventDefault(); onSave(cash, notes); }} className="space-y-5">
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    {/* Opción de solicitar pago - Solo para vendedores */}
+                    {isSeller && totalPendingWage > 0 && (
+                        <div className="space-y-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={requestWagePayment}
+                                    onChange={(e) => setRequestWagePayment(e.target.checked)}
+                                    className="w-5 h-5 rounded border-emerald-500/50 bg-white/5 text-emerald-500 focus:ring-emerald-500/50"
+                                />
+                                <span className="text-sm font-medium text-emerald-400">
+                                    Solicitar pago de mi salario acumulado (${totalPendingWage.toFixed(2)})
+                                </span>
+                            </label>
+                            
+                            {requestWagePayment && (
+                                <div className="pl-8 space-y-2">
+                                    <label className="text-xs text-slate-400">Método de pago preferido</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setWagePaymentMethod('cash')}
+                                            className={cn(
+                                                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                                                wagePaymentMethod === 'cash'
+                                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                                                    : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                                            )}
+                                        >
+                                            Efectivo
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setWagePaymentMethod('transfer')}
+                                            className={cn(
+                                                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                                                wagePaymentMethod === 'transfer'
+                                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                                                    : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                                            )}
+                                        >
+                                            Transferencia
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Efectivo en Caja</label>
                         <div className="relative">
@@ -344,10 +483,15 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-3 bg-gradient-to-r from-violet-600 to-purple-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-violet-500/25 transition-all flex items-center justify-center gap-2"
+                            className={cn(
+                                "flex-1 px-4 py-3 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2",
+                                isSeller 
+                                    ? "bg-gradient-to-r from-emerald-600 to-teal-500 hover:shadow-emerald-500/25 text-white"
+                                    : "bg-gradient-to-r from-violet-600 to-purple-500 hover:shadow-violet-500/25 text-white"
+                            )}
                         >
                             <LogOut className="w-4 h-4" />
-                            Cerrar y Calcular
+                            {isSeller ? 'Enviar para Revisión' : 'Cerrar y Calcular'}
                         </button>
                     </div>
                 </form>
@@ -359,7 +503,8 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
 // --- MAIN LAYOUT ---
 
 export default function POSLayout() {
-    const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory } = useCart();
+    const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory, editingSession, setEditingSession } = useCart();
+    const { isSeller, currentRole } = useRole();
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
@@ -372,7 +517,7 @@ export default function POSLayout() {
     const [showClose, setShowClose] = useState(false);
     const [showPayment, setShowPayment] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState(null);
-    
+
     // Confirm Modals
     const [showCartConfirm, setShowCartConfirm] = useState(false);
     const [showSavedConfirm, setShowSavedConfirm] = useState(false);
@@ -388,10 +533,18 @@ export default function POSLayout() {
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
 
+    // Mobile view state
+    const [mobileView, setMobileView] = useState('cart'); // 'cart' | 'tickets'
+
     // Nota: La búsqueda ahora la maneja el componente SearchBar internamente
     // con debounce y búsqueda desde la primera letra
 
-    const performSearch = async (query) => {
+    const performSearch = useCallback(async (query) => {
+        if (!query || query.length < 1) {
+            setSearchResults([]);
+            setShowSearchDropdown(false);
+            return;
+        }
         setLoadingProduct(true);
         try {
             const products = await fetchProducts(query);
@@ -408,7 +561,7 @@ export default function POSLayout() {
         } finally {
             setLoadingProduct(false);
         }
-    };
+    }, [currentInventory]);
 
     const handleSearchKeyDown = async (e) => {
         if (e.key === 'Enter' && search.trim()) {
@@ -460,7 +613,7 @@ export default function POSLayout() {
         if (cart.length === 0) return;
 
         const savedSale = {
-            id: `S-${Date.now()}`,
+            id: `saved-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             items: [...cart],
             total: total,
             time: new Date().toLocaleTimeString(),
@@ -478,7 +631,19 @@ export default function POSLayout() {
         });
     };
 
-    const handleEditSavedSale = (sale) => {
+    const handleEditSavedSale = async (sale) => {
+        // Verificar si hay items con IDs temporales
+        const itemsWithTempIds = sale.items?.filter(item => isTempId(item.id) && isTempId(item.product_id)) || [];
+        if (itemsWithTempIds.length > 0) {
+            setAlertModal({
+                isOpen: true,
+                title: 'Venta no editable',
+                message: `Esta venta guardada tiene ${itemsWithTempIds.length} producto(s) con ID temporal (${itemsWithTempIds[0].name}). Por favor elimine esta venta guardada y cree una nueva desde el catálogo.`,
+                type: 'warning'
+            });
+            return;
+        }
+
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
             setConfirmModal({
@@ -489,43 +654,35 @@ export default function POSLayout() {
                 onConfirm: () => {
                     // Guardar carrito actual como venta guardada
                     const savedSale = {
-                        id: Date.now(),
+                        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         items: [...cart],
                         total: total,
                         time: new Date().toLocaleTimeString(),
                         date: new Date().toISOString()
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
-                    
-                    // Cargar items de la venta al carrito (reemplazar, no sumar)
-                    const newCartItems = sale.items.map(item => ({
-                        id: item.id,
-                        name: item.name,
-                        code: item.code,
-                        sale_price_manual: item.sale_price_manual || item.price,
-                        cost_mn: item.cost_mn || item.cost,
-                        quantity: item.quantity
+
+                    // Cargar items de la venta al carrito
+                    const newCartItems = sale.items.map((item) => ({
+                        ...item,
+                        id: item.product_id || item.id
                     }));
                     setCart(newCartItems);
-                    
+
                     // Eliminar la venta guardada
                     setSavedSales(prev => prev.filter(s => s.id !== sale.id));
                 }
             });
             return;
         }
-        
-        // Cargar items de la venta al carrito (reemplazar, no sumar)
-        const newCartItems = sale.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            code: item.code,
-            sale_price_manual: item.sale_price_manual || item.price,
-            cost_mn: item.cost_mn || item.cost,
-            quantity: item.quantity
+
+        // Cargar items de la venta al carrito
+        const newCartItems = sale.items.map((item) => ({
+            ...item,
+            id: item.product_id || item.id
         }));
         setCart(newCartItems);
-        
+
         // Eliminar la venta guardada
         setSavedSales(prev => prev.filter(s => s.id !== sale.id));
     };
@@ -552,7 +709,19 @@ export default function POSLayout() {
             });
             return;
         }
-        
+
+        // Verificar si hay items con IDs temporales
+        const itemsWithTempIds = sale.items.filter(item => isTempId(item.id) && isTempId(item.product_id));
+        if (itemsWithTempIds.length > 0) {
+            setAlertModal({
+                isOpen: true,
+                title: 'Venta no editable',
+                message: `Esta venta tiene ${itemsWithTempIds.length} producto(s) con ID temporal (${itemsWithTempIds[0].name}). No se puede editar ventas antiguas con este problema.`,
+                type: 'warning'
+            });
+            return;
+        }
+
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
             setConfirmModal({
@@ -563,41 +732,32 @@ export default function POSLayout() {
                 onConfirm: () => {
                     // Guardar carrito actual como venta guardada
                     const savedSale = {
-                        id: Date.now(),
+                        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         items: [...cart],
                         total: total,
                         time: new Date().toLocaleTimeString(),
                         date: new Date().toISOString()
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
-                    
+
                     // Reemplazar completamente el carrito con los items de la venta
-                    // Usar setCart directamente para evitar problemas de sincronización
-                    const newCartItems = sale.items.map(item => ({
-                        id: item.id,
-                        name: item.name,
-                        code: item.code,
-                        sale_price_manual: item.sale_price_manual || item.price,
-                        cost_mn: item.cost_mn || item.cost,
-                        quantity: item.quantity
+                    const newCartItems = sale.items.map((item) => ({
+                        ...item,
+                        id: item.product_id || item.id
                     }));
                     setCart(newCartItems);
-                    
+
                     // Eliminar la venta original
                     setRecentSales(prev => prev.filter(s => s.id !== sale.id));
                 }
             });
             return;
         }
-        
+
         // Cargar items de la venta al carrito (reemplazo completo)
-        const newCartItems = sale.items.map(item => ({
-            id: item.id,
-            name: item.name,
-            code: item.code,
-            sale_price_manual: item.sale_price_manual || item.price,
-            cost_mn: item.cost_mn || item.cost,
-            quantity: item.quantity
+        const newCartItems = sale.items.map((item) => ({
+            ...item,
+            id: item.product_id || item.id
         }));
         setCart(newCartItems);
         // Eliminar la venta original
@@ -622,10 +782,17 @@ export default function POSLayout() {
     const processPayment = async (paymentData) => {
         setCheckoutProcessing(true);
         try {
-            // Validar que todos los items tengan ID válido
-            const invalidItems = cart.filter(item => !item.id);
-            if (invalidItems.length > 0) {
-                throw new Error(`Hay ${invalidItems.length} producto(s) sin ID válido. Por favor elimínelos y vuelva a agregarlos.`);
+            // Validar que todos los items tengan ID válido (no temporal)
+            const tempIdItems = cart.filter(item => 
+                !item.id || 
+                String(item.id).startsWith('session_') || 
+                String(item.id).startsWith('temp_')
+            );
+            if (tempIdItems.length > 0) {
+                throw new Error(
+                    `Hay ${tempIdItems.length} producto(s) con ID temporal (${tempIdItems[0].name}). ` +
+                    `Por favor elimine estos productos y agréguelos nuevamente desde el catálogo.`
+                );
             }
 
             // Determinar el método de pago principal
@@ -636,8 +803,14 @@ export default function POSLayout() {
                 paymentMethod = 'transfer';
             }
 
+            // Preparar items para el backend
+            const itemsForBackend = cart.map(item => ({
+                ...item,
+                id: item.id
+            }));
+
             const res = await api.post('/sales', {
-                items: cart,
+                items: itemsForBackend,
                 total: total,
                 paymentMethod: paymentMethod,
                 amountReceived: paymentData.amountReceived,
@@ -646,17 +819,19 @@ export default function POSLayout() {
                 cashAmount: paymentData.cashAmount,
                 transferAmount: paymentData.transferAmount
             });
-            
+
             if (!res || !res.data) {
                 throw new Error('No se recibió respuesta del servidor');
             }
-            
+
             if (res.data.success) {
                 // Guardar la venta con sus items para poder editarla después
+                // Preservar product_id para futuras ediciones
                 const completedSale = {
                     id: res.data.saleId,
                     items: cart.map(item => ({
-                        id: item.id,
+                        id: item.product_id || item.id,
+                        product_id: item.product_id || item.id,
                         name: item.name,
                         code: item.code,
                         quantity: item.quantity,
@@ -690,37 +865,96 @@ export default function POSLayout() {
 
     const [closeSummary, setCloseSummary] = useState(null);
 
-    const handleCloseSession = async (cash, notes) => {
+    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash', totalPendingWage = 0) => {
         try {
-            const res = await api.post('/sessions/close', { declared_cash: cash, notes });
+            // Usar endpoint diferente según el rol
+            const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
+            const res = await api.post(endpoint, { declared_cash: cash, notes });
             setCloseSummary(res.data.summary);
-            setAlertModal({
-                isOpen: true,
-                title: 'Sesión cerrada exitosamente',
-                message: (
-                    <div className="space-y-2">
-                        <p>Resumen del turno:</p>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                            <div className="text-slate-400">Ventas:</div>
-                            <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Gastos:</div>
-                            <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Neto Efectivo:</div>
-                            <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Transferencia:</div>
-                            <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+            
+            // Obtener salario acumulado de la respuesta o usar el pasado al modal
+            const responseTotalWage = res.data.accumulated?.total_pending_wage || res.data.wage || totalPendingWage;
+            
+            // Si es vendedor y solicitó pago de salario, crear solicitud
+            if (isSeller && requestWagePayment && responseTotalWage > 0) {
+                try {
+                    await api.post('/wages/request', {
+                        session_id: res.data.session_id,
+                        amount: responseTotalWage,
+                        payment_method: wagePaymentMethod
+                    });
+                } catch (wageError) {
+                    console.error('Error requesting wage payment:', wageError);
+                    // No bloquear el cierre por error en solicitud de salario
+                }
+            }
+            
+            if (isSeller) {
+                // Mensaje para vendedor que envía sesión
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Sesión enviada para revisión',
+                    message: (
+                        <div className="space-y-2">
+                            <p className="text-emerald-400">Tu sesión ha sido enviada al administrador para revisión.</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm pt-2 border-t border-white/10">
+                                <div className="text-slate-400">Ventas:</div>
+                                <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Gastos:</div>
+                                <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Neto Efectivo:</div>
+                                <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Transferencia:</div>
+                                <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+                            </div>
+                            <p className="pt-2 border-t border-white/10">
+                                Salario de esta sesión (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span>
+                            </p>
+                            {(res.data.accumulated?.total_pending_wage || totalPendingWage) > res.data.wage && (
+                                <p className="text-xs text-amber-400">
+                                    Total acumulado pendiente: <span className="font-mono font-bold">${(res.data.accumulated?.total_pending_wage || totalPendingWage).toFixed(2)}</span>
+                                    {res.data.accumulated?.pending_sessions_count > 1 && (
+                                        <span className="ml-1">({res.data.accumulated.pending_sessions_count} sesiones)</span>
+                                    )}
+                                </p>
+                            )}
+                            {requestWagePayment && <p className="text-emerald-400 text-xs">✓ Solicitud de pago enviada</p>}
+                            <p className="text-xs text-muted-foreground mt-2">Recibirás una notificación cuando sea aprobada.</p>
                         </div>
-                        <p className="pt-2 border-t border-white/10">Tu comisión (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
-                    </div>
-                ),
-                type: 'success',
-                onClose: () => window.location.reload()
-            });
-        } catch (e) { 
+                    ),
+                    type: 'success',
+                    onClose: () => window.location.reload()
+                });
+            } else {
+                // Mensaje para admin/dueño que cierra sesión
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Sesión cerrada exitosamente',
+                    message: (
+                        <div className="space-y-2">
+                            <p>Resumen del turno:</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="text-slate-400">Ventas:</div>
+                                <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Gastos:</div>
+                                <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Neto Efectivo:</div>
+                                <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Transferencia:</div>
+                                <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+                            </div>
+                            <p className="pt-2 border-t border-white/10">Salario del vendedor (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                        </div>
+                    ),
+                    type: 'success',
+                    onClose: () => window.location.reload()
+                });
+            }
+        } catch (e) {
             setAlertModal({
                 isOpen: true,
                 title: 'Error',
-                message: "Error al cerrar sesion",
+                message: isSeller ? "Error al enviar sesión" : "Error al cerrar sesion",
                 type: 'danger'
             });
         }
@@ -742,7 +976,7 @@ export default function POSLayout() {
         // Si llegamos aquí, no hay nada pendiente
         return true;
     };
-    
+
     const handleCartConfirm = (shouldPay) => {
         if (shouldPay) {
             // Volver al POS para cobrar
@@ -762,7 +996,7 @@ export default function POSLayout() {
             }, 100);
         }
     };
-    
+
     const handleSavedConfirm = (shouldPay) => {
         if (shouldPay) {
             // Volver al POS para cobrar las ventas guardadas
@@ -775,11 +1009,20 @@ export default function POSLayout() {
             fetchMetricsDirect();
         }
     };
-    
+
     const fetchMetricsDirect = async () => {
-        const res = await api.get('/sessions/status');
-        setSessionMetrics(res.data);
-        setShowClose(true);
+        try {
+            // Use the new detailed metrics endpoint
+            const res = await api.get('/sessions/metrics');
+            setSessionMetrics(res.data);
+            setShowClose(true);
+        } catch (e) {
+            console.error('Error fetching metrics:', e);
+            // Fallback to basic status endpoint
+            const res = await api.get('/sessions/status');
+            setSessionMetrics(res.data);
+            setShowClose(true);
+        }
     };
 
     const fetchMetrics = async () => {
@@ -787,38 +1030,63 @@ export default function POSLayout() {
         if (!checkBeforeCloseSession()) {
             return; // No mostrar el modal, se mostrarán los confirm
         }
-        
+
         await fetchMetricsDirect();
     };
 
     return (
         <SessionGuard>
-            <div className="h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
+            <div className="h-[calc(100vh-6rem)] sm:h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
+
+                {/* Editing Session Banner */}
+                {editingSession && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border-b border-cyan-500/30 px-4 py-2 flex items-center justify-between"
+                    >
+                        <div className="flex items-center gap-3">
+                            <RotateCcw className="w-4 h-4 text-cyan-400" />
+                            <span className="text-sm">
+                                <strong>Editando sesión #{editingSession.sale_id}</strong> • {editingSession.inventory} • {editingSession.seller}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setEditingSession(null);
+                                clearCart();
+                            }}
+                            className="text-xs px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 transition-colors"
+                        >
+                            Terminar edición
+                        </button>
+                    </motion.div>
+                )}
 
                 {/* --- CONTENT AREA --- */}
-                <div className="flex h-full">
+                <div className={cn("flex flex-col lg:flex-row", editingSession ? "h-[calc(100%-40px)]" : "h-full")}>
 
-                    {/* LEFT COLUMN: Cart (60%) */}
-                    <div className="w-[60%] flex flex-col h-full border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
+                    {/* LEFT COLUMN: Cart - Full width on mobile, 60% on desktop */}
+                    <div className="w-full lg:w-[60%] flex flex-col h-full border-b lg:border-b-0 lg:border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
 
                         {/* Search Bar Premium - Componente Modular */}
-                        <div className="h-16 flex-none px-4 flex items-center gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
-                            <div className="relative flex-1">
+                        <div className="h-14 sm:h-16 flex-none px-3 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
+                            <div className="relative flex-1 min-w-0">
                                 <SearchBar
                                     ref={inputRef}
                                     value={search}
                                     onChange={setSearch}
-                                    onSearch={(query, isNumber) => {
+                                    onSearch={useCallback((query, isNumber) => {
                                         if (query.length >= 1) {
                                             performSearch(query);
                                         } else {
                                             setSearchResults([]);
                                         }
-                                    }}
+                                    }, [performSearch])}
                                     onSelect={handleSelectProduct}
                                     results={searchResults}
                                     loading={loadingProduct}
-                                    placeholder="Escanear código, nombre o precio..."
+                                    placeholder="Buscar producto..."
                                     variant="large"
                                     showDropdown={true}
                                     autoFocus={true}
@@ -826,7 +1094,7 @@ export default function POSLayout() {
                                         const stock = product.inventory?.[currentInventory] || 0;
                                         return (
                                             <motion.button
-                                                key={product.id}
+                                                key={generateSafeKey('prod-result', product, index)}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: index * 0.03 }}
@@ -866,14 +1134,17 @@ export default function POSLayout() {
                             </div>
                         </div>
 
-                        {/* Cart List Premium */}
-                        <div className="flex-1 overflow-y-auto p-3 scrollbar-thin">
+                        {/* Cart List Premium - Hidden on mobile when viewing tickets */}
+                        <div className={cn(
+                            "flex-1 overflow-y-auto p-3 scrollbar-thin",
+                            mobileView !== 'cart' && "hidden lg:block"
+                        )}>
                             {cart.length > 0 ? (
                                 <div className="space-y-2">
                                     <AnimatePresence mode="popLayout">
                                         {cart.map((item, index) => (
                                             <motion.div
-                                                key={item.id || `item-${index}`}
+                                                key={generateSafeKey('cart-item', item, index)}
                                                 layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -954,13 +1225,41 @@ export default function POSLayout() {
                             )}
                         </div>
 
+                        {/* Mobile View Tabs - Only visible on mobile */}
+                        <div className="lg:hidden h-12 flex-none bg-card/50 border-t border-border/50 flex">
+                            <button
+                                onClick={() => setMobileView('cart')}
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    mobileView === 'cart'
+                                        ? "bg-cyan-500/10 text-cyan-400 border-b-2 border-cyan-500"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <ShoppingCart className="w-4 h-4" />
+                                Carrito {cart.length > 0 && <span className="bg-cyan-500 text-white text-xs px-1.5 py-0.5 rounded-full">{cart.length}</span>}
+                            </button>
+                            <button
+                                onClick={() => setMobileView('tickets')}
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    mobileView === 'tickets'
+                                        ? "bg-violet-500/10 text-violet-400 border-b-2 border-violet-500"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <History className="w-4 h-4" />
+                                Tickets {recentSales.length > 0 && <span className="bg-violet-500 text-white text-xs px-1.5 py-0.5 rounded-full">{recentSales.length}</span>}
+                            </button>
+                        </div>
+
                         {/* Footer Premium */}
-                        <div className="h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-4 flex items-center justify-between">
+                        <div className="h-16 sm:h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-3 sm:px-4 flex items-center justify-between">
                             <div>
-                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total a Pagar</div>
+                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total</div>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-xl text-emerald-500 font-medium">$</span>
-                                    <span className="text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
+                                    <span className="text-lg sm:text-xl text-emerald-500 font-medium">$</span>
+                                    <span className="text-2xl sm:text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
                                 </div>
                             </div>
 
@@ -968,31 +1267,34 @@ export default function POSLayout() {
                                 <button
                                     onClick={handleSaveSale}
                                     disabled={cart.length === 0}
-                                    className="h-12 px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="h-10 sm:h-12 px-3 sm:px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-1 sm:gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <Save className="w-4 h-4" />
-                                    <span className="text-sm font-semibold">Guardar</span>
+                                    <span className="text-xs sm:text-sm font-semibold hidden sm:inline">Guardar</span>
                                 </button>
 
                                 <button
                                     onClick={handleCheckoutClick}
                                     disabled={cart.length === 0 || checkoutProcessing}
-                                    className="h-12 px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                    className="h-10 sm:h-12 px-4 sm:px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2"
                                 >
                                     {checkoutProcessing ? (
                                         <Loader2 className="animate-spin w-4 h-4" />
                                     ) : (
                                         <Banknote className="w-4 h-4" />
                                     )}
-                                    <span className="text-base">Cobrar</span>
-                                    <ArrowRight className="w-4 h-4" />
+                                    <span className="text-sm sm:text-base">Cobrar</span>
+                                    <ArrowRight className="w-4 h-4 hidden sm:block" />
                                 </button>
                             </div>
                         </div>
                     </div>
 
-                    {/* RIGHT COLUMN: Sidebar (40%) */}
-                    <div className="w-[40%] flex flex-col h-full bg-card/30">
+                    {/* RIGHT COLUMN: Sidebar - Full width on mobile when viewing tickets, 40% on desktop */}
+                    <div className={cn(
+                        "flex-col h-full bg-card/30",
+                        mobileView === 'tickets' ? "flex lg:hidden w-full" : "hidden lg:flex lg:w-[40%]"
+                    )}>
 
                         {/* Session Info */}
                         <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">
@@ -1002,10 +1304,15 @@ export default function POSLayout() {
                             </div>
                             <button
                                 onClick={fetchMetrics}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/20 transition-all"
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                                    isSeller
+                                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
+                                        : "bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20"
+                                )}
                             >
                                 <LogOut className="w-3 h-3" />
-                                Cerrar Sesión
+                                {isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}
                             </button>
                         </div>
 
@@ -1015,7 +1322,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {savedSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id || `saved-${index}`}
+                                        key={generateSafeKey('saved-sale', sale, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1059,7 +1366,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {expenses.map((expense, index) => (
                                     <motion.div
-                                        key={`expense-${expense.id}`}
+                                        key={generateSafeKey('expense', expense, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1088,7 +1395,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id || `recent-${index}`}
+                                        key={generateSafeKey('recent-sale', sale, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1187,7 +1494,7 @@ export default function POSLayout() {
                                     await api.post('/expenses', data);
                                     // Agregar el gasto a la lista local
                                     const newExpense = {
-                                        id: Date.now(),
+                                        id: `exp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                                         type: 'expense',
                                         name: data.type,
                                         amount: data.amount,
@@ -1220,16 +1527,16 @@ export default function POSLayout() {
                                     formData.append('total_amount', returnData.total_amount);
                                     formData.append('notes', returnData.notes);
                                     formData.append('inventory_id', returnData.inventory_id);
-                                    
+
                                     // Agregar imágenes
                                     returnData.images.forEach((image, index) => {
                                         formData.append(`evidence_${index}`, image);
                                     });
-                                    
+
                                     await api.post('/returns', formData, {
                                         headers: { 'Content-Type': 'multipart/form-data' }
                                     });
-                                    
+
                                     setShowReturn(false);
                                     setAlertModal({
                                         isOpen: true,
@@ -1255,6 +1562,7 @@ export default function POSLayout() {
                             summary={closeSummary}
                             onClose={() => setShowClose(false)}
                             onSave={handleCloseSession}
+                            role={currentRole}
                         />
                     )}
                     {showPayment && (
@@ -1264,7 +1572,7 @@ export default function POSLayout() {
                             onConfirm={processPayment}
                         />
                     )}
-                    
+
                     {/* Confirm Modals */}
                     {showCartConfirm && (
                         <ConfirmModal
@@ -1285,7 +1593,7 @@ export default function POSLayout() {
                             icon={ShoppingCart}
                         />
                     )}
-                    
+
                     {showSavedConfirm && (
                         <ConfirmModal
                             isOpen={showSavedConfirm}

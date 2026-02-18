@@ -22,15 +22,147 @@ const backupDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-// Middleware
+// Initialize Database FIRST (before any middleware that uses it)
+const db = new Database(dbPath);
+console.log('Database initialized at:', dbPath);
+
+// CORS Configuration
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: function(origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin) || process.env.FRONTEND_URL === '*') {
+            callback(null, true);
+        } else {
+            console.warn('CORS blocked origin:', origin);
+            callback(null, true); // Allow all in development
+        }
+    },
     credentials: true
 }));
-app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Custom middleware for /uploads with fallback placeholder
+app.use('/uploads', (req, res, next) => {
+    const filePath = path.join(__dirname, 'uploads', decodeURIComponent(req.path));
+    
+    // Check if file exists
+    if (fs.existsSync(filePath)) {
+        return next(); // Continue to static middleware
+    }
+    
+    // File doesn't exist - serve dynamic SVG placeholder
+    const fileName = path.basename(req.path, path.extname(req.path));
+    const initials = fileName.substring(0, 2).toUpperCase();
+    
+    // Generate SVG placeholder with gradient background
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    <rect width="400" height="400" fill="url(#grad)"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+          font-family="system-ui, -apple-system, sans-serif" font-size="120" font-weight="bold" fill="#475569">
+        ${initials}
+    </text>
+    <text x="50%" y="75%" dominant-baseline="middle" text-anchor="middle" 
+          font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#64748b">
+        Sin imagen
+    </text>
+</svg>`;
+    
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.send(svg);
+}, express.static(path.join(__dirname, 'uploads')));
+
+// --- PERMISSION HELPERS (defined before routes) ---
+const checkAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
+        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
+    }
+    next();
+};
+
+const checkEditor = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
+        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
+    }
+    next();
+};
+
+const requireAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Requiere permisos de administrador o dueño.' });
+    }
+    next();
+};
+
+const requireEditor = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner' && req.user.can_edit !== 1) {
+        return res.status(403).json({ error: 'No tienes permisos para editar.' });
+    }
+    next();
+};
+
+// --- AUTHENTICATION MIDDLEWARE ---
+const authenticate = (req, res, next) => {
+    // Allow public access to login/register/auth
+    if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
+        return next();
+    }
+    // Allow public access to uploads
+    if (req.path.startsWith('/uploads')) {
+        return next();
+    }
+
+    // If req.user ya existe, usarlo
+    if (req.user && req.user.id) {
+        return next();
+    }
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    // If no token, create a default user (system works without login)
+    if (!token) {
+        req.user = {
+            id: 1,
+            username: 'default',
+            role: 'admin',
+            email: 'default@system.local',
+            can_edit: 1
+        };
+        return next();
+    }
+
+    const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
+    if (!user) {
+        req.user = {
+            id: 1,
+            username: 'default',
+            role: 'admin',
+            email: 'default@system.local',
+            can_edit: 1
+        };
+        return next();
+    }
+
+    req.user = user;
+    next();
+};
+
+// Apply authentication middleware
+app.use(authenticate);
 
 // Global middleware to set default user if no authentication
 // This allows the system to work without login
@@ -479,6 +611,17 @@ app.post('/api/sessions/close', (req, res) => {
         const finalCash = cashSales - cashExpenses;
         const finalTransfer = transferSales - transferExpenses;
 
+        // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
         db.prepare(`
             UPDATE sales_sessions 
             SET end_time = ?, 
@@ -503,12 +646,22 @@ app.post('/api/sessions/close', (req, res) => {
 
         res.json({ 
             success: true, 
+            session_id: session.id,
             wage: wage,
+            accumulated: {
+                current_session_wage: wage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage,
+                total_pending_wage: accumulatedWages.total_pending_wage + wage,
+                pending_sessions_count: accumulatedWages.pending_sessions + 1
+            },
             summary: {
                 sales: {
                     total: salesData.total_sales,
                     cash: cashSales,
                     transfer: transferSales
+                },
+                cost: {
+                    total: salesData.total_cost
                 },
                 expenses: {
                     total: expensesData.total_expenses,
@@ -529,6 +682,453 @@ app.post('/api/sessions/close', (req, res) => {
     }
 });
 
+// Send Session for Review (Seller)
+app.post('/api/sessions/send-for-review', (req, res) => {
+    try {
+        const { declared_cash, notes } = req.body;
+        const userId = req.user.id;
+        const username = req.user.username || 'Vendedor';
+
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
+
+        // Calculate Sales Totals
+        const salesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(s.total), 0) as total_sales,
+                COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            WHERE s.session_id = ?
+        `).get(session.id);
+
+        // Calculate Sales by Payment Method
+        const salesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(total), 0) as total
+            FROM sales
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Calculate Expenses Totals
+        const expensesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(amount), 0) as total_expenses
+            FROM expenses
+            WHERE session_id = ?
+        `).get(session.id);
+
+        // Calculate Expenses by Payment Method
+        const expensesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        const totalProfit = salesData.total_sales - salesData.total_cost;
+        const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
+
+        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
+        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+        const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+        
+        const finalCash = cashSales - cashExpenses;
+        const finalTransfer = transferSales - transferExpenses;
+
+        // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
+        // Update session status to 'pending_review'
+        db.prepare(`
+            UPDATE sales_sessions 
+            SET end_time = ?, 
+                declared_cash = ?, 
+                total_sales = ?, 
+                total_cost = ?, 
+                total_profit = ?, 
+                wage_amount = ?, 
+                status = 'pending_review',
+                notes = ?
+            WHERE id = ?
+        `).run(
+            new Date().toISOString(),
+            declared_cash || 0,
+            salesData.total_sales,
+            salesData.total_cost,
+            totalProfit,
+            wage,
+            notes || '',
+            session.id
+        );
+
+        // Create notification for all admins
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+        const notificationData = JSON.stringify({
+            session_id: session.id,
+            seller_id: userId,
+            seller_name: username,
+            total_sales: salesData.total_sales,
+            wage: wage
+        });
+
+        const insertNotification = db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'session_pending', ?, ?, ?)
+        `);
+
+        for (const admin of admins) {
+            insertNotification.run(
+                admin.id,
+                'Sesión pendiente de revisión',
+                `${username} ha enviado la sesión #${session.id} para revisión. Total: $${salesData.total_sales.toFixed(2)}`,
+                notificationData
+            );
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Sesión enviada para revisión',
+            session_id: session.id,
+            wage: wage,
+            accumulated: {
+                current_session_wage: wage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage,
+                total_pending_wage: accumulatedWages.total_pending_wage + wage,
+                pending_sessions_count: accumulatedWages.pending_sessions + 1
+            },
+            summary: {
+                sales: {
+                    total: salesData.total_sales,
+                    cash: cashSales,
+                    transfer: transferSales
+                },
+                cost: {
+                    total: salesData.total_cost
+                },
+                expenses: {
+                    total: expensesData.total_expenses,
+                    cash: cashExpenses,
+                    transfer: transferExpenses
+                },
+                final: {
+                    cash: finalCash,
+                    transfer: finalTransfer,
+                    total: finalCash + finalTransfer
+                }
+            }
+        });
+
+    } catch (e) {
+        logError("Send Session for Review", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Approve Session (Admin/Owner)
+app.post('/api/sessions/:id/approve', checkAdmin, (req, res) => {
+    try {
+        const sessionId = req.params.id;
+        const adminId = req.user.id;
+        const adminName = req.user.username || 'Administrador';
+
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE id = ?").get(sessionId);
+        if (!session) return res.status(404).json({ error: "Sesión no encontrada." });
+        if (session.status !== 'pending_review') return res.status(400).json({ error: "La sesión no está pendiente de revisión." });
+
+        // Update session to closed
+        db.prepare("UPDATE sales_sessions SET status = 'closed', approved_by = ? WHERE id = ?")
+            .run(adminId, sessionId);
+
+        // Create notification for seller
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'session_approved', ?, ?, ?)
+        `).run(
+            session.user_id,
+            'Sesión aprobada',
+            `Tu sesión #${sessionId} ha sido revisada y aprobada por ${adminName}`,
+            JSON.stringify({ session_id: sessionId, approved_by: adminId })
+        );
+
+        res.json({ success: true, message: 'Sesión aprobada correctamente' });
+
+    } catch (e) {
+        logError("Approve Session", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- WAGE/SALARY ENDPOINTS ---
+
+// Get seller's wage summary (current accumulated)
+app.get('/api/wages/my-summary', (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Get all sessions with pending or paid wages for this seller
+        const sessions = db.prepare(`
+            SELECT 
+                id,
+                start_time,
+                end_time,
+                total_sales,
+                total_cost,
+                total_profit,
+                wage_amount,
+                status,
+                wage_payment_id
+            FROM sales_sessions 
+            WHERE user_id = ? AND wage_amount > 0
+            ORDER BY start_time DESC
+        `).all(userId);
+
+        // Calculate totals
+        const totalEarned = sessions.reduce((sum, s) => sum + (s.wage_amount || 0), 0);
+        const totalPaid = sessions.filter(s => s.wage_payment_id).reduce((sum, s) => sum + (s.wage_amount || 0), 0);
+        const pendingAmount = totalEarned - totalPaid;
+
+        // Get pending payment requests
+        const pendingRequests = db.prepare(`
+            SELECT * FROM wage_payments 
+            WHERE user_id = ? AND status = 'pending'
+            ORDER BY requested_at DESC
+        `).all(userId);
+
+        res.json({
+            sessions: sessions,
+            summary: {
+                total_earned: totalEarned,
+                total_paid: totalPaid,
+                pending_amount: pendingAmount,
+                pending_requests: pendingRequests.length
+            }
+        });
+
+    } catch (e) {
+        logError("Get Wage Summary", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Request wage payment (Seller)
+app.post('/api/wages/request', (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { session_id, amount, payment_method } = req.body;
+
+        // Verify the session belongs to this user and has wage
+        const session = db.prepare(`
+            SELECT * FROM sales_sessions 
+            WHERE id = ? AND user_id = ? AND wage_amount > 0
+        `).get(session_id, userId);
+
+        if (!session) {
+            return res.status(400).json({ error: "Sesión no válida o sin salario pendiente." });
+        }
+
+        // Check if already requested
+        if (session.wage_payment_id) {
+            return res.status(400).json({ error: "El salario de esta sesión ya fue solicitado." });
+        }
+
+        // Create payment request
+        const result = db.prepare(`
+            INSERT INTO wage_payments (user_id, session_id, amount, payment_method, status)
+            VALUES (?, ?, ?, ?, 'pending')
+        `).run(userId, session_id, amount || session.wage_amount, payment_method || 'cash');
+
+        // Link payment to session
+        db.prepare(`
+            UPDATE sales_sessions SET wage_payment_id = ? WHERE id = ?
+        `).run(result.lastInsertRowid, session_id);
+
+        // Create notification for admins
+        const user = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+        
+        const insertNotification = db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'wage_request', ?, ?, ?)
+        `);
+
+        for (const admin of admins) {
+            insertNotification.run(
+                admin.id,
+                'Solicitud de pago de salario',
+                `${user?.username || 'Vendedor'} solicita pago de $${(amount || session.wage_amount).toFixed(2)}`,
+                JSON.stringify({ 
+                    wage_payment_id: result.lastInsertRowid,
+                    session_id: session_id,
+                    seller_id: userId,
+                    amount: amount || session.wage_amount
+                })
+            );
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Solicitud de pago enviada',
+            wage_payment_id: result.lastInsertRowid
+        });
+
+    } catch (e) {
+        logError("Request Wage Payment", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Process wage payment (Admin/Owner)
+app.post('/api/wages/:id/pay', checkAdmin, (req, res) => {
+    try {
+        const paymentId = req.params.id;
+        const adminId = req.user.id;
+        const adminName = req.user.username || 'Administrador';
+        const { notes } = req.body;
+
+        const payment = db.prepare('SELECT * FROM wage_payments WHERE id = ?').get(paymentId);
+        if (!payment) return res.status(404).json({ error: "Solicitud de pago no encontrada." });
+        if (payment.status !== 'pending') return res.status(400).json({ error: "Esta solicitud ya fue procesada." });
+
+        // Update payment status
+        db.prepare(`
+            UPDATE wage_payments 
+            SET status = 'paid', paid_at = ?, paid_by = ?, notes = ?
+            WHERE id = ?
+        `).run(new Date().toISOString(), adminId, notes || '', paymentId);
+
+        // Create notification for seller
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'wage_paid', ?, ?, ?)
+        `).run(
+            payment.user_id,
+            'Pago de salario realizado',
+            `Se te ha pagado $${payment.amount.toFixed(2)} - ${payment.payment_method === 'cash' ? 'Efectivo' : 'Transferencia'}`,
+            JSON.stringify({ 
+                wage_payment_id: paymentId,
+                amount: payment.amount,
+                paid_by: adminId
+            })
+        );
+
+        res.json({ success: true, message: 'Pago procesado correctamente' });
+
+    } catch (e) {
+        logError("Process Wage Payment", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get all pending wage payments (Admin/Owner)
+app.get('/api/wages/pending', checkAdmin, (req, res) => {
+    try {
+        const payments = db.prepare(`
+            SELECT 
+                wp.*,
+                u.username as seller_name,
+                ss.start_time as session_date
+            FROM wage_payments wp
+            JOIN users u ON wp.user_id = u.id
+            LEFT JOIN sales_sessions ss ON wp.session_id = ss.id
+            WHERE wp.status = 'pending'
+            ORDER BY wp.requested_at DESC
+        `).all();
+
+        res.json({ payments });
+
+    } catch (e) {
+        logError("Get Pending Wages", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- NOTIFICATIONS ENDPOINTS ---
+
+// Get notifications for current user
+app.get('/api/notifications', (req, res) => {
+    try {
+        const userId = req.user.id;
+        const notifications = db.prepare(`
+            SELECT * FROM notifications 
+            WHERE user_id = ? OR user_id IS NULL
+            ORDER BY created_at DESC
+            LIMIT 50
+        `).all(userId);
+
+        // Parse JSON data field
+        const parsedNotifications = notifications.map(n => ({
+            ...n,
+            data: n.data ? JSON.parse(n.data) : null,
+            is_read: !!n.is_read
+        }));
+
+        // Get unread count
+        const unreadCount = db.prepare(`
+            SELECT COUNT(*) as count FROM notifications 
+            WHERE (user_id = ? OR user_id IS NULL) AND is_read = 0
+        `).get(userId);
+
+        res.json({ 
+            notifications: parsedNotifications, 
+            unread_count: unreadCount.count 
+        });
+    } catch (e) {
+        logError("Get Notifications", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Mark notification as read
+app.put('/api/notifications/:id/read', (req, res) => {
+    try {
+        const notificationId = req.params.id;
+        const userId = req.user.id;
+
+        db.prepare(`
+            UPDATE notifications 
+            SET is_read = 1 
+            WHERE id = ? AND (user_id = ? OR user_id IS NULL)
+        `).run(notificationId, userId);
+
+        res.json({ success: true });
+    } catch (e) {
+        logError("Mark Notification Read", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/read-all', (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        db.prepare(`
+            UPDATE notifications 
+            SET is_read = 1 
+            WHERE (user_id = ? OR user_id IS NULL) AND is_read = 0
+        `).run(userId);
+
+        res.json({ success: true });
+    } catch (e) {
+        logError("Mark All Notifications Read", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Get Session Status
 app.get('/api/sessions/status', (req, res) => {
     try {
@@ -541,6 +1141,122 @@ app.get('/api/sessions/status', (req, res) => {
             res.json({ isOpen: false });
         }
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get detailed session metrics (for close modal)
+app.get('/api/sessions/metrics', (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Get current open session
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) {
+            return res.status(400).json({ error: "No hay sesión abierta." });
+        }
+
+        // Calculate Sales Totals with COSTS
+        const salesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(s.total), 0) as total_sales,
+                COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            WHERE s.session_id = ?
+        `).get(session.id);
+
+        // Calculate Sales by Payment Method
+        const salesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(total), 0) as total
+            FROM sales
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Calculate Expenses Totals
+        const expensesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(amount), 0) as total_expenses
+            FROM expenses
+            WHERE session_id = ?
+        `).get(session.id);
+
+        // Calculate Expenses by Payment Method
+        const expensesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Current session calculations
+        const totalProfit = salesData.total_sales - salesData.total_cost;
+        const currentWage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
+
+        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
+        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        const otherSales = salesByMethod.find(s => s.payment_method !== 'cash' && s.payment_method !== 'transfer')?.total || 0;
+        const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+        const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+        
+        const finalCash = cashSales - cashExpenses;
+        const finalTransfer = transferSales - transferExpenses;
+
+        // Calculate ACCUMULATED WAGE (all unpaid sessions)
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
+        res.json({
+            session: {
+                id: session.id,
+                start_time: session.start_time,
+                initial_cash: session.initial_cash
+            },
+            current: {
+                sales: {
+                    total: salesData.total_sales,
+                    cash: cashSales,
+                    transfer: transferSales,
+                    other: otherSales
+                },
+                cost: {
+                    total: salesData.total_cost
+                },
+                expenses: {
+                    total: expensesData.total_expenses,
+                    cash: cashExpenses,
+                    transfer: transferExpenses
+                },
+                profit: totalProfit,
+                wage: currentWage
+            },
+            final: {
+                cash: finalCash,
+                transfer: finalTransfer,
+                total: finalCash + finalTransfer
+            },
+            accumulated: {
+                current_session_wage: currentWage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage - currentWage,
+                total_pending_wage: accumulatedWages.total_pending_wage,
+                pending_sessions_count: accumulatedWages.pending_sessions
+            }
+        });
+
+    } catch (e) {
+        logError("Get Session Metrics", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -618,23 +1334,7 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 
 // --- EXPENSE TYPES MANAGEMENT ---
 
-// Helper for Permissions - MOVED HERE before use
-const checkAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
-        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
-    }
-    next();
-};
-
-const checkEditor = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
-        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
-    }
-    next();
-};
-
-// Database setup
-const db = new Database(dbPath); // Use absolute path
+// Permission helpers are now defined at the top of MIDDLEWARE section
 
 // Helper for error logging
 const logError = (context, error) => {
@@ -985,9 +1685,8 @@ const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_type
 if (expenseTypesCount.count === 0) {
     console.log("Inserting default expense types...");
     const defaultTypes = [
-        { name: 'Área (Luz/Agua)', amount: 3000, payment_method: 'cash' },
+        { name: 'Área', amount: 3000, payment_method: 'cash' },
         { name: 'Limpieza', amount: 100, payment_method: 'cash' },
-        { name: 'Transporte', amount: 200, payment_method: 'cash' },
         { name: 'Otros', amount: 0, payment_method: 'cash' }
     ];
     const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount, payment_method) VALUES (?, ?, ?)');
@@ -995,6 +1694,120 @@ if (expenseTypesCount.count === 0) {
         insertExpenseType.run(type.name, type.amount, type.payment_method);
     }
 }
+
+// Migrate losses table to add new columns
+try {
+    const lossCols = db.prepare("PRAGMA table_info(losses)").all();
+    const hasType = lossCols.some(c => c.name === 'type');
+    const hasEvidence = lossCols.some(c => c.name === 'evidence');
+    const hasInventory = lossCols.some(c => c.name === 'inventory');
+    
+    if (!hasType) {
+        console.log("Migrating: Adding type to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN type TEXT DEFAULT 'rotura_interna'");
+    }
+    if (!hasEvidence) {
+        console.log("Migrating: Adding evidence to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN evidence TEXT");
+    }
+    if (!hasInventory) {
+        console.log("Migrating: Adding inventory to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN inventory TEXT DEFAULT 'mch1'");
+    }
+} catch (e) { console.log("Migration check (losses):", e.message); }
+
+// Notifications table
+console.log("Creating notifications table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
+// Create index for faster queries
+try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read)');
+} catch (e) { console.log("Index creation (notifications):", e.message); }
+
+// Migration: Add approved_by to sales_sessions if not exists
+try {
+    const sessionCols = db.prepare("PRAGMA table_info(sales_sessions)").all();
+    const hasApprovedBy = sessionCols.some(c => c.name === 'approved_by');
+    if (!hasApprovedBy) {
+        console.log("Migrating: Adding approved_by to sales_sessions...");
+        db.exec("ALTER TABLE sales_sessions ADD COLUMN approved_by INTEGER REFERENCES users(id)");
+    }
+} catch (e) { console.log("Migration check (sales_sessions approved_by):", e.message); }
+
+// Wage payments table (for tracking salary payments to sellers)
+console.log("Creating wage_payments table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wage_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_id INTEGER,
+    amount REAL NOT NULL,
+    payment_method TEXT DEFAULT 'cash',
+    status TEXT DEFAULT 'pending',
+    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    paid_by INTEGER,
+    notes TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(session_id) REFERENCES sales_sessions(id),
+    FOREIGN KEY(paid_by) REFERENCES users(id)
+  )
+`);
+
+// Migration: Add wage_payment_id to sales_sessions
+try {
+    const sessionCols = db.prepare("PRAGMA table_info(sales_sessions)").all();
+    const hasWagePaymentId = sessionCols.some(c => c.name === 'wage_payment_id');
+    if (!hasWagePaymentId) {
+        console.log("Migrating: Adding wage_payment_id to sales_sessions...");
+        db.exec("ALTER TABLE sales_sessions ADD COLUMN wage_payment_id INTEGER REFERENCES wage_payments(id)");
+    }
+} catch (e) { console.log("Migration check (sales_sessions wage_payment_id):", e.message); }
+
+// Transfers table
+console.log("Creating transfers table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_inventory TEXT NOT NULL,
+    target_inventory TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    received_at DATETIME,
+    received_by INTEGER,
+    status TEXT DEFAULT 'pending',
+    notes TEXT,
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    FOREIGN KEY(received_by) REFERENCES users(id)
+  )
+`);
+
+// Transfer items table
+console.log("Creating transfer_items table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfer_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transfer_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  )
+`);
 
 // Helper to get system config safely
 const getSystemConfig = (key) => {
@@ -1004,61 +1817,6 @@ const getSystemConfig = (key) => {
     } catch (e) {
         return null;
     }
-};
-
-// --- MIDDLEWARE ---
-const authenticate = (req, res, next) => {
-    // Allow public access to login/register/verify
-    if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
-        return next();
-    }
-    // Allow public access to uploads
-    if (req.path.startsWith('/uploads')) {
-        return next();
-    }
-
-    // Si req.user ya existe (establecido por middleware global), usarlo
-    if (req.user && req.user.id) {
-        return next();
-    }
-
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    // If no token, create a default user (system works without login)
-    if (!token) {
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
-        return next();
-    }
-
-    const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
-    if (!user) {
-        // If token is invalid, also use default user instead of failing
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
-        return next();
-    }
-
-    req.user = user;
-    next();
-};
-
-const requireAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
-        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
-    }
-    next();
 };
 
 // --- EXPENSE TYPES ENDPOINTS ---
@@ -1111,12 +1869,384 @@ app.delete('/api/expense-types/:id', authenticate, requireAdmin, (req, res) => {
     }
 });
 
-const requireEditor = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
-        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
+// --- MERMAS (LOSSES) ENDPOINTS ---
+
+// Get all mermas
+app.get('/api/mermas', authenticate, (req, res) => {
+    try {
+        const { inventory } = req.query;
+        let query = `
+            SELECT l.*, p.name as product_name, p.image as product_image
+            FROM losses l
+            JOIN products p ON l.product_id = p.id
+            WHERE 1=1
+        `;
+        const params = [];
+        
+        if (inventory) {
+            query += ' AND l.inventory = ?';
+            params.push(inventory);
+        }
+        
+        query += ' ORDER BY l.date DESC';
+        
+        const mermas = db.prepare(query).all(...params);
+        res.json(mermas);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
-    next();
-};
+});
+
+// Create new merma
+app.post('/api/mermas', authenticate, (req, res) => {
+    try {
+        const { type, product_id, quantity, reason, inventory } = req.body;
+        
+        if (!type || !product_id || !quantity) {
+            return res.status(400).json({ error: 'Tipo, producto y cantidad son requeridos' });
+        }
+        
+        // Insertar la merma
+        const result = db.prepare(`
+            INSERT INTO losses (product_id, quantity, reason, type, inventory, user_id, date)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(product_id, quantity, reason || '', type, inventory || 'mch1', req.user.id);
+        
+        // Actualizar stock según el tipo de merma
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
+        if (product) {
+            let newQuantity = product.quantity;
+            
+            switch(type) {
+                case 'rotura_interna':
+                    // Disminuye stock
+                    newQuantity = Math.max(0, product.quantity - parseInt(quantity));
+                    break;
+                case 'devolucion_nuevo':
+                    // Aumenta stock
+                    newQuantity = product.quantity + parseInt(quantity);
+                    break;
+                case 'devolucion_danado':
+                    // Stock neutral (no cambia)
+                    break;
+            }
+            
+            db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQuantity, product_id);
+        }
+        
+        res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete merma (admin only) - restaura el stock
+app.delete('/api/mermas/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Obtener la merma antes de eliminar
+        const merma = db.prepare('SELECT * FROM losses WHERE id = ?').get(id);
+        if (!merma) {
+            return res.status(404).json({ error: 'Merma no encontrada' });
+        }
+        
+        // Restaurar stock según el tipo
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(merma.product_id);
+        if (product) {
+            let newQuantity = product.quantity;
+            
+            switch(merma.type) {
+                case 'rotura_interna':
+                    // Restaurar stock (sumar de vuelta)
+                    newQuantity = product.quantity + merma.quantity;
+                    break;
+                case 'devolucion_nuevo':
+                    // Quitar stock (restar de vuelta)
+                    newQuantity = Math.max(0, product.quantity - merma.quantity);
+                    break;
+                case 'devolucion_danado':
+                    // Stock neutral (no cambia)
+                    break;
+            }
+            
+            db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQuantity, merma.product_id);
+        }
+        
+        // Eliminar la merma
+        db.prepare('DELETE FROM losses WHERE id = ?').run(id);
+        
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- TRANSFERS ENDPOINTS ---
+
+// Get all transfers
+app.get('/api/transfers', authenticate, (req, res) => {
+    try {
+        const { inventory } = req.query;
+        let query = `
+            SELECT t.*, 
+                   creator.username as created_by_name,
+                   receiver.username as received_by_name
+            FROM transfers t
+            LEFT JOIN users creator ON t.created_by = creator.id
+            LEFT JOIN users receiver ON t.received_by = receiver.id
+            WHERE 1=1
+        `;
+        const params = [];
+        
+        if (inventory) {
+            query += ' AND (t.source_inventory = ? OR t.target_inventory = ?)';
+            params.push(inventory, inventory);
+        }
+        
+        query += ' ORDER BY t.created_at DESC';
+        
+        const transfers = db.prepare(query).all(...params);
+        
+        // Get items for each transfer
+        for (const transfer of transfers) {
+            const items = db.prepare(`
+                SELECT ti.*, p.name as product_name, p.image as product_image
+                FROM transfer_items ti
+                JOIN products p ON ti.product_id = p.id
+                WHERE ti.transfer_id = ?
+            `).all(transfer.id);
+            transfer.items = items;
+        }
+        
+        res.json(transfers);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new transfer (admin/owner only)
+app.post('/api/transfers', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { source_inventory, target_inventory, items, notes } = req.body;
+        
+        if (!source_inventory || !target_inventory || !items || items.length === 0) {
+            return res.status(400).json({ error: 'Datos incompletos' });
+        }
+        
+        if (source_inventory === target_inventory) {
+            return res.status(400).json({ error: 'Origen y destino no pueden ser iguales' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Create transfer
+            const transferResult = db.prepare(`
+                INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes)
+                VALUES (?, ?, ?, 'pending', ?)
+            `).run(source_inventory, target_inventory, req.user.id, notes || '');
+            
+            const transferId = transferResult.lastInsertRowid;
+            
+            // Add items
+            const insertItem = db.prepare(`
+                INSERT INTO transfer_items (transfer_id, product_id, quantity)
+                VALUES (?, ?, ?)
+            `);
+            
+            for (const item of items) {
+                insertItem.run(transferId, item.product_id, item.quantity);
+                
+                // Deduct stock from source inventory
+                const currentStock = db.prepare(`
+                    SELECT quantity FROM product_inventory 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).get(item.product_id, source_inventory);
+                
+                if (currentStock && currentStock.quantity >= item.quantity) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity - ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, source_inventory);
+                } else {
+                    throw new Error(`Stock insuficiente para el producto ${item.product_id}`);
+                }
+            }
+            
+            return transferId;
+        });
+        
+        const transferId = transaction();
+        
+        // Create notifications based on rules
+        const sourceType = source_inventory === 'alm' ? 'Almacén' : 'Punto de Venta';
+        const targetType = target_inventory === 'alm' ? 'Almacén' : 'Punto de Venta';
+        
+        // 1. If admin created, notify owner
+        if (req.user.role === 'admin') {
+            const owner = db.prepare("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get();
+            if (owner) {
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'transfer_created', ?, ?, ?)
+                `).run(
+                    owner.id,
+                    'Nuevo traslado creado',
+                    `El administrador ${req.user.username} ha creado un traslado de ${source_inventory} a ${target_inventory}`,
+                    JSON.stringify({ transfer_id: transferId })
+                );
+            }
+        }
+        
+        // 2. If target is a Point of Sale, notify sellers there
+        if (target_inventory !== 'alm') {
+            const sellers = db.prepare(`
+                SELECT id FROM users 
+                WHERE role = 'seller' AND inventory_id = ?
+            `).all(target_inventory);
+            
+            for (const seller of sellers) {
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'transfer_incoming', ?, ?, ?)
+                `).run(
+                    seller.id,
+                    'Traslado entrante',
+                    `Se ha enviado mercancía desde ${source_inventory} hacia tu punto de venta`,
+                    JSON.stringify({ transfer_id: transferId })
+                );
+            }
+        }
+        
+        res.json({ success: true, id: transferId });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Receive transfer (update status and add stock to target)
+app.post('/api/transfers/:id/receive', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+        
+        if (transfer.status !== 'pending') {
+            return res.status(400).json({ error: 'El traslado ya fue procesado' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Update transfer status
+            db.prepare(`
+                UPDATE transfers 
+                SET status = 'received', received_at = datetime('now'), received_by = ?
+                WHERE id = ?
+            `).run(req.user.id, id);
+            
+            // Add stock to target inventory
+            const items = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+            
+            for (const item of items) {
+                // Check if product_inventory row exists
+                const exists = db.prepare(`
+                    SELECT 1 FROM product_inventory 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).get(item.product_id, transfer.target_inventory);
+                
+                if (exists) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity + ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, transfer.target_inventory);
+                } else {
+                    db.prepare(`
+                        INSERT INTO product_inventory (product_id, inventory_id, quantity)
+                        VALUES (?, ?, ?)
+                    `).run(item.product_id, transfer.target_inventory, item.quantity);
+                }
+            }
+        });
+        
+        transaction();
+        
+        // Notify creator that transfer was received
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'transfer_received', ?, ?, ?)
+        `).run(
+            transfer.created_by,
+            'Traslado recibido',
+            `El traslado #${id} ha sido recibido en ${transfer.target_inventory}`,
+            JSON.stringify({ transfer_id: id })
+        );
+        
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Reject transfer
+app.post('/api/transfers/:id/reject', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+        
+        if (transfer.status !== 'pending') {
+            return res.status(400).json({ error: 'El traslado ya fue procesado' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Update transfer status
+            db.prepare(`
+                UPDATE transfers 
+                SET status = 'rejected', notes = COALESCE(notes, '') || ' | Rechazado: ' || ?
+                WHERE id = ?
+            `).run(reason || 'Sin motivo', id);
+            
+            // Return stock to source inventory
+            const items = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+            
+            for (const item of items) {
+                db.prepare(`
+                    UPDATE product_inventory 
+                    SET quantity = quantity + ? 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).run(item.quantity, item.product_id, transfer.source_inventory);
+            }
+        });
+        
+        transaction();
+        
+        // Notify creator
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'transfer_rejected', ?, ?, ?)
+        `).run(
+            transfer.created_by,
+            'Traslado rechazado',
+            `El traslado #${id} fue rechazado en ${transfer.target_inventory}. Motivo: ${reason || 'Sin motivo'}`,
+            JSON.stringify({ transfer_id: id })
+        );
+        
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ------------------
 
 // Login endpoint
@@ -1333,6 +2463,121 @@ app.post('/api/products', authenticate, requireEditor, (req, res) => {
         res.json({ success: true, id: info.lastInsertRowid });
     } catch (e) {
         logError("POST /api/products", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3.5 Update Product
+app.put('/api/products/:id', authenticate, requireEditor, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, cost_mx, sale_price_manual, description, label_color, deletedImages } = req.body;
+
+        // Check if product exists
+        const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Update product fields
+        db.prepare(`
+            UPDATE products 
+            SET name = ?, cost_mx = ?, sale_price_manual = ?, description = ?, label_color = ?
+            WHERE id = ?
+        `).run(
+            name || existing.name,
+            cost_mx !== undefined ? cost_mx : existing.cost_mx,
+            sale_price_manual !== undefined ? sale_price_manual : existing.sale_price_manual,
+            description !== undefined ? description : existing.description,
+            label_color || existing.label_color,
+            id
+        );
+
+        // Handle deleted images
+        if (deletedImages) {
+            try {
+                const imagesToDelete = JSON.parse(deletedImages);
+                if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
+                    // Get current images
+                    const product = db.prepare('SELECT images FROM products WHERE id = ?').get(id);
+                    let currentImages = [];
+                    try {
+                        currentImages = JSON.parse(product.images) || [];
+                    } catch (e) {
+                        currentImages = [];
+                    }
+
+                    // Remove deleted images from array
+                    const updatedImages = currentImages.filter(img => {
+                        const imgPath = img.startsWith('/') ? img : `/${img}`;
+                        const shouldDelete = imagesToDelete.some(del => {
+                            const delPath = del.startsWith('/') ? del : `/${del}`;
+                            return imgPath === delPath || imgPath.endsWith(delPath);
+                        });
+                        
+                        // Delete physical file if it exists
+                        if (shouldDelete) {
+                            const filename = path.basename(img);
+                            const filePath = path.join(__dirname, 'uploads', filename);
+                            if (fs.existsSync(filePath)) {
+                                fs.unlinkSync(filePath);
+                                console.log(`Deleted image file: ${filename}`);
+                            }
+                        }
+                        
+                        return !shouldDelete;
+                    });
+
+                    // Update database
+                    db.prepare('UPDATE products SET images = ? WHERE id = ?').run(
+                        JSON.stringify(updatedImages),
+                        id
+                    );
+                }
+            } catch (e) {
+                console.error('Error handling deleted images:', e);
+            }
+        }
+
+        res.json({ success: true, message: 'Producto actualizado correctamente' });
+    } catch (e) {
+        logError("PUT /api/products/:id", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3.6 Delete Product
+app.delete('/api/products/:id', authenticate, requireEditor, (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Check if product exists
+        const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Delete associated image files
+        try {
+            const images = JSON.parse(existing.images) || [];
+            images.forEach(img => {
+                const filename = path.basename(img);
+                const filePath = path.join(__dirname, 'uploads', filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                    console.log(`Deleted image file: ${filename}`);
+                }
+            });
+        } catch (e) {
+            console.error('Error deleting product images:', e);
+        }
+
+        // Delete product (cascade will handle inventory records)
+        db.prepare('DELETE FROM products WHERE id = ?').run(id);
+
+        res.json({ success: true, message: 'Producto eliminado correctamente' });
+    } catch (e) {
+        logError("DELETE /api/products/:id", e);
         res.status(500).json({ error: e.message });
     }
 });
