@@ -9,6 +9,7 @@ export default defineConfig({
     strictPort: true,
     host: true, // Listen on all addresses
     allowedHosts: true, // Allow all host headers (needed for Ngrok)
+    open: false, // No abrir navegador automáticamente (lo hace INICIAR_SISTEMA.bat)
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
