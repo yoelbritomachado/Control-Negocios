@@ -40,7 +40,36 @@ if /I not "%CONFIRMAR%"=="S" (
 echo.
 
 :: ============================================
-:: PASO 2: Agregar cambios
+:: PASO 2: Validar código antes de commit
+:: ============================================
+echo ════════════════════════════════════════════════════════════
+echo PASO 2: Validando calidad del código...
+echo ════════════════════════════════════════════════════════════
+echo.
+
+powershell -ExecutionPolicy Bypass -File "validar-codigo.ps1"
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ❌ Validación fallida. Corrige los errores antes de continuar.
+    echo.
+    echo 💡 Tip: Revisa el log arriba para ver los errores detectados.
+    echo.
+    set /p FORZAR="¿Deseas forzar el commit de todos modos? (solo en emergencias) (S/N): "
+    if /I not "%FORZAR%"=="S" (
+        echo.
+        echo Operación cancelada.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo ⚠️  Continuando con errores (modo forzado)... El sistema puede fallar.
+    echo.
+)
+
+echo.
+
+:: ============================================
+:: PASO 3: Agregar cambios
 echo ════════════════════════════════════════════════════════════
 echo PASO 2: Agregando cambios...
 echo ════════════════════════════════════════════════════════════
@@ -57,9 +86,9 @@ echo ✅ Archivos agregados al stage
 echo.
 
 :: ============================================
-:: PASO 3: Pedir mensaje de commit
+:: PASO 4: Pedir mensaje de commit
 echo ════════════════════════════════════════════════════════════
-echo PASO 3: Mensaje del commit
+echo PASO 4: Mensaje del commit
 echo ════════════════════════════════════════════════════════════
 echo.
 echo 💡 Tipos de commit comunes:
@@ -80,9 +109,9 @@ if "%MENSAJE%"=="" (
 echo.
 
 :: ============================================
-:: PASO 4: Crear commit
+:: PASO 5: Crear commit
 echo ════════════════════════════════════════════════════════════
-echo PASO 4: Creando commit...
+echo PASO 5: Creando commit...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -97,9 +126,9 @@ echo ✅ Commit creado correctamente
 echo.
 
 :: ============================================
-:: PASO 5: Subir a GitHub
+:: PASO 6: Subir a GitHub
 echo ════════════════════════════════════════════════════════════
-echo PASO 5: Subiendo a GitHub (git push)...
+echo PASO 6: Subiendo a GitHub (git push)...
 echo ════════════════════════════════════════════════════════════
 echo.
 

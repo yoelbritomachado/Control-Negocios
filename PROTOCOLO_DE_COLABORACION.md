@@ -201,6 +201,34 @@ Cuando Antigravity haga cambios, debe actualizar esta sección:
 
 ---
 
+## 🤖 Validación Automática (GitHub Actions)
+
+El repositorio tiene configurado un **workflow de validación automática** que se ejecuta en cada push/PR:
+
+### Qué valida:
+1. **Sintaxis JS** - Detecta errores de parseo
+2. **Shadowing** - Variables que ocultan globales (`posCart`, `db`, `currentUser`)
+3. **Funciones duplicadas** - Código zombie que puede causar bugs
+4. **Referencias globales** - Funciones usadas en `onclick` deben estar expuestas en `window`
+5. **Archivos críticos** - Que existan `MEMORIA_PROYECTO.md`, etc.
+
+### Cómo ver resultados:
+- Ve a la pestaña **Actions** en GitHub
+- Revisa el estado de la última ejecución
+- Si hay errores (❌), el PR no debería mergearse hasta corregirlos
+
+### Si falla la validación:
+```bash
+# 1. Revisa los logs en GitHub Actions
+# 2. Corrige los errores localmente
+# 3. Commit y push de nuevo
+git add .
+git commit -m "fix: corrige shadowing y funciones duplicadas"
+git push origin main
+```
+
+---
+
 ## 📚 Recursos de Referencia
 
 | Recurso | Ubicación | Propósito |
@@ -209,6 +237,36 @@ Cuando Antigravity haga cambios, debe actualizar esta sección:
 | `CLAW_PROJECT_MANIFEST.md` | Raíz | Manifiesto técnico para Kimi |
 | `DESIGN_SYSTEM.md` | Raíz | Guía de diseño y componentes |
 | `PROTOCOLO_DE_COLABORACION.md` | Raíz | Este archivo - coordinación |
+
+---
+
+## ✅ Checklist Pre-Commit (OBLIGATORIO)
+
+> **Antes de hacer `git commit`, verifica estos puntos para evitar errores comunes:**
+
+### Validación de Código JS
+- [ ] **No hay variables duplicadas** (shadowing): Buscar `let posCart`, `let db`, `let currentUser` - deben usar `window.`
+- [ ] **No hay funciones zombie**: Al refactorizar, buscar y eliminar la definición antigua de la función
+- [ ] **Funciones expuestas globalmente**: Las funciones usadas en `onclick` deben tener `window.nombreFuncion = nombreFuncion`
+- [ ] **Referencias a window**: Variables globales deben usarse como `window.variable`, no directamente
+
+### Validación de Estructura
+- [ ] **Orden de scripts**: `data.js` debe cargar antes que `app.js` / `pos.js`
+- [ ] **No hay funciones duplicadas**: Buscar `function nombreFuncion` dos veces en el mismo archivo
+- [ ] **Leyes de Negocio respetadas**: Cambios en ventas/inventario deben respetar `SYSTEM_LOGIC_RULES.md`
+
+### Validación de Git
+- [ ] **Hice `git pull origin main` antes de empezar**
+- [ ] **No modifico Zonas Protegidas** sin consultar al otro
+- [ ] **Mensaje de commit descriptivo** siguiendo la convención (`feat:`, `fix:`, etc.)
+
+### Errores Comunes a Evitar (Ver Registro)
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `X is not defined` | Shadowing o falta `window.` | Usar `window.X` |
+| `function already declared` | Código zombie no eliminado | Borrar definición antigua |
+| Función no responde | No expuesta globalmente | Agregar `window.func = func` |
+| Pantalla blanca/negra | Orden de carga incorrecto | Verificar `<script>` en HTML |
 
 ---
 
