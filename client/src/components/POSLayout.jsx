@@ -645,10 +645,17 @@ export default function POSLayout() {
     const processPayment = async (paymentData) => {
         setCheckoutProcessing(true);
         try {
-            // Validar que todos los items tengan ID válido
-            const invalidItems = cart.filter(item => !item.id);
-            if (invalidItems.length > 0) {
-                throw new Error(`Hay ${invalidItems.length} producto(s) sin ID válido. Por favor elimínelos y vuelva a agregarlos.`);
+            // Validar que todos los items tengan ID válido (no temporal)
+            const tempIdItems = cart.filter(item => 
+                !item.id || 
+                String(item.id).startsWith('session_') || 
+                String(item.id).startsWith('temp_')
+            );
+            if (tempIdItems.length > 0) {
+                throw new Error(
+                    `Hay ${tempIdItems.length} producto(s) con ID temporal (${tempIdItems[0].name}). ` +
+                    `Por favor elimine estos productos y agréguelos nuevamente desde el catálogo.`
+                );
             }
 
             // Determinar el método de pago principal
@@ -659,10 +666,10 @@ export default function POSLayout() {
                 paymentMethod = 'transfer';
             }
 
-            // Preparar items para el backend - usar product_id si existe, sino el id
+            // Preparar items para el backend
             const itemsForBackend = cart.map(item => ({
                 ...item,
-                id: item.product_id || item.id
+                id: item.id
             }));
 
             const res = await api.post('/sales', {
