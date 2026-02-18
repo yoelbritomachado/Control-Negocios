@@ -239,7 +239,7 @@ export default function HistorySalesPage() {
             sale_price_manual: item.price,
             cost_mn: item.cost || item.price * 0.6,
             quantity: item.quantity
-        });
+        }));
         
         setCart(cartItems);
         
