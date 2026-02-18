@@ -30,7 +30,43 @@ app.use(cors({
 app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Custom middleware for /uploads with fallback placeholder
+app.use('/uploads', (req, res, next) => {
+    const filePath = path.join(__dirname, 'uploads', decodeURIComponent(req.path));
+    
+    // Check if file exists
+    if (fs.existsSync(filePath)) {
+        return next(); // Continue to static middleware
+    }
+    
+    // File doesn't exist - serve dynamic SVG placeholder
+    const fileName = path.basename(req.path, path.extname(req.path));
+    const initials = fileName.substring(0, 2).toUpperCase();
+    
+    // Generate SVG placeholder with gradient background
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1e293b;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#0f172a;stop-opacity:1" />
+        </linearGradient>
+    </defs>
+    <rect width="400" height="400" fill="url(#grad)"/>
+    <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+          font-family="system-ui, -apple-system, sans-serif" font-size="120" font-weight="bold" fill="#475569">
+        ${initials}
+    </text>
+    <text x="50%" y="75%" dominant-baseline="middle" text-anchor="middle" 
+          font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#64748b">
+        Sin imagen
+    </text>
+</svg>`;
+    
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.send(svg);
+}, express.static(path.join(__dirname, 'uploads')));
 
 // Global middleware to set default user if no authentication
 // This allows the system to work without login
