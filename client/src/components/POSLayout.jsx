@@ -627,8 +627,6 @@ export default function POSLayout() {
         const newCartItems = sale.items.map((item) => ({
             ...item,
             id: item.product_id || item.id
-        }});
-            quantity: item.quantity
         }));
         setCart(newCartItems);
         // Eliminar la venta original
