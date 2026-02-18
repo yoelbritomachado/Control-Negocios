@@ -1088,20 +1088,7 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 
 // --- EXPENSE TYPES MANAGEMENT ---
 
-// Helper for Permissions - MOVED HERE before use
-const checkAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
-        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
-    }
-    next();
-};
-
-const checkEditor = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
-        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
-    }
-    next();
-};
+// Permission helpers are now defined at the top of MIDDLEWARE section
 
 // Database setup
 const db = new Database(dbPath); // Use absolute path
@@ -1590,6 +1577,23 @@ const getSystemConfig = (key) => {
 };
 
 // --- MIDDLEWARE ---
+
+// Helper for admin permissions - MUST be defined before use
+const checkAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
+        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
+    }
+    next();
+};
+
+// Helper for editor permissions
+const checkEditor = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
+        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
+    }
+    next();
+};
+
 const authenticate = (req, res, next) => {
     // Allow public access to login/register/verify
     if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
