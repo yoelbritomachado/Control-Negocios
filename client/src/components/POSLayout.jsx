@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useCart } from './CartProvider';
 import InventorySelector from './InventorySelector';
 import api, { fetchProducts } from '../api';
@@ -394,7 +394,12 @@ export default function POSLayout() {
     // Nota: La búsqueda ahora la maneja el componente SearchBar internamente
     // con debounce y búsqueda desde la primera letra
 
-    const performSearch = async (query) => {
+    const performSearch = useCallback(async (query) => {
+        if (!query || query.length < 1) {
+            setSearchResults([]);
+            setShowSearchDropdown(false);
+            return;
+        }
         setLoadingProduct(true);
         try {
             const products = await fetchProducts(query);
@@ -411,7 +416,7 @@ export default function POSLayout() {
         } finally {
             setLoadingProduct(false);
         }
-    };
+    }, [currentInventory]);
 
     const handleSearchKeyDown = async (e) => {
         if (e.key === 'Enter' && search.trim()) {
@@ -836,13 +841,13 @@ export default function POSLayout() {
                                     ref={inputRef}
                                     value={search}
                                     onChange={setSearch}
-                                    onSearch={(query, isNumber) => {
+                                    onSearch={useCallback((query, isNumber) => {
                                         if (query.length >= 1) {
                                             performSearch(query);
                                         } else {
                                             setSearchResults([]);
                                         }
-                                    }}
+                                    }, [performSearch])}
                                     onSelect={handleSelectProduct}
                                     results={searchResults}
                                     loading={loadingProduct}
