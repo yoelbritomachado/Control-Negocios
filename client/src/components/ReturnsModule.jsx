@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-    ArrowLeftRight, Package2, Plus, X, Camera, Image as ImageIcon, 
+    ArrowLeftRight, Package2, Plus, Minus, X, Camera, Image as ImageIcon, 
     Clipboard, Trash2, Save, AlertTriangle, CheckCircle2, 
     Search, RotateCcw, ChevronDown, ChevronUp
 } from 'lucide-react';
@@ -10,6 +10,28 @@ import { fetchProducts } from '../api';
 import { SearchDropdown } from './SearchDropdown';
 import { useCart } from './CartProvider';
 import ConfirmModal from './ConfirmModal';
+
+// Mapeo de colores para Tailwind (evita clases dinámicas)
+const COLOR_MAP = {
+    emerald: {
+        bg: 'bg-emerald-500/20',
+        border: 'border-emerald-500/30',
+        text: 'text-emerald-400',
+        bgSolid: 'bg-emerald-500/10'
+    },
+    amber: {
+        bg: 'bg-amber-500/20',
+        border: 'border-amber-500/30',
+        text: 'text-amber-400',
+        bgSolid: 'bg-amber-500/10'
+    },
+    rose: {
+        bg: 'bg-rose-500/20',
+        border: 'border-rose-500/30',
+        text: 'text-rose-400',
+        bgSolid: 'bg-rose-500/10'
+    }
+};
 
 // Tipos de devolución según LEY 4 del MEMORIA_PROYECTO.md
 const RETURN_TYPES = [
@@ -397,6 +419,7 @@ export default function ReturnsModule({ onClose, onSave }) {
 
     const selectedType = RETURN_TYPES.find(t => t.id === returnType);
     const TypeIcon = selectedType?.icon || Package2;
+    const selectedColors = COLOR_MAP[selectedType.color];
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
@@ -438,9 +461,10 @@ export default function ReturnsModule({ onClose, onSave }) {
                             <div className="flex items-center gap-3">
                                 <div className={cn(
                                     "w-10 h-10 rounded-lg flex items-center justify-center",
-                                    `bg-${selectedType.color}-500/20 border border-${selectedType.color}-500/30`
+                                    selectedColors.bg,
+                                    selectedColors.border
                                 )}>
-                                    <TypeIcon className={cn("w-5 h-5", `text-${selectedType.color}-400`)} />
+                                    <TypeIcon className={cn("w-5 h-5", selectedColors.text)} />
                                 </div>
                                 <div className="text-left">
                                     <p className="font-semibold">{selectedType.label}</p>
@@ -462,6 +486,7 @@ export default function ReturnsModule({ onClose, onSave }) {
                                         {RETURN_TYPES.map((type) => {
                                             const Icon = type.icon;
                                             const isSelected = returnType === type.id;
+                                            const typeColors = COLOR_MAP[type.color];
                                             return (
                                                 <button
                                                     key={type.id}
@@ -472,27 +497,27 @@ export default function ReturnsModule({ onClose, onSave }) {
                                                     className={cn(
                                                         "flex items-start gap-3 p-3 rounded-lg text-left transition-all",
                                                         isSelected 
-                                                            ? `bg-${type.color}-500/10 border border-${type.color}-500/30` 
+                                                            ? cn(typeColors.bgSolid, typeColors.border)
                                                             : "hover:bg-slate-800 border border-transparent"
                                                     )}
                                                 >
                                                     <div className={cn(
                                                         "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
-                                                        `bg-${type.color}-500/20`
+                                                        typeColors.bg
                                                     )}>
-                                                        <Icon className={cn("w-5 h-5", `text-${type.color}-400`)} />
+                                                        <Icon className={cn("w-5 h-5", typeColors.text)} />
                                                     </div>
                                                     <div className="flex-1">
-                                                        <p className={cn("font-semibold", isSelected && `text-${type.color}-400`)}>
+                                                        <p className={cn("font-semibold", isSelected && typeColors.text)}>
                                                             {type.label}
                                                         </p>
                                                         <p className="text-sm text-slate-400">{type.description}</p>
                                                         <div className="flex gap-4 mt-2 text-xs">
-                                                            <span className="text-slate-500">Stock: <span className={cn(`text-${type.color}-400`)}>{type.stockEffect}</span></span>
-                                                            <span className="text-slate-500">Dinero: <span className={cn(`text-${type.color}-400`)}>{type.moneyEffect}</span></span>
+                                                            <span className="text-slate-500">Stock: <span className={typeColors.text}>{type.stockEffect}</span></span>
+                                                            <span className="text-slate-500">Dinero: <span className={typeColors.text}>{type.moneyEffect}</span></span>
                                                         </div>
                                                     </div>
-                                                    {isSelected && <CheckCircle2 className={cn("w-5 h-5", `text-${type.color}-400`)} />}
+                                                    {isSelected && <CheckCircle2 className={cn("w-5 h-5", typeColors.text)} />}
                                                 </button>
                                             );
                                         })}
