@@ -41,7 +41,6 @@ echo.
 
 :: ============================================
 :: PASO 2: Validar código antes de commit
-:: ============================================
 echo ════════════════════════════════════════════════════════════
 echo PASO 2: Validando calidad del código...
 echo ════════════════════════════════════════════════════════════
@@ -68,10 +67,9 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 
-:: ============================================
 :: PASO 3: Agregar cambios
 echo ════════════════════════════════════════════════════════════
-echo PASO 2: Agregando cambios...
+echo PASO 3: Agregando cambios...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -85,7 +83,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo ✅ Archivos agregados al stage
 echo.
 
-:: ============================================
 :: PASO 4: Pedir mensaje de commit
 echo ════════════════════════════════════════════════════════════
 echo PASO 4: Mensaje del commit
@@ -108,7 +105,6 @@ if "%MENSAJE%"=="" (
 
 echo.
 
-:: ============================================
 :: PASO 5: Crear commit
 echo ════════════════════════════════════════════════════════════
 echo PASO 5: Creando commit...
@@ -125,14 +121,18 @@ if %ERRORLEVEL% NEQ 0 (
 echo ✅ Commit creado correctamente
 echo.
 
-:: ============================================
 :: PASO 6: Subir a GitHub
 echo ════════════════════════════════════════════════════════════
 echo PASO 6: Subiendo a GitHub (git push)...
 echo ════════════════════════════════════════════════════════════
 echo.
 
-git push origin main
+:: Detectar rama actual y hacer push a esa rama
+for /f "tokens=*" %%a in ('git rev-parse --abbrev-ref HEAD') do set RAMA_ACTUAL=%%a
+echo 🌿 Rama detectada: %RAMA_ACTUAL%
+echo.
+
+git push origin %RAMA_ACTUAL%
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo ❌ Error al subir cambios.
@@ -162,7 +162,7 @@ echo.
 echo 📝 Resumen:
 echo    - Cambios agregados al stage
 echo    - Commit creado con mensaje: "%MENSAJE%"
-echo    - Subido a la rama main de GitHub
+echo    - Subido a la rama %RAMA_ACTUAL% de GitHub
 echo.
 echo ℹ️  Railway detectara los cambios y hara deploy automatico.
 echo.
