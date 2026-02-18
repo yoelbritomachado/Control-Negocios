@@ -26,6 +26,13 @@ const generateSafeKey = (prefix, item, index) => {
     return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
 };
 
+// Helper para verificar si un ID es temporal
+const isTempId = (id) => {
+    if (!id) return true;
+    const strId = String(id);
+    return strId.startsWith('session_') || strId.startsWith('temp_');
+};
+
 // --- SUBCOMPONENTS (MODALS) ---
 
 const ModalOverlay = ({ children, onClose, className }) => (
@@ -493,7 +500,19 @@ export default function POSLayout() {
         });
     };
 
-    const handleEditSavedSale = (sale) => {
+    const handleEditSavedSale = async (sale) => {
+        // Verificar si hay items con IDs temporales
+        const itemsWithTempIds = sale.items?.filter(item => isTempId(item.id) && isTempId(item.product_id)) || [];
+        if (itemsWithTempIds.length > 0) {
+            setAlertModal({
+                isOpen: true,
+                title: 'Venta no editable',
+                message: `Esta venta guardada tiene ${itemsWithTempIds.length} producto(s) con ID temporal (${itemsWithTempIds[0].name}). Por favor elimine esta venta guardada y cree una nueva desde el catálogo.`,
+                type: 'warning'
+            });
+            return;
+        }
+
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
             setConfirmModal({
@@ -512,16 +531,10 @@ export default function POSLayout() {
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
 
-                    // Cargar items de la venta al carrito (reemplazar, no sumar)
-                    // IMPORTANTE: Preservar el product_id original para el backend
-                    const newCartItems = sale.items.map((item, index) => ({
-                        id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
-                        product_id: item?.product_id || item?.id,
-                        name: item.name,
-                        code: item.code,
-                        sale_price_manual: item.sale_price_manual || item.price,
-                        cost_mn: item.cost_mn || item.cost,
-                        quantity: item.quantity
+                    // Cargar items de la venta al carrito
+                    const newCartItems = sale.items.map((item) => ({
+                        ...item,
+                        id: item.product_id || item.id
                     }));
                     setCart(newCartItems);
 
@@ -532,16 +545,10 @@ export default function POSLayout() {
             return;
         }
 
-        // Cargar items de la venta al carrito (reemplazar, no sumar)
-        // IMPORTANTE: Preservar el product_id original para el backend
-        const newCartItems = sale.items.map((item, index) => ({
-            id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
-            product_id: item?.product_id || item?.id,
-            name: item.name,
-            code: item.code,
-            sale_price_manual: item.sale_price_manual || item.price,
-            cost_mn: item.cost_mn || item.cost,
-            quantity: item.quantity
+        // Cargar items de la venta al carrito
+        const newCartItems = sale.items.map((item) => ({
+            ...item,
+            id: item.product_id || item.id
         }));
         setCart(newCartItems);
 
@@ -572,6 +579,18 @@ export default function POSLayout() {
             return;
         }
 
+        // Verificar si hay items con IDs temporales
+        const itemsWithTempIds = sale.items.filter(item => isTempId(item.id) && isTempId(item.product_id));
+        if (itemsWithTempIds.length > 0) {
+            setAlertModal({
+                isOpen: true,
+                title: 'Venta no editable',
+                message: `Esta venta tiene ${itemsWithTempIds.length} producto(s) con ID temporal (${itemsWithTempIds[0].name}). No se puede editar ventas antiguas con este problema.`,
+                type: 'warning'
+            });
+            return;
+        }
+
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
             setConfirmModal({
@@ -591,16 +610,9 @@ export default function POSLayout() {
                     setSavedSales(prev => [savedSale, ...prev]);
 
                     // Reemplazar completamente el carrito con los items de la venta
-                    // Usar setCart directamente para evitar problemas de sincronización
-                    // IMPORTANTE: Preservar el product_id original para el backend
-                    const newCartItems = sale.items.map((item, index) => ({
-                        id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
-                        product_id: item?.product_id || item?.id,
-                        name: item.name,
-                        code: item.code,
-                        sale_price_manual: item.sale_price_manual || item.price,
-                        cost_mn: item.cost_mn || item.cost,
-                        quantity: item.quantity
+                    const newCartItems = sale.items.map((item) => ({
+                        ...item,
+                        id: item.product_id || item.id
                     }));
                     setCart(newCartItems);
 
@@ -612,14 +624,10 @@ export default function POSLayout() {
         }
 
         // Cargar items de la venta al carrito (reemplazo completo)
-        // IMPORTANTE: Preservar el product_id original para el backend
-        const newCartItems = sale.items.map((item, index) => ({
-            id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
-            product_id: item?.product_id || item?.id,
-            name: item.name,
-            code: item.code,
-            sale_price_manual: item.sale_price_manual || item.price,
-            cost_mn: item.cost_mn || item.cost,
+        const newCartItems = sale.items.map((item) => ({
+            ...item,
+            id: item.product_id || item.id
+        }});
             quantity: item.quantity
         }));
         setCart(newCartItems);
