@@ -627,3 +627,153 @@ vende y registra               revisa y cierra
 ---
 
 **⚠️ NOTA PARA AGENTES:** Este flujo es CRÍTICO y debe implementarse exactamente como se describe. Cualquier desviación debe ser consultada con el usuario antes de implementar.
+
+
+---
+
+## 🕸️ SISTEMA NEXUSNODE - GESTIÓN EMPRESARIAL NODAL
+
+### Descripción General
+Sistema visual de gestión empresarial basado en nodos interconectados que representan la estructura jerárquica del negocio. Inspirado en herramientas de diagramación de flujos pero adaptado específicamente para la administración de empresas.
+
+### Jerarquía de Nodos (de mayor a menor importancia)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  NIVEL 0: DUEÑO (Máxima autoridad)                          │
+│  └── Puede tener múltiples empresas                         │
+└──────────────────┬──────────────────────────────────────────┘
+                   │
+         ┌─────────▼──────────┐
+         │ NIVEL 1: EMPRESA   │  ← Nodo central del sistema
+         │ (Entidad principal)│
+         └─────────┬──────────┘
+                   │
+    ┌──────────────┼──────────────┐
+    │              │              │
+┌───▼────┐   ┌────▼─────┐   ┌────▼────────┐
+│Admin   │   │Almacén   │   │Dueño (otro) │
+│Nivel 2 │   │Nivel 2   │   │Nivel 0      │
+└───┬────┘   └────┬─────┘   └─────────────┘
+                │
+       ┌────────┼────────┐
+       │        │        │
+   ┌───▼───┐ ┌──▼───┐ ┌──▼───┐
+   │Punto  │ │Punto │ │Punto │  ← Nivel 3
+   │Venta 1│ │Venta 2│ │Venta 3│
+   └───┬───┘ └──┬───┘ └──┬───┘
+       │        │        │
+   ┌───▼───┐ ┌──▼───┐ ┌──▼───┐
+   │Vended │ │Vended│ │Vended│  ← Nivel 4
+   │or A   │ │or B  │ │or C  │
+   └───────┘ └──┬───┘ └──────┘
+                │
+           ┌────▼────┐
+           │Cubre-   │  ← Vendedor en múltiples puntos
+           │franco   │
+           └─────────┘
+```
+
+### Tipos de Nodos y Características
+
+| Tipo | Nivel | Color | Icono | Puede tener hijos | Métricas principales |
+|------|-------|-------|-------|-------------------|---------------------|
+| **Dueño** | 0 | Ámbar/Dorado | Corona | Sí (Empresas) | empresas, ingresosTotales, patrimonio |
+| **Empresa** | 1 | Azul | Edificio | Sí (Admin, Almacén) | sucursales, empleados, ingresos |
+| **Administrador** | 2 | Rojo | Escudo | No | acceso, nivel, salario |
+| **Almacén** | 2 | Morado | Paquete | Sí (Puntos de Venta) | productos, stockBajo, capacidad, pedidos |
+| **Punto de Venta** | 3 | Naranja | Tienda | Sí (Vendedores) | ventasHoy, vendedoresActivos, cajasAbiertas |
+| **Vendedor** | 4 | Verde | Usuarios | No | activos, ventasHoy, clientes, comisiones |
+
+### Reglas de Conexión
+
+1. **Dueño → Empresa**: Un dueño puede poseer múltiples empresas
+2. **Empresa → Administrador**: Una empresa puede tener varios administradores (o ninguno temporalmente)
+3. **Empresa → Almacén**: Una empresa puede tener múltiples almacenes
+4. **Almacén → Punto de Venta**: Un almacén provee a múltiples puntos de venta
+5. **Punto de Venta → Vendedor**: Un punto de venta puede tener múltiples vendedores
+6. **Vendedor → Punto de Venta**: Un vendedor puede trabajar en múltiples puntos (modo "cubrefranco")
+
+### Funcionalidades del Sistema
+
+#### Interacciones Básicas
+- **Arrastrar nodo**: Mover nodos libremente por el canvas
+- **Arrastrar desde punto inferior (output)**: Crear conexión a otro nodo
+- **Doble click en fondo**: Crear nuevo nodo
+- **Click en línea**: Desconectar nodos
+- **Scroll del mouse**: Zoom in/out hacia el cursor
+- **Pinch (móvil)**: Zoom con dos dedos
+- **Arrastrar fondo**: Pan/mover vista
+
+#### Opciones de Visualización
+- **Líneas curvas**: Conexiones Bezier suaves con animación de flujo
+- **Líneas ortogonales (90°)**: Conectores tipo "circuito" con ángulos rectos
+- **Toggle**: Botón en toolbar para cambiar entre estilos
+
+#### Métricas y Estados
+- **Estados**: Online (verde), Offline (rojo), Warning (amarillo), Maintenance (gris)
+- **Métricas por tipo**: Cada nodo muestra métricas específicas de su rol
+- **Animación**: Líneas discontinuas animadas indican flujo de datos
+
+### Casos de Uso Especiales
+
+#### Vendedor Cubrefranco
+Cuando un vendedor se conecta a múltiples puntos de venta:
+- Visualmente cambia de color (indicador visual de estado especial)
+- Se considera "cubrefranco" - trabaja temporalmente en ambos puntos
+- Útil para turnos rotativos o emergencias de personal
+
+#### Múltiples Almacenes → Un Punto de Venta
+Un punto de venta puede recibir mercancía de varios almacenes:
+- Permite transferencias entre almacenes a través del punto de venta
+- Flexibilidad en la cadena de suministro
+- Visualizado con múltiples líneas de entrada al punto de venta
+
+### Archivos del Módulo
+
+```
+client/src/nexus/
+├── nexus.types.js      # Definición de tipos, jerarquía y reglas
+├── NexusNode.jsx       # Componente visual de cada nodo
+├── NexusManager.jsx    # Gestión del canvas y estado global
+├── NexusGraph.jsx      # Renderizado de conexiones SVG
+├── useNexus.js         # Hook de estado y lógica de negocio
+└── index.js            # Exportaciones públicas
+```
+
+### Integración Futura
+Este sistema visual es actualmente independiente pero está diseñado para integrarse con:
+- **Control de Inventario**: Los almacenes y puntos de venta sincronizarán stock en tiempo real
+- **Gestión de Personal**: Vendedores y administradores vinculados a sesiones reales
+- **Reportes Financieros**: Métricas de nodos conectadas a datos reales del sistema
+- **Jerarquía de Permisos**: Roles del sistema (Dueño/Admin/Vendedor) reflejados en la estructura nodal
+
+---
+
+## ?? REGISTRO DE CAMBIOS RECIENTES
+
+### 2026-02-18 - Selector de Roles Implementado
+**Autor:** Kimi Claw
+**Archivos Modificados:**
+- client/src/hooks/useRole.js (NUEVO)
+- client/src/components/Header.jsx 
+- client/src/components/MainLayout.jsx
+
+**Descripcion:**
+Se implemento un selector de roles en el Header para permitir cambiar rapidamente entre:
+- **Dueno** (Crown icon, color ambar)
+- **Administrador** (Shield icon, color violeta) 
+- **Vendedor** (ShoppingBag icon, color esmeralda)
+
+**Caracteristicas:**
+- Dropdown accesible desde el perfil de usuario en el Header
+- Estado persistido en localStorage (mch_current_role, mch_current_user_name)
+- Recarga automatica de pagina al cambiar de rol
+- Notificaciones solo visibles para Admin/Dueno (badge con contador)
+- Hook useRole() exporta: currentRole, userName, changeRole, isOwner, isAdmin, isSeller
+
+**Pendiente:**
+- [ ] Integrar notificaciones reales del backend
+- [ ] Implementar comportamiento diferente del boton Cerrar Sesion segun rol
+- [ ] Calcular salario del vendedor (5% de ganancias)
+

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Building2, Shield, Package, Users, Wallet,
+  Crown, Building2, Shield, Package, Users, Store,
   CheckCircle2, AlertCircle, XCircle, Settings,
   MoreVertical, Trash2
 } from 'lucide-react';
@@ -9,11 +9,12 @@ import { NODE_TYPES, NODE_STATUS } from './nexus.types';
 
 // Mapa de iconos
 const ICON_MAP = {
+  Crown,
   Building2,
   Shield,
   Package,
   Users,
-  Wallet
+  Store
 };
 
 // Mapa de estados

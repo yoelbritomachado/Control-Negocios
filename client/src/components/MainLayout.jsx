@@ -151,28 +151,7 @@ export default function MainLayout() {
     });
     const isMobile = useIsMobile();
 
-    // Get user info from localStorage if available
-    const [userInfo, setUserInfo] = useState({
-        businessName: 'MCH 1',
-        userName: 'Administrador',
-        userRole: 'Acceso Maestro'
-    });
 
-    useEffect(() => {
-        const savedUser = localStorage.getItem('currentUser');
-        if (savedUser) {
-            try {
-                const user = JSON.parse(savedUser);
-                setUserInfo(prev => ({
-                    ...prev,
-                    userName: user.username || 'Usuario',
-                    userRole: user.role === 'admin' ? 'Administrador' : 'Vendedor'
-                }));
-            } catch (e) {
-                console.error("Error parsing user info", e);
-            }
-        }
-    }, []);
 
     // Toggle theme
     const toggleTheme = () => {
@@ -215,10 +194,7 @@ export default function MainLayout() {
                 'lg:ml-72'
             )}>
                 <div className="p-3 sm:p-4 lg:p-8">
-                    <Header
-                        userName={userInfo.userName}
-                        userRole={userInfo.userRole}
-                    />
+                    <Header />
 
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
-  Building2, Package, Users, Wallet, Shield,
+  Crown, Building2, Shield, Package, Users, Store,
   X, Check, AlertCircle, Trash2, GitBranch, Minus
 } from 'lucide-react';
 import { useNexus } from './useNexus';
@@ -16,7 +16,7 @@ const AddNodePanel = ({ onAdd, onClose, position }) => {
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
 
-  const allTypes = ['empresa', 'administrador', 'inventario', 'vendedor', 'caja'];
+  const allTypes = ['dueño', 'empresa', 'administrador', 'almacén', 'punto_de_venta', 'vendedor'];
 
   const handleSubmit = () => {
     if (!selectedType) {
@@ -37,11 +37,12 @@ const AddNodePanel = ({ onAdd, onClose, position }) => {
   };
 
   const typeIcons = {
+    dueño: Crown,
     empresa: Building2,
     administrador: Shield,
-    inventario: Package,
-    vendedor: Users,
-    caja: Wallet
+    almacén: Package,
+    punto_de_venta: Store,
+    vendedor: Users
   };
 
   return (

@@ -9,6 +9,7 @@ import SearchDropdown from './SearchDropdown'; // Mantenido para compatibilidad
 import ConfirmModal from './ConfirmModal';
 import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
+import { useRole } from '../hooks/useRole';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
@@ -237,9 +238,10 @@ const ExpenseModal = ({ onClose, onSave }) => {
     );
 };
 
-const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
+const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const [cash, setCash] = useState('');
     const [notes, setNotes] = useState('');
+    const isSeller = role === 'seller';
 
     // Calcular diferencia si hay resumen
     const cashSales = summary?.sales?.cash || 0;
@@ -254,14 +256,30 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
         <ModalOverlay onClose={onClose}>
             <div className="p-6 space-y-5 max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-violet-500/20 flex items-center justify-center">
-                        <LogOut className="w-6 h-6 text-violet-500" />
+                    <div className={cn(
+                        "w-12 h-12 rounded-xl flex items-center justify-center",
+                        isSeller ? "bg-emerald-500/20" : "bg-violet-500/20"
+                    )}>
+                        <LogOut className={cn("w-6 h-6", isSeller ? "text-emerald-500" : "text-violet-500")} />
                     </div>
                     <div>
-                        <h3 className="text-xl font-bold text-white">Cerrar Sesión</h3>
-                        <p className="text-sm text-muted-foreground">Finaliza tu sesión de trabajo</p>
+                        <h3 className="text-xl font-bold text-white">
+                            {isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                            {isSeller ? 'Envía tu sesión para revisión del administrador' : 'Finaliza la sesión de trabajo'}
+                        </p>
                     </div>
                 </div>
+                
+                {/* Banner informativo para vendedor */}
+                {isSeller && (
+                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <p className="text-sm text-emerald-400">
+                            Al enviar tu sesión, el administrador podrá revisar tus ventas y aprobar el cierre.
+                        </p>
+                    </div>
+                )}
 
                 {/* Resumen Detallado */}
                 <div className="space-y-3">
@@ -359,10 +377,15 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
                         </button>
                         <button
                             type="submit"
-                            className="flex-1 px-4 py-3 bg-gradient-to-r from-violet-600 to-purple-500 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-violet-500/25 transition-all flex items-center justify-center gap-2"
+                            className={cn(
+                                "flex-1 px-4 py-3 rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2",
+                                isSeller 
+                                    ? "bg-gradient-to-r from-emerald-600 to-teal-500 hover:shadow-emerald-500/25 text-white"
+                                    : "bg-gradient-to-r from-violet-600 to-purple-500 hover:shadow-violet-500/25 text-white"
+                            )}
                         >
                             <LogOut className="w-4 h-4" />
-                            Cerrar y Calcular
+                            {isSeller ? 'Enviar para Revisión' : 'Cerrar y Calcular'}
                         </button>
                     </div>
                 </form>
@@ -375,6 +398,7 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
 
 export default function POSLayout() {
     const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory, editingSession, setEditingSession } = useCart();
+    const { isSeller, currentRole } = useRole();
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
@@ -1106,10 +1130,15 @@ export default function POSLayout() {
                             </div>
                             <button
                                 onClick={fetchMetrics}
-                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold hover:bg-rose-500/20 transition-all"
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                                    isSeller
+                                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
+                                        : "bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20"
+                                )}
                             >
                                 <LogOut className="w-3 h-3" />
-                                Cerrar Sesión
+                                {isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}
                             </button>
                         </div>
 
@@ -1359,6 +1388,7 @@ export default function POSLayout() {
                             summary={closeSummary}
                             onClose={() => setShowClose(false)}
                             onSave={handleCloseSession}
+                            role={currentRole}
                         />
                     )}
                     {showPayment && (
