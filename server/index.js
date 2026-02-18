@@ -611,6 +611,17 @@ app.post('/api/sessions/close', (req, res) => {
         const finalCash = cashSales - cashExpenses;
         const finalTransfer = transferSales - transferExpenses;
 
+        // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
         db.prepare(`
             UPDATE sales_sessions 
             SET end_time = ?, 
@@ -637,6 +648,12 @@ app.post('/api/sessions/close', (req, res) => {
             success: true, 
             session_id: session.id,
             wage: wage,
+            accumulated: {
+                current_session_wage: wage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage,
+                total_pending_wage: accumulatedWages.total_pending_wage + wage,
+                pending_sessions_count: accumulatedWages.pending_sessions + 1
+            },
             summary: {
                 sales: {
                     total: salesData.total_sales,
@@ -724,6 +741,17 @@ app.post('/api/sessions/send-for-review', (req, res) => {
         const finalCash = cashSales - cashExpenses;
         const finalTransfer = transferSales - transferExpenses;
 
+        // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
         // Update session status to 'pending_review'
         db.prepare(`
             UPDATE sales_sessions 
@@ -776,6 +804,12 @@ app.post('/api/sessions/send-for-review', (req, res) => {
             message: 'Sesión enviada para revisión',
             session_id: session.id,
             wage: wage,
+            accumulated: {
+                current_session_wage: wage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage,
+                total_pending_wage: accumulatedWages.total_pending_wage + wage,
+                pending_sessions_count: accumulatedWages.pending_sessions + 1
+            },
             summary: {
                 sales: {
                     total: salesData.total_sales,

@@ -865,19 +865,22 @@ export default function POSLayout() {
 
     const [closeSummary, setCloseSummary] = useState(null);
 
-    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash') => {
+    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash', totalPendingWage = 0) => {
         try {
             // Usar endpoint diferente según el rol
             const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
             const res = await api.post(endpoint, { declared_cash: cash, notes });
             setCloseSummary(res.data.summary);
             
+            // Obtener salario acumulado de la respuesta o usar el pasado al modal
+            const responseTotalWage = res.data.accumulated?.total_pending_wage || res.data.wage || totalPendingWage;
+            
             // Si es vendedor y solicitó pago de salario, crear solicitud
-            if (isSeller && requestWagePayment && res.data.wage > 0) {
+            if (isSeller && requestWagePayment && responseTotalWage > 0) {
                 try {
                     await api.post('/wages/request', {
                         session_id: res.data.session_id,
-                        amount: res.data.wage,
+                        amount: responseTotalWage,
                         payment_method: wagePaymentMethod
                     });
                 } catch (wageError) {
@@ -905,9 +908,17 @@ export default function POSLayout() {
                                 <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
                             </div>
                             <p className="pt-2 border-t border-white/10">
-                                Tu salario (5% de ganancia): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span>
-                                {requestWagePayment && <span className="text-emerald-400 text-xs ml-2">✓ Solicitado</span>}
+                                Salario de esta sesión (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span>
                             </p>
+                            {(res.data.accumulated?.total_pending_wage || totalPendingWage) > res.data.wage && (
+                                <p className="text-xs text-amber-400">
+                                    Total acumulado pendiente: <span className="font-mono font-bold">${(res.data.accumulated?.total_pending_wage || totalPendingWage).toFixed(2)}</span>
+                                    {res.data.accumulated?.pending_sessions_count > 1 && (
+                                        <span className="ml-1">({res.data.accumulated.pending_sessions_count} sesiones)</span>
+                                    )}
+                                </p>
+                            )}
+                            {requestWagePayment && <p className="text-emerald-400 text-xs">✓ Solicitud de pago enviada</p>}
                             <p className="text-xs text-muted-foreground mt-2">Recibirás una notificación cuando sea aprobada.</p>
                         </div>
                     ),

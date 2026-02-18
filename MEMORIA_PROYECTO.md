@@ -648,15 +648,38 @@ Notificaciones reales del backend. Vendedor envia sesion -> Admin recibe notific
 **Autor:** Kimi Claw  
 **Archivos:** `server/index.js`, `client/src/hooks/useWages.js`, `client/src/components/POSLayout.jsx`
 
-**Calculo:** 5% de (Ventas - Costos) = Salario  
-**Tabla:** wage_payments con status pending/paid  
-**Flujo:** Vendedor solicita pago en modal -> Admin procesa pago
+**Calculo del Salario:**
+- Formula: 5% de (Ventas Totales - Costos Totales) = Salario de la sesion
+- Ejemplo: Venta $300 - Costo $100 = Ganancia $200 → Salario $10
+
+**Salario Acumulado (IMPORTANTE):**
+- El salario se acumula desde la ultima vez que el vendedor cobró
+- Incluye TODAS las sesiones cerradas/pendientes que no tengan pago registrado
+- Si nunca ha cobrado, incluye todas las sesiones desde el inicio
+- El vendedor ve en el modal: "Tu Salario Acumulado (X sesiones)"
+
+**Nuevo Endpoint:**
+- GET /api/sessions/metrics - Devuelve datos completos del turno incluyendo salario acumulado
+
+**Estructura de datos en modal:**
+- Ventas del Turno: Efectivo + Transferencia vendido en esta sesion
+- Gastos Registrados: Efectivo + Transferencia gastado en esta sesion  
+- Total a Entregar: (Efectivo vendido - Gastos efectivo) + (Transferencia vendida - Gastos transferencia)
+- Tu Salario Acumulado: Suma de 5% de ganancia de todas las sesiones sin cobrar
+
+**Flujo:**
+1. Vendedor hace clic en "Enviar Sesion"
+2. Sistema calcula ventas, costos, gastos de la sesion actual
+3. Sistema busca sesiones anteriores sin pago y suma sus salarios
+4. Modal muestra salario de esta sesion + salario de sesiones anteriores = Total acumulado
+5. Vendedor puede solicitar pago del total acumulado
 
 Endpoints:
-- GET /api/wages/my-summary
-- POST /api/wages/request
-- POST /api/wages/:id/pay
-- GET /api/wages/pending
+- GET /api/sessions/metrics (NUEVO) - Datos completos para cerrar sesion
+- GET /api/wages/my-summary - Resumen de salarios
+- POST /api/wages/request - Solicitar pago
+- POST /api/wages/:id/pay - Procesar pago (admin)
+- GET /api/wages/pending - Listar pagos pendientes
 
 ---
 
