@@ -39,7 +39,7 @@ Si en el futuro se solicita algo que contradiga lo anterior, el agente debe:
 3. Esperar confirmación antes de proceder
 
 ### 2026-02-18 - Restructuración del Menú de Gestión
-**Status**: 🔄 En implementación
+**Status**: ✅ Implementado
 
 **Requerimiento**: Eliminar el menú "Historial" general y crear menús independientes para cada tipo de historial.
 

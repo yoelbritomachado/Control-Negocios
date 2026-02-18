@@ -995,6 +995,27 @@ if (expenseTypesCount.count === 0) {
     }
 }
 
+// Migrate losses table to add new columns
+try {
+    const lossCols = db.prepare("PRAGMA table_info(losses)").all();
+    const hasType = lossCols.some(c => c.name === 'type');
+    const hasEvidence = lossCols.some(c => c.name === 'evidence');
+    const hasInventory = lossCols.some(c => c.name === 'inventory');
+    
+    if (!hasType) {
+        console.log("Migrating: Adding type to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN type TEXT DEFAULT 'rotura_interna'");
+    }
+    if (!hasEvidence) {
+        console.log("Migrating: Adding evidence to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN evidence TEXT");
+    }
+    if (!hasInventory) {
+        console.log("Migrating: Adding inventory to losses...");
+        db.exec("ALTER TABLE losses ADD COLUMN inventory TEXT DEFAULT 'mch1'");
+    }
+} catch (e) { console.log("Migration check (losses):", e.message); }
+
 // Helper to get system config safely
 const getSystemConfig = (key) => {
     try {
@@ -1104,6 +1125,119 @@ app.delete('/api/expense-types/:id', authenticate, requireAdmin, (req, res) => {
     try {
         const { id } = req.params;
         db.prepare('UPDATE expense_types SET is_active = 0 WHERE id = ?').run(id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- MERMAS (LOSSES) ENDPOINTS ---
+
+// Get all mermas
+app.get('/api/mermas', authenticate, (req, res) => {
+    try {
+        const { inventory } = req.query;
+        let query = `
+            SELECT l.*, p.name as product_name, p.image as product_image
+            FROM losses l
+            JOIN products p ON l.product_id = p.id
+            WHERE 1=1
+        `;
+        const params = [];
+        
+        if (inventory) {
+            query += ' AND l.inventory = ?';
+            params.push(inventory);
+        }
+        
+        query += ' ORDER BY l.date DESC';
+        
+        const mermas = db.prepare(query).all(...params);
+        res.json(mermas);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new merma
+app.post('/api/mermas', authenticate, (req, res) => {
+    try {
+        const { type, product_id, quantity, reason, inventory } = req.body;
+        
+        if (!type || !product_id || !quantity) {
+            return res.status(400).json({ error: 'Tipo, producto y cantidad son requeridos' });
+        }
+        
+        // Insertar la merma
+        const result = db.prepare(`
+            INSERT INTO losses (product_id, quantity, reason, type, inventory, user_id, date)
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(product_id, quantity, reason || '', type, inventory || 'mch1', req.user.id);
+        
+        // Actualizar stock según el tipo de merma
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(product_id);
+        if (product) {
+            let newQuantity = product.quantity;
+            
+            switch(type) {
+                case 'rotura_interna':
+                    // Disminuye stock
+                    newQuantity = Math.max(0, product.quantity - parseInt(quantity));
+                    break;
+                case 'devolucion_nuevo':
+                    // Aumenta stock
+                    newQuantity = product.quantity + parseInt(quantity);
+                    break;
+                case 'devolucion_danado':
+                    // Stock neutral (no cambia)
+                    break;
+            }
+            
+            db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQuantity, product_id);
+        }
+        
+        res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete merma (admin only) - restaura el stock
+app.delete('/api/mermas/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Obtener la merma antes de eliminar
+        const merma = db.prepare('SELECT * FROM losses WHERE id = ?').get(id);
+        if (!merma) {
+            return res.status(404).json({ error: 'Merma no encontrada' });
+        }
+        
+        // Restaurar stock según el tipo
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(merma.product_id);
+        if (product) {
+            let newQuantity = product.quantity;
+            
+            switch(merma.type) {
+                case 'rotura_interna':
+                    // Restaurar stock (sumar de vuelta)
+                    newQuantity = product.quantity + merma.quantity;
+                    break;
+                case 'devolucion_nuevo':
+                    // Quitar stock (restar de vuelta)
+                    newQuantity = Math.max(0, product.quantity - merma.quantity);
+                    break;
+                case 'devolucion_danado':
+                    // Stock neutral (no cambia)
+                    break;
+            }
+            
+            db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQuantity, merma.product_id);
+        }
+        
+        // Eliminar la merma
+        db.prepare('DELETE FROM losses WHERE id = ?').run(id);
+        
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
