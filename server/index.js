@@ -1807,6 +1807,271 @@ app.delete('/api/mermas/:id', authenticate, requireAdmin, (req, res) => {
     }
 });
 
+// --- TRANSFERS ENDPOINTS ---
+
+// Get all transfers
+app.get('/api/transfers', authenticate, (req, res) => {
+    try {
+        const { inventory } = req.query;
+        let query = `
+            SELECT t.*, 
+                   creator.username as created_by_name,
+                   receiver.username as received_by_name
+            FROM transfers t
+            LEFT JOIN users creator ON t.created_by = creator.id
+            LEFT JOIN users receiver ON t.received_by = receiver.id
+            WHERE 1=1
+        `;
+        const params = [];
+        
+        if (inventory) {
+            query += ' AND (t.source_inventory = ? OR t.target_inventory = ?)';
+            params.push(inventory, inventory);
+        }
+        
+        query += ' ORDER BY t.created_at DESC';
+        
+        const transfers = db.prepare(query).all(...params);
+        
+        // Get items for each transfer
+        for (const transfer of transfers) {
+            const items = db.prepare(`
+                SELECT ti.*, p.name as product_name, p.image as product_image
+                FROM transfer_items ti
+                JOIN products p ON ti.product_id = p.id
+                WHERE ti.transfer_id = ?
+            `).all(transfer.id);
+            transfer.items = items;
+        }
+        
+        res.json(transfers);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new transfer (admin/owner only)
+app.post('/api/transfers', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { source_inventory, target_inventory, items, notes } = req.body;
+        
+        if (!source_inventory || !target_inventory || !items || items.length === 0) {
+            return res.status(400).json({ error: 'Datos incompletos' });
+        }
+        
+        if (source_inventory === target_inventory) {
+            return res.status(400).json({ error: 'Origen y destino no pueden ser iguales' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Create transfer
+            const transferResult = db.prepare(`
+                INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes)
+                VALUES (?, ?, ?, 'pending', ?)
+            `).run(source_inventory, target_inventory, req.user.id, notes || '');
+            
+            const transferId = transferResult.lastInsertRowid;
+            
+            // Add items
+            const insertItem = db.prepare(`
+                INSERT INTO transfer_items (transfer_id, product_id, quantity)
+                VALUES (?, ?, ?)
+            `);
+            
+            for (const item of items) {
+                insertItem.run(transferId, item.product_id, item.quantity);
+                
+                // Deduct stock from source inventory
+                const currentStock = db.prepare(`
+                    SELECT quantity FROM product_inventory 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).get(item.product_id, source_inventory);
+                
+                if (currentStock && currentStock.quantity >= item.quantity) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity - ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, source_inventory);
+                } else {
+                    throw new Error(`Stock insuficiente para el producto ${item.product_id}`);
+                }
+            }
+            
+            return transferId;
+        });
+        
+        const transferId = transaction();
+        
+        // Create notifications based on rules
+        const sourceType = source_inventory === 'alm' ? 'Almacén' : 'Punto de Venta';
+        const targetType = target_inventory === 'alm' ? 'Almacén' : 'Punto de Venta';
+        
+        // 1. If admin created, notify owner
+        if (req.user.role === 'admin') {
+            const owner = db.prepare("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get();
+            if (owner) {
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'transfer_created', ?, ?, ?)
+                `).run(
+                    owner.id,
+                    'Nuevo traslado creado',
+                    `El administrador ${req.user.username} ha creado un traslado de ${source_inventory} a ${target_inventory}`,
+                    JSON.stringify({ transfer_id: transferId })
+                );
+            }
+        }
+        
+        // 2. If target is a Point of Sale, notify sellers there
+        if (target_inventory !== 'alm') {
+            const sellers = db.prepare(`
+                SELECT id FROM users 
+                WHERE role = 'seller' AND inventory_id = ?
+            `).all(target_inventory);
+            
+            for (const seller of sellers) {
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'transfer_incoming', ?, ?, ?)
+                `).run(
+                    seller.id,
+                    'Traslado entrante',
+                    `Se ha enviado mercancía desde ${source_inventory} hacia tu punto de venta`,
+                    JSON.stringify({ transfer_id: transferId })
+                );
+            }
+        }
+        
+        res.json({ success: true, id: transferId });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Receive transfer (update status and add stock to target)
+app.post('/api/transfers/:id/receive', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+        
+        if (transfer.status !== 'pending') {
+            return res.status(400).json({ error: 'El traslado ya fue procesado' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Update transfer status
+            db.prepare(`
+                UPDATE transfers 
+                SET status = 'received', received_at = datetime('now'), received_by = ?
+                WHERE id = ?
+            `).run(req.user.id, id);
+            
+            // Add stock to target inventory
+            const items = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+            
+            for (const item of items) {
+                // Check if product_inventory row exists
+                const exists = db.prepare(`
+                    SELECT 1 FROM product_inventory 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).get(item.product_id, transfer.target_inventory);
+                
+                if (exists) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity + ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, transfer.target_inventory);
+                } else {
+                    db.prepare(`
+                        INSERT INTO product_inventory (product_id, inventory_id, quantity)
+                        VALUES (?, ?, ?)
+                    `).run(item.product_id, transfer.target_inventory, item.quantity);
+                }
+            }
+        });
+        
+        transaction();
+        
+        // Notify creator that transfer was received
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'transfer_received', ?, ?, ?)
+        `).run(
+            transfer.created_by,
+            'Traslado recibido',
+            `El traslado #${id} ha sido recibido en ${transfer.target_inventory}`,
+            JSON.stringify({ transfer_id: id })
+        );
+        
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Reject transfer
+app.post('/api/transfers/:id/reject', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+        
+        if (transfer.status !== 'pending') {
+            return res.status(400).json({ error: 'El traslado ya fue procesado' });
+        }
+        
+        // Start transaction
+        const transaction = db.transaction(() => {
+            // Update transfer status
+            db.prepare(`
+                UPDATE transfers 
+                SET status = 'rejected', notes = COALESCE(notes, '') || ' | Rechazado: ' || ?
+                WHERE id = ?
+            `).run(reason || 'Sin motivo', id);
+            
+            // Return stock to source inventory
+            const items = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+            
+            for (const item of items) {
+                db.prepare(`
+                    UPDATE product_inventory 
+                    SET quantity = quantity + ? 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).run(item.quantity, item.product_id, transfer.source_inventory);
+            }
+        });
+        
+        transaction();
+        
+        // Notify creator
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'transfer_rejected', ?, ?, ?)
+        `).run(
+            transfer.created_by,
+            'Traslado rechazado',
+            `El traslado #${id} fue rechazado en ${transfer.target_inventory}. Motivo: ${reason || 'Sin motivo'}`,
+            JSON.stringify({ transfer_id: id })
+        );
+        
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const requireEditor = (req, res, next) => {
     if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
         return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
