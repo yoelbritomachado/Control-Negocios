@@ -276,6 +276,17 @@ export const NexusManager = () => {
     setPan({ x: 50, y: 50 });
   };
 
+  // FULLSCREEN TOGGLE
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen?.();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen?.();
+      setIsFullscreen(false);
+    }
+  };
+
   // ZOOM CON SCROLL
   const handleWheel = (e) => {
     e.preventDefault();
@@ -608,6 +619,8 @@ export const NexusManager = () => {
         setShowGrid={setShowGrid}
         lineStyle={lineStyle}
         setLineStyle={setLineStyle}
+        isFullscreen={isFullscreen}
+        toggleFullscreen={toggleFullscreen}
       />
 
       {/* Mini-map */}
@@ -638,10 +651,12 @@ export const NexusManager = () => {
         )}
       </AnimatePresence>
 
-      {/* Help text */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400 text-center">
-        {connectingFrom ? 'Suelta sobre otro nodo • ESC para cancelar' : 'Scroll=Zoom • Click icono arriba para líneas rectas/curvas'}
-      </div>
+      {/* Help text - solo visible al conectar */}
+      {connectingFrom && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400 text-center">
+          Suelta sobre otro nodo • ESC para cancelar
+        </div>
+      )}
 
       {/* Cancel connection */}
       {connectingFrom && (
