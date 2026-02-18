@@ -28,7 +28,7 @@ export const NexusNode = React.memo(({
   node,
   isSelected = false,
   isConnectingFrom = false,
-  onConnectionPointDrag,
+  onConnectionStart,
   onDelete
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -96,21 +96,23 @@ export const NexusNode = React.memo(({
         ${isConnectingFrom ? 'animate-pulse' : ''}
       `}
     >
-      {/* Connection Points */}
-      {/* Top connection point (input) */}
+      {/* Connection Point - INPUT (top center) */}
       <div 
-        className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-800 hover:bg-blue-500 hover:border-blue-400 transition-colors cursor-crosshair z-20"
-        onMouseDown={(e) => onConnectionPointDrag?.(e, node, 'input')}
-        title="Arrastra para conectar desde aquí"
-      />
+        className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-slate-600 border-2 border-slate-800 z-30 flex items-center justify-center"
+        title="Punto de entrada"
+      >
+        <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+      </div>
       
-      {/* Bottom connection point (output) */}
+      {/* Connection Point - OUTPUT (bottom center) - ARRASTRABLE */}
       <div 
-        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-slate-800 hover:scale-125 transition-all cursor-crosshair z-20"
+        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-slate-800 z-30 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform shadow-lg"
         style={{ backgroundColor: typeConfig.color }}
-        onMouseDown={(e) => onConnectionPointDrag?.(e, node, 'output')}
+        onMouseDown={(e) => onConnectionStart?.(e, node)}
         title="Arrastra para conectar a otro nodo"
-      />
+      >
+        <div className="w-2 h-2 rounded-full bg-white/50" />
+      </div>
 
       {/* Header */}
       <div 
@@ -203,10 +205,10 @@ export const NexusNode = React.memo(({
         </div>
       </div>
 
-      {/* Connection hint */}
+      {/* Connection hint overlay */}
       {isConnectingFrom && (
-        <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center pointer-events-none">
-          <span className="text-xs font-medium text-blue-400 bg-slate-900/80 px-2 py-1 rounded">
+        <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center pointer-events-none rounded-xl">
+          <span className="text-xs font-medium text-blue-400 bg-slate-900/90 px-3 py-1.5 rounded-full shadow-lg">
             Suelta sobre otro nodo
           </span>
         </div>
