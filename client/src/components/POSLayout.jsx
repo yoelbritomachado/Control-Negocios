@@ -359,7 +359,7 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary }) => {
 // --- MAIN LAYOUT ---
 
 export default function POSLayout() {
-    const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory } = useCart();
+    const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory, editingSession, setEditingSession } = useCart();
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
@@ -798,8 +798,33 @@ export default function POSLayout() {
         <SessionGuard>
             <div className="h-[calc(100vh-6rem)] sm:h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
 
+                {/* Editing Session Banner */}
+                {editingSession && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border-b border-cyan-500/30 px-4 py-2 flex items-center justify-between"
+                    >
+                        <div className="flex items-center gap-3">
+                            <RotateCcw className="w-4 h-4 text-cyan-400" />
+                            <span className="text-sm">
+                                <strong>Editando sesión #{editingSession.sale_id}</strong> • {editingSession.inventory} • {editingSession.seller}
+                            </span>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setEditingSession(null);
+                                clearCart();
+                            }}
+                            className="text-xs px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 transition-colors"
+                        >
+                            Terminar edición
+                        </button>
+                    </motion.div>
+                )}
+
                 {/* --- CONTENT AREA --- */}
-                <div className="flex flex-col lg:flex-row h-full">
+                <div className={cn("flex flex-col lg:flex-row", editingSession ? "h-[calc(100%-40px)]" : "h-full")}>
 
                     {/* LEFT COLUMN: Cart - Full width on mobile, 60% on desktop */}
                     <div className="w-full lg:w-[60%] flex flex-col h-full border-b lg:border-b-0 lg:border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">

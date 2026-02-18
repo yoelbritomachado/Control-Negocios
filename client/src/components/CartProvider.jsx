@@ -12,6 +12,20 @@ export const CartProvider = ({ children }) => {
         } catch (e) { return []; }
     });
 
+    const [savedSales, setSavedSales] = useState(() => {
+        try {
+            const saved = localStorage.getItem('mch_saved_sales');
+            return saved ? JSON.parse(saved) : [];
+        } catch (e) { return []; }
+    });
+
+    const [editingSession, setEditingSession] = useState(() => {
+        try {
+            const saved = localStorage.getItem('editing_session');
+            return saved ? JSON.parse(saved) : null;
+        } catch (e) { return null; }
+    });
+
     const [currentInventory, setCurrentInventory] = useState(
         localStorage.getItem('mch_inventory') || 'alm'
     );
@@ -19,6 +33,18 @@ export const CartProvider = ({ children }) => {
     useEffect(() => {
         localStorage.setItem('mch_cart', JSON.stringify(cart));
     }, [cart]);
+
+    useEffect(() => {
+        localStorage.setItem('mch_saved_sales', JSON.stringify(savedSales));
+    }, [savedSales]);
+
+    useEffect(() => {
+        if (editingSession) {
+            localStorage.setItem('editing_session', JSON.stringify(editingSession));
+        } else {
+            localStorage.removeItem('editing_session');
+        }
+    }, [editingSession]);
 
     useEffect(() => {
         localStorage.setItem('mch_inventory', currentInventory);
@@ -69,7 +95,11 @@ export const CartProvider = ({ children }) => {
             clearCart,
             total,
             currentInventory,
-            setCurrentInventory
+            setCurrentInventory,
+            savedSales,
+            setSavedSales,
+            editingSession,
+            setEditingSession
         }}>
             {children}
         </CartContext.Provider>
