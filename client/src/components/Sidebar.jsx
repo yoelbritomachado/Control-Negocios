@@ -26,6 +26,7 @@ import {
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
 import { Database } from 'lucide-react';
+import { Grid3X3 } from 'lucide-react';
 
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
@@ -43,6 +44,7 @@ const historyMenuItems = [
 ];
 
 const adminMenuItems = [
+    { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'admin' },
     { id: 'migration', label: 'Migración', icon: Database, path: '/admin/migracion', category: 'admin' },
 ];
 
