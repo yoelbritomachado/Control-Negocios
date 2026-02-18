@@ -80,6 +80,9 @@ export function Sidebar({ isDark, toggleTheme }) {
     
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
     const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'owner';
+    
+    // Debug log para verificar rol
+    console.log('Sidebar - currentUser:', currentUser, 'isAdmin:', isAdmin);
 
     const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
 
