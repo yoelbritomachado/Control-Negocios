@@ -246,9 +246,9 @@ export const NexusManager = () => {
   // TAMAÑOS DEL NODO
   const NODE_WIDTH = 260;
   const NODE_HEIGHT = 160;
-  // Los puntos están en el borde (-6px), centro del punto está a 6px del borde
-  const OUTPUT_OFFSET = NODE_HEIGHT + 6; // 166px - centro del punto de salida
-  const INPUT_OFFSET = -6;               // -6px - centro del punto de entrada
+  // Los puntos están en el borde con -top-1.5 y -bottom-1.5 (6px en Tailwind)
+  // Centro del punto de entrada: -6px (sobresale 6px arriba del nodo)
+  // Centro del punto de salida: NODE_HEIGHT + 6px (sobresale 6px abajo del nodo)
 
   // Convertir coordenadas
   const screenToCanvas = (screenX, screenY) => ({
@@ -363,10 +363,10 @@ export const NexusManager = () => {
       });
     }
 
-    // Línea temporal desde el PUNTO DE SALIDA (borde inferior)
+    // Línea temporal desde el PUNTO DE SALIDA (borde inferior, igual que entrada pero abajo)
     if (connectingFrom) {
       const outputX = connectingFrom.position.x + NODE_WIDTH / 2;
-      const outputY = connectingFrom.position.y + NODE_HEIGHT + 6; // +6px porque el punto está sobresaliendo
+      const outputY = connectingFrom.position.y + NODE_HEIGHT + 6; // Mismo offset que entrada pero sumado
       setTempLine({
         x1: outputX,
         y1: outputY,
@@ -456,13 +456,14 @@ export const NexusManager = () => {
         const parent = nodes.find(p => p.id === n.parentId);
         if (!parent) return null;
 
-        // PUNTO DE SALIDA (output) - borde inferior del padre (sobresale 6px)
+        // PUNTO DE SALIDA (output) - igual que entrada pero en borde inferior
+        // Entrada está en y - 6px, salida debe estar en y + NODE_HEIGHT + 6px
         const startX = parent.position.x + NODE_WIDTH / 2;
-        const startY = parent.position.y + NODE_HEIGHT + 6;
+        const startY = parent.position.y + NODE_HEIGHT + 6; // +6px igual que entrada es -6px
         
-        // PUNTO DE ENTRADA (input) - borde superior del hijo (sobresale 6px)
+        // PUNTO DE ENTRADA (input) - borde superior del hijo
         const endX = n.position.x + NODE_WIDTH / 2;
-        const endY = n.position.y - 6;
+        const endY = n.position.y - 6; // -6px desde el borde superior
         
         const path = generatePath(startX, startY, endX, endY);
         const typeConfig = NODE_TYPES[parent.type?.toUpperCase()];

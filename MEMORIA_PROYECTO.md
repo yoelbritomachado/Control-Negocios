@@ -777,3 +777,30 @@ Se implemento un selector de roles en el Header para permitir cambiar rapidament
 - [ ] Implementar comportamiento diferente del boton Cerrar Sesion segun rol
 - [ ] Calcular salario del vendedor (5% de ganancias)
 
+
+
+### 2026-02-18 - Sistema de Notificaciones Implementado
+**Autor:** Kimi Claw
+**Archivos Modificados:**
+- server/index.js - Endpoints de notificaciones y send-for-review
+- client/src/hooks/useNotifications.js (NUEVO)
+- client/src/components/Header.jsx - Notificaciones reales del backend
+- client/src/components/POSLayout.jsx - Endpoint segun rol
+
+**Endpoints Creados:**
+- POST /api/sessions/send-for-review - Vendedor envia sesion (crea notificaciones)
+- POST /api/sessions/:id/approve - Admin aprueba sesion
+- GET /api/notifications - Obtener notificaciones del usuario
+- PUT /api/notifications/:id/read - Marcar como leida
+- PUT /api/notifications/read-all - Marcar todas como leidas
+
+**Flujo:**
+1. Vendedor hace clic en Enviar Sesion -> POST /send-for-review
+2. Backend cambia estado a pending_review y crea notificaciones para admins
+3. Header (como admin) muestra badge con conteo de notificaciones sin leer
+4. Admin hace clic en campana -> ve notificaciones en tiempo real
+5. Admin puede marcar como leidas individualmente o todas
+
+**Tabla notifications:**
+- id, user_id, type, title, message, data (JSON), is_read, created_at
+

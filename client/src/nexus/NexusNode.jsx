@@ -112,15 +112,15 @@ export const NexusNode = React.memo(({
         ${isConnectingFrom ? 'animate-pulse' : ''}
       `}
     >
-      {/* Connection Point - INPUT (top center) - EN EL BORDE */}
+      {/* Connection Point - INPUT (top center) - EN EL BORDE - TAMAÑO 12x12px */}
       <div 
         className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-500 border-2 border-slate-800 z-30"
         title="Punto de entrada"
       />
       
-      {/* Connection Point - OUTPUT (bottom center) - EN EL BORDE */}
+      {/* Connection Point - OUTPUT (bottom center) - EN EL BORDE - TAMAÑO IGUAL 12x12px */}
       <div 
-        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-slate-800 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg"
+        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-slate-800 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg"
         style={{ backgroundColor: typeConfig.color }}
         onMouseDown={(e) => onConnectionStart?.(e, node)}
         title="Arrastra para conectar a otro nodo"

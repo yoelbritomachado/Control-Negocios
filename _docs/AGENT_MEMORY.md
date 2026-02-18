@@ -6,6 +6,53 @@
 
 ## 📋 DECISIONES DE DISEÑO Y FUNCIONALIDAD
 
+### 2026-02-18 - Módulo de Traslados (Transferencias entre Inventarios)
+**Status**: 🔄 En implementación
+
+**Requerimiento**: Crear un módulo para transferir mercancía entre almacenes y puntos de venta.
+
+**Ubicación**: Menú Gestión → "Traslados" (solo visible para Admin/Dueño)
+
+**Interfaz**: Similar al POS pero simplificada, solo para transferencias:
+- Selector de inventario ORIGEN
+- Selector de inventario DESTINO  
+- Carrito de productos a trasladar
+- Confirmación de transferencia
+
+**Tipos de traslado posibles**:
+- Almacén → Punto de Venta
+- Punto de Venta → Almacén
+- Almacén → Almacén
+- Punto de Venta → Punto de Venta
+
+**Sistema de Notificaciones**:
+
+| Quién hace el traslado | Tipo de traslado | Notificación a |
+|------------------------|------------------|----------------|
+| **Administrador** | Cualquier tipo | Dueño (siempre) |
+| **Dueño** | Almacén → Almacén | Nadie |
+| **Dueño** | Cualquier tipo a PV | Vendedores del PV destino |
+| **Dueño** | Al mismo PV donde está | No aplica (no hay destino) |
+
+**Reglas de notificación**:
+1. Si el **Dueño** hace un traslado → NO se notifica a él mismo
+2. Si el **Administrador** hace un traslado → SIEMPRE notificar al **Dueño**
+3. Si el traslado va a un **Punto de Venta** → Notificar a los **vendedores** de ese PV
+4. Traslados entre almacenes no generan notificaciones a vendedores
+
+**Estados del traslado**:
+- `pending`: Pendiente de aprobación/envío
+- `in_transit`: En tránsito
+- `received`: Recibido en destino
+- `rejected`: Rechazado
+
+**Permisos**:
+- Solo **Dueño** y **Administrador** pueden crear traslados
+- **Vendedores** NO ven el módulo de Traslados
+- Los vendedores solo reciben notificaciones cuando les llega mercancía a su PV
+
+---
+
 ### 2026-02-18 - Menú de Configuración: Tipos de Gastos
 **Status**: ✅ Implementado
 
@@ -27,7 +74,8 @@
 
 - **Sistema de gastos**: Implementado con tabla `expense_types` (SQLite)
 - **Tipos actuales**: Pago de Área ($3000), Limpieza ($100), Otros (manual)
-- **Interfaz de config**: NO EXISTE - necesita crearse
+- **Interfaz de config**: ✅ EXISTE - SettingsPage.jsx
+- **Módulo de Traslados**: En desarrollo
 
 ---
 

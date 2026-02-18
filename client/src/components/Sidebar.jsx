@@ -21,7 +21,8 @@ import {
     X,
     Receipt,
     Trash2,
-    AlertTriangle
+    AlertTriangle,
+    Truck
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
@@ -33,6 +34,7 @@ const menuItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/entradas', category: 'management' },
     { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
+    { id: 'traslados', label: 'Traslados', icon: Truck, path: '/traslados', category: 'management', adminOnly: true },
     { id: 'mermas', label: 'Mermas', icon: AlertTriangle, path: '/mermas', category: 'management' },
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
     { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'management' },
