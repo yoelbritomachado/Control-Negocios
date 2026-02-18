@@ -1548,6 +1548,37 @@ try {
     }
 } catch (e) { console.log("Migration check (sales_sessions wage_payment_id):", e.message); }
 
+// Transfers table
+console.log("Creating transfers table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_inventory TEXT NOT NULL,
+    target_inventory TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    received_at DATETIME,
+    received_by INTEGER,
+    status TEXT DEFAULT 'pending',
+    notes TEXT,
+    FOREIGN KEY(created_by) REFERENCES users(id),
+    FOREIGN KEY(received_by) REFERENCES users(id)
+  )
+`);
+
+// Transfer items table
+console.log("Creating transfer_items table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS transfer_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    transfer_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    FOREIGN KEY(transfer_id) REFERENCES transfers(id) ON DELETE CASCADE,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  )
+`);
+
 // Helper to get system config safely
 const getSystemConfig = (key) => {
     try {

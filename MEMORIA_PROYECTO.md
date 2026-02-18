@@ -613,16 +613,16 @@ vende y registra               revisa y cierra
 
 ### ✅ CHECKLIST DE IMPLEMENTACIÓN
 
-- [ ] Renombrar "Historial de Ventas" → "Historial de Sesiones"
-- [ ] Implementar badge de notificaciones funcional
-- [ ] Cambiar botón "Cerrar Sesión" → "Enviar Sesión a Revisión" (para vendedor)
+- [x] Renombrar "Historial de Ventas" → "Historial de Sesiones"
+- [x] Implementar badge de notificaciones funcional
+- [x] Cambiar botón "Cerrar Sesión" → "Enviar Sesión a Revisión" (para vendedor)
 - [ ] Mostrar "Terminar Edición" solo cuando `editingSession` exista
-- [ ] Implementar cálculo de salario en tiempo real (5% de ganancias)
-- [ ] Agregar checkbox "Solicitar pago de salario" al enviar sesión
-- [ ] Crear popup de cierre de sesión con opciones de pago (Admin/Dueño)
+- [x] Implementar cálculo de salario en tiempo real (5% de ganancias)
+- [x] Agregar checkbox "Solicitar pago de salario" al enviar sesión
+- [x] Crear popup de cierre de sesión con opciones de pago (Admin/Dueño)
 - [ ] Integrar pago de salario con Control de Efectivo
-- [ ] Implementar sistema de notificaciones
-- [ ] Limpiar `editing_session` al abrir nueva sesión
+- [x] Implementar sistema de notificaciones
+- [x] Limpiar `editing_session` al abrir nueva sesión
 
 ---
 

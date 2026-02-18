@@ -15,6 +15,7 @@ import { NexusManager } from './nexus';
 import HistorySalesPage from './pages/HistorySalesPage';
 import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
 import HistoryMermasPage from './pages/HistoryMermasPage';
+import TrasladosPage from './pages/TrasladosPage';
 import './index.css';
 
 function App() {
@@ -38,6 +39,7 @@ function App() {
             <Route path="historial/compras" element={<HistoryPurchasesPage />} />
             <Route path="historial/mermas" element={<HistoryMermasPage />} />
             <Route path="mermas" element={<MermasPage />} />
+            <Route path="traslados" element={<TrasladosPage />} />
             <Route path="configuracion" element={<SettingsPage />} />
             <Route path="nexus" element={<NexusManager />} />
           </Route>

@@ -505,7 +505,7 @@ export const NexusManager = () => {
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-140px)] bg-slate-950 overflow-hidden rounded-xl border border-slate-800 select-none"
+      className="relative w-full h-[calc(100vh-140px)] bg-black overflow-hidden rounded-xl border border-slate-800 select-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
