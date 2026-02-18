@@ -144,7 +144,8 @@ export const NexusGraph = ({
 export const NexusMinimap = ({ 
   nodes, 
   viewport, 
-  onNavigate 
+  onNavigate,
+  isDark = true
 }) => {
   const scale = 0.15;
   const padding = 10;
@@ -167,8 +168,8 @@ export const NexusMinimap = ({
   const height = (bounds.maxY - bounds.minY) * scale + padding * 2;
 
   return (
-    <div className="absolute bottom-4 right-4 bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-2 shadow-2xl">
-      <div className="text-[10px] text-slate-400 mb-1 text-center">Vista General</div>
+    <div className={`absolute bottom-4 right-4 backdrop-blur-sm rounded-lg border p-2 shadow-2xl transition-colors duration-300 ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
+      <div className={`text-[10px] mb-1 text-center transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Vista General</div>
       <svg 
         width={width} 
         height={height}
@@ -184,7 +185,7 @@ export const NexusMinimap = ({
         <rect 
           width={width} 
           height={height} 
-          fill="rgba(15, 23, 42, 0.5)" 
+          fill={isDark ? "rgba(15, 23, 42, 0.5)" : "rgba(241, 245, 249, 0.5)"}
           rx="4"
         />
 
@@ -218,7 +219,7 @@ export const NexusMinimap = ({
             width={viewport.width * scale}
             height={viewport.height * scale}
             fill="none"
-            stroke="white"
+            stroke={isDark ? "white" : "#1e293b"}
             strokeWidth="1"
             strokeDasharray="2,2"
             opacity="0.5"

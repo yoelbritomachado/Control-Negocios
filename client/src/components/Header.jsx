@@ -80,7 +80,7 @@ export function Header() {
   const location = useLocation();
   const { currentInventory } = useCart();
   const { currentRole, userName, changeRole, getRoleInfo, ROLES: RolesList } = useRole();
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, isOnline } = useNotifications();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -155,13 +155,22 @@ export function Header() {
               onClick={() => setNotificationsOpen(!notificationsOpen)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="relative p-2 lg:p-2.5 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors"
+              className={cn(
+                "relative p-2 lg:p-2.5 rounded-xl transition-colors",
+                isOnline ? "bg-secondary/50 hover:bg-secondary" : "bg-slate-800/50 opacity-60"
+              )}
+              title={isOnline ? "Notificaciones" : "Sin conexión al servidor"}
             >
               <Bell className="w-4 h-4 lg:w-5 lg:h-5 text-muted-foreground" />
-              {unreadCount > 0 && (
+              {/* Badge de no leídas (solo si hay conexión) */}
+              {isOnline && unreadCount > 0 && (
                 <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
+              )}
+              {/* Indicador offline */}
+              {!isOnline && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-slate-500" />
               )}
             </motion.button>
             
@@ -189,7 +198,15 @@ export function Header() {
                   </div>
                   
                   <div className="max-h-80 overflow-y-auto">
-                    {notifications.length === 0 ? (
+                    {!isOnline ? (
+                      <div className="p-8 text-center">
+                        <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center mx-auto mb-2">
+                          <span className="w-2 h-2 rounded-full bg-slate-500" />
+                        </div>
+                        <p className="text-sm text-muted-foreground">Sin conexión al servidor</p>
+                        <p className="text-xs text-slate-500 mt-1">Las notificaciones se actualizarán cuando vuelva la conexión</p>
+                      </div>
+                    ) : notifications.length === 0 ? (
                       <div className="p-8 text-center">
                         <Bell className="w-8 h-8 text-slate-600 mx-auto mb-2" />
                         <p className="text-sm text-muted-foreground">No hay notificaciones</p>

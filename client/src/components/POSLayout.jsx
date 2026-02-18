@@ -245,24 +245,36 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
     const isSeller = role === 'seller';
 
-    // Calcular diferencia si hay resumen
-    const cashSales = summary?.sales?.cash || 0;
-    const transferSales = summary?.sales?.transfer || 0;
-    const cashExpenses = summary?.expenses?.cash || 0;
-    const transferExpenses = summary?.expenses?.transfer || 0;
-    const finalCash = summary?.final?.cash || cashSales - cashExpenses;
-    const finalTransfer = summary?.final?.transfer || transferSales - transferExpenses;
-    const totalExpenses = summary?.expenses?.total || 0;
+    // Support both old format (summary) and new format (metrics.current)
+    const data = metrics?.current || summary || {};
+    const accumulated = metrics?.accumulated || {};
+    const finalData = metrics?.final || {};
     
-    // Calcular salario: 5% de la ganancia (ventas - costos)
-    const totalSales = summary?.sales?.total || 0;
-    const totalCost = summary?.cost?.total || 0;
+    // Extract values from the correct format
+    const cashSales = data.sales?.cash || 0;
+    const transferSales = data.sales?.transfer || 0;
+    const totalSales = data.sales?.total || 0;
+    const totalCost = data.cost?.total || 0;
+    const cashExpenses = data.expenses?.cash || 0;
+    const transferExpenses = data.expenses?.transfer || 0;
+    const totalExpenses = data.expenses?.total || 0;
+    
+    // Calculate derived values
     const profit = Math.max(0, totalSales - totalCost);
-    const wageAmount = profit * 0.05; // 5% de ganancia
+    const currentWage = data.wage || (profit * 0.05);
+    
+    // Final amounts to deliver
+    const finalCash = finalData.cash || (cashSales - cashExpenses);
+    const finalTransfer = finalData.transfer || (transferSales - transferExpenses);
+    
+    // Accumulated wage (all unpaid sessions)
+    const totalPendingWage = accumulated.total_pending_wage || currentWage;
+    const previousWage = accumulated.previous_sessions_wage || 0;
+    const pendingSessions = accumulated.pending_sessions_count || 0;
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(cash, notes, requestWagePayment, wagePaymentMethod);
+        onSave(cash, notes, requestWagePayment, wagePaymentMethod, totalPendingWage);
     };
 
     return (
@@ -350,20 +362,45 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                     {/* Comisión - 5% de ganancia real */}
                     <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20">
                         <div className="flex items-center justify-between mb-2">
-                            <div className="text-xs text-amber-400 uppercase tracking-wider font-semibold">Tu Salario (5% de ganancia)</div>
-                            <div className="text-lg font-bold text-amber-400 font-mono">${wageAmount.toFixed(2)}</div>
+                            <div className="text-xs text-amber-400 uppercase tracking-wider font-semibold">
+                                Tu Salario Acumulado ({pendingSessions > 1 ? `${pendingSessions} sesiones` : 'Esta sesión'})
+                            </div>
+                            <div className="text-lg font-bold text-amber-400 font-mono">${totalPendingWage.toFixed(2)}</div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4 text-xs">
-                            <div className="text-slate-400">Ventas: <span className="text-white">${totalSales.toFixed(2)}</span></div>
-                            <div className="text-slate-400">Costos: <span className="text-rose-400">-${totalCost.toFixed(2)}</span></div>
-                            <div className="text-slate-400 col-span-2">Ganancia: <span className="text-emerald-400">${profit.toFixed(2)}</span></div>
+                        
+                        {/* Breakdown */}
+                        <div className="space-y-2 text-xs border-t border-white/10 pt-2 mt-2">
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Esta sesión:</span>
+                                <span className="text-white font-mono">${currentWage.toFixed(2)}</span>
+                            </div>
+                            {previousWage > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Sesiones anteriores:</span>
+                                    <span className="text-amber-300 font-mono">${previousWage.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
+                                <span className="text-emerald-400">Total a cobrar:</span>
+                                <span className="text-emerald-400 font-bold font-mono">${totalPendingWage.toFixed(2)}</span>
+                            </div>
+                        </div>
+                        
+                        {/* Cálculo de esta sesión */}
+                        <div className="mt-3 pt-2 border-t border-white/10">
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Cálculo esta sesión</div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="text-slate-400">Ventas: <span className="text-white">${totalSales.toFixed(2)}</span></div>
+                                <div className="text-slate-400">Costos: <span className="text-rose-400">-${totalCost.toFixed(2)}</span></div>
+                                <div className="text-slate-400 col-span-2">Ganancia: <span className="text-emerald-400">${profit.toFixed(2)} × 5% = ${currentWage.toFixed(2)}</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
                     {/* Opción de solicitar pago - Solo para vendedores */}
-                    {isSeller && wageAmount > 0 && (
+                    {isSeller && totalPendingWage > 0 && (
                         <div className="space-y-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
                             <label className="flex items-center gap-3 cursor-pointer">
                                 <input
@@ -373,7 +410,7 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                                     className="w-5 h-5 rounded border-emerald-500/50 bg-white/5 text-emerald-500 focus:ring-emerald-500/50"
                                 />
                                 <span className="text-sm font-medium text-emerald-400">
-                                    Solicitar pago de mi salario (${wageAmount.toFixed(2)})
+                                    Solicitar pago de mi salario acumulado (${totalPendingWage.toFixed(2)})
                                 </span>
                             </label>
                             
@@ -963,9 +1000,18 @@ export default function POSLayout() {
     };
 
     const fetchMetricsDirect = async () => {
-        const res = await api.get('/sessions/status');
-        setSessionMetrics(res.data);
-        setShowClose(true);
+        try {
+            // Use the new detailed metrics endpoint
+            const res = await api.get('/sessions/metrics');
+            setSessionMetrics(res.data);
+            setShowClose(true);
+        } catch (e) {
+            console.error('Error fetching metrics:', e);
+            // Fallback to basic status endpoint
+            const res = await api.get('/sessions/status');
+            setSessionMetrics(res.data);
+            setShowClose(true);
+        }
     };
 
     const fetchMetrics = async () => {

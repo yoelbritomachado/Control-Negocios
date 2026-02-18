@@ -1111,6 +1111,122 @@ app.get('/api/sessions/status', (req, res) => {
     }
 });
 
+// Get detailed session metrics (for close modal)
+app.get('/api/sessions/metrics', (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Get current open session
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) {
+            return res.status(400).json({ error: "No hay sesión abierta." });
+        }
+
+        // Calculate Sales Totals with COSTS
+        const salesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(s.total), 0) as total_sales,
+                COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            WHERE s.session_id = ?
+        `).get(session.id);
+
+        // Calculate Sales by Payment Method
+        const salesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(total), 0) as total
+            FROM sales
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Calculate Expenses Totals
+        const expensesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(amount), 0) as total_expenses
+            FROM expenses
+            WHERE session_id = ?
+        `).get(session.id);
+
+        // Calculate Expenses by Payment Method
+        const expensesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Current session calculations
+        const totalProfit = salesData.total_sales - salesData.total_cost;
+        const currentWage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
+
+        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
+        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        const otherSales = salesByMethod.find(s => s.payment_method !== 'cash' && s.payment_method !== 'transfer')?.total || 0;
+        const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+        const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+        
+        const finalCash = cashSales - cashExpenses;
+        const finalTransfer = transferSales - transferExpenses;
+
+        // Calculate ACCUMULATED WAGE (all unpaid sessions)
+        const accumulatedWages = db.prepare(`
+            SELECT 
+                COALESCE(SUM(wage_amount), 0) as total_pending_wage,
+                COUNT(*) as pending_sessions
+            FROM sales_sessions 
+            WHERE user_id = ? 
+                AND (status = 'closed' OR status = 'pending_review')
+                AND wage_payment_id IS NULL
+        `).get(userId);
+
+        res.json({
+            session: {
+                id: session.id,
+                start_time: session.start_time,
+                initial_cash: session.initial_cash
+            },
+            current: {
+                sales: {
+                    total: salesData.total_sales,
+                    cash: cashSales,
+                    transfer: transferSales,
+                    other: otherSales
+                },
+                cost: {
+                    total: salesData.total_cost
+                },
+                expenses: {
+                    total: expensesData.total_expenses,
+                    cash: cashExpenses,
+                    transfer: transferExpenses
+                },
+                profit: totalProfit,
+                wage: currentWage
+            },
+            final: {
+                cash: finalCash,
+                transfer: finalTransfer,
+                total: finalCash + finalTransfer
+            },
+            accumulated: {
+                current_session_wage: currentWage,
+                previous_sessions_wage: accumulatedWages.total_pending_wage - currentWage,
+                total_pending_wage: accumulatedWages.total_pending_wage,
+                pending_sessions_count: accumulatedWages.pending_sessions
+            }
+        });
+
+    } catch (e) {
+        logError("Get Session Metrics", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- EXPENSES & RETURNS ---
 
 // Create Expense
