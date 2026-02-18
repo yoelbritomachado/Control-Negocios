@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Plus,
   Bell,
   User,
   ChevronDown,
@@ -347,26 +346,7 @@ export function Header() {
           </AnimatePresence>
         </div>
 
-        {/* New Sale Button - Solo mostrar si no estamos en POS */}
-        {location.pathname !== '/pos' && (
-          <motion.button
-            onClick={() => navigate('/pos')}
-            whileHover={{ scale: 1.02, y: -1 }}
-            whileTap={{ scale: 0.98 }}
-            className={cn(
-              'flex items-center gap-1.5 lg:gap-2 px-3 lg:px-5 py-2 lg:py-2.5 rounded-xl',
-              'bg-gradient-to-r from-cyan-500 to-blue-600',
-              'text-white font-medium text-sm',
-              'shadow-lg shadow-cyan-500/30',
-              'hover:shadow-cyan-500/50',
-              'transition-all duration-300'
-            )}
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Nueva Venta</span>
-            <span className="sm:hidden">Venta</span>
-          </motion.button>
-        )}
+
       </div>
 
       {/* Backdrop para cerrar dropdowns */}

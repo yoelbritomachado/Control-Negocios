@@ -511,10 +511,10 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
         e.target.value = ''; // Reset input
         return;
       }
-      // Check file size (e.g., 5MB limit)
-      const maxSize = 5 * 1024 * 1024; // 5MB
+      // Check file size (20MB limit)
+      const maxSize = 20 * 1024 * 1024; // 20MB
       if (file.size > maxSize) {
-        alert('El tamaño de la imagen excede el límite de 5MB. Por favor, selecciona una imagen más pequeña.');
+        alert('El tamaño de la imagen excede el límite de 20MB. Por favor, selecciona una imagen más pequeña o comprímela.');
         e.target.value = ''; // Reset input
         return;
       }

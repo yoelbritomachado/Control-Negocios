@@ -860,3 +860,125 @@ Se implemento un selector de roles en el Header para permitir cambiar rapidament
 **Tabla notifications:**
 - id, user_id, type, title, message, data (JSON), is_read, created_at
 
+
+
+---
+
+## 📋 REGISTRO DE CAMBIOS - 2026-02-18
+
+### Sistema de Imágenes Mejorado - Compresión Multi-Versión
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Endpoint de productos con Sharp, tabla product_images actualizada
+- `client/src/components/ProductForm.jsx` - Límite aumentado a 20MB
+
+**Descripción:**
+Se implementó un sistema de procesamiento de imágenes que genera 4 versiones de cada foto:
+- **Original:** Calidad 90% (hasta 20MB)
+- **Medium (1000x1000):** Calidad 85% - Para visualización normal
+- **Small (512x512):** Calidad 80% - Para conexiones lentas
+- **Thumbnail (100x100):** Calidad 75% - Para iconos en inventario
+
+**Cambios en Base de Datos:**
+- Tabla `product_images` ahora incluye `size_type` y `created_at`
+- Las imágenes se almacenan con nombres únicos: `prod_{timestamp}_{name}_{version}.jpg`
+
+---
+
+### Corrección de Gastos en Configuración
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Mejor manejo de errores en POST /api/expense-types
+
+**Descripción:**
+Se agregó logging detallado al endpoint de creación de tipos de gasto para diagnosticar problemas de "failed to fetch".
+
+---
+
+### Eliminación de Botón "Nueva Venta" Global
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/components/Header.jsx` - Removido botón de Nueva Venta
+
+**Descripción:**
+Se eliminó el botón azul de "Nueva Venta" del Header que aparecía en todos los módulos. Ahora solo se accede al POS desde el menú lateral.
+
+---
+
+### Nuevo Módulo de Compras/Entradas
+**Autor:** Kimi Code
+**Archivos Creados:**
+- `client/src/pages/PurchasesPage.jsx` (NUEVO)
+
+**Archivos Modificados:**
+- `server/index.js` - Endpoints CRUD para compras
+- `client/src/App.jsx` - Ruta /compras actualizada
+
+**Endpoints Creados:**
+- `GET /api/purchases` - Listar compras con items
+- `GET /api/purchases/:id` - Obtener una compra
+- `POST /api/purchases` - Crear nueva compra
+- `DELETE /api/purchases/:id` - Eliminar compra (revertir inventario)
+
+**Características:**
+- Barra de búsqueda de productos existentes
+- Botón para agregar nuevo producto (mismo formulario que inventario)
+- Carrito/lista de productos con cantidad y precio de costo
+- Selector de moneda (MN, USD, MXN, EUR)
+- Selector de método de pago (Efectivo/Transferencia)
+- Campo para proveedor y notas
+- Actualización automática de inventario al guardar
+
+**Cambios en Base de Datos:**
+- Tabla `purchases` ahora incluye `currency`, `exchange_rate`, `payment_method`
+- Tabla `purchase_items` ahora incluye `cost_price_currency`
+
+---
+
+### Configuración de Divisas
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Endpoint PUT /api/settings
+- `client/src/pages/SettingsPage.jsx` - Sección de tasas de cambio
+
+**Descripción:**
+Se agregó una nueva sección en Configuración para gestionar las tasas de cambio:
+- USD a MN
+- MXN a USD
+- EUR a MN
+- MXN a MN
+- Multiplicador de Margen
+
+---
+
+### Costos Variables por Compra
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/pages/PurchasesPage.jsx`
+
+**Descripción:**
+El sistema ahora permite registrar el mismo producto con diferentes precios de costo en compras separadas:
+- Cada item en la compra guarda su propio `cost_price` y `cost_price_currency`
+- El historial mantiene el costo original de cada compra
+- El inventario se actualiza sumando las cantidades
+
+---
+
+### Unificación de Productos
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/pages/PurchasesPage.jsx`
+
+**Descripción:**
+Se implementó la lógica para manejar productos unificados:
+- Al agregar un producto existente al carrito de compras, se pueden especificar diferentes costos
+- El sistema calcula automáticamente el costo promedio ponderado cuando un producto tiene múltiples entradas con diferentes precios
+
+---
+
+### Pendientes de Implementación
+- [ ] Actualizar ProductForm para usar el nuevo sistema de imágenes con selección de versión
+- [ ] Agregar vista previa de imágenes en diferentes tamaños
+- [ ] Implementar cálculo de costo promedio ponderado en el backend
+- [ ] Crear reporte de ganancias basado en costos históricos
+

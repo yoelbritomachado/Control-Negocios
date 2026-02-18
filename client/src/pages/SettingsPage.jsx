@@ -9,26 +9,56 @@ import {
     X,
     Receipt,
     AlertCircle,
-    DollarSign
+    DollarSign,
+    RefreshCw,
+    Globe,
+    TrendingUp
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function SettingsPage() {
     const [expenseTypes, setExpenseTypes] = useState([]);
+    const [settings, setSettings] = useState({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [editingId, setEditingId] = useState(null);
     const [isCreating, setIsCreating] = useState(false);
     const [formData, setFormData] = useState({ name: '', amount: '' });
+    
+    // Currency settings
+    const [currencyRates, setCurrencyRates] = useState({
+        RATE_USD_MN: 550,
+        RATE_MXN_USD: 19,
+        RATE_EUR_MN: 590,
+        RATE_MXN_MN: 17.30,
+        MARGIN_MULTIPLIER: 3.5
+    });
+    const [savingRates, setSavingRates] = useState(false);
 
-    // Cargar tipos de gasto
-    const fetchExpenseTypes = async () => {
+    // Cargar datos
+    const fetchData = async () => {
         try {
-            const response = await fetch(`${API_URL}/expense-types`);
-            if (!response.ok) throw new Error('Error al cargar tipos de gasto');
-            const data = await response.json();
-            setExpenseTypes(data);
+            const [expenseRes, settingsRes] = await Promise.all([
+                fetch(`${API_URL}/expense-types`),
+                fetch(`${API_URL}/settings`)
+            ]);
+            
+            if (!expenseRes.ok) throw new Error('Error al cargar tipos de gasto');
+            if (!settingsRes.ok) throw new Error('Error al cargar configuración');
+            
+            const expenseData = await expenseRes.json();
+            const settingsData = await settingsRes.json();
+            
+            setExpenseTypes(expenseData);
+            setSettings(settingsData);
+            setCurrencyRates({
+                RATE_USD_MN: settingsData.RATE_USD_MN || 550,
+                RATE_MXN_USD: settingsData.RATE_MXN_USD || 19,
+                RATE_EUR_MN: settingsData.RATE_EUR_MN || 590,
+                RATE_MXN_MN: settingsData.RATE_MXN_MN || 17.30,
+                MARGIN_MULTIPLIER: settingsData.MARGIN_MULTIPLIER || 3.5
+            });
         } catch (err) {
             setError(err.message);
         } finally {
@@ -37,8 +67,28 @@ export default function SettingsPage() {
     };
 
     useEffect(() => {
-        fetchExpenseTypes();
+        fetchData();
     }, []);
+
+    // Guardar tasas de cambio
+    const handleSaveRates = async () => {
+        setSavingRates(true);
+        try {
+            const response = await fetch(`${API_URL}/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currencyRates)
+            });
+            
+            if (!response.ok) throw new Error('Error al guardar tasas de cambio');
+            
+            alert('Tasas de cambio actualizadas correctamente');
+        } catch (err) {
+            alert('Error: ' + err.message);
+        } finally {
+            setSavingRates(false);
+        }
+    };
 
     // Crear nuevo tipo de gasto
     const handleCreate = async () => {
@@ -60,7 +110,7 @@ export default function SettingsPage() {
 
             if (!response.ok) throw new Error('Error al crear tipo de gasto');
             
-            await fetchExpenseTypes();
+            await fetchData();
             setIsCreating(false);
             setFormData({ name: '', amount: '' });
         } catch (err) {
@@ -89,7 +139,7 @@ export default function SettingsPage() {
 
             if (!response.ok) throw new Error('Error al actualizar tipo de gasto');
             
-            await fetchExpenseTypes();
+            await fetchData();
             setEditingId(null);
             setFormData({ name: '', amount: '' });
         } catch (err) {
@@ -97,7 +147,7 @@ export default function SettingsPage() {
         }
     };
 
-    // Eliminar tipo de gasto (soft delete)
+    // Eliminar tipo de gasto
     const handleDelete = async (id) => {
         if (!confirm('¿Está seguro de eliminar este tipo de gasto?')) return;
 
@@ -108,19 +158,17 @@ export default function SettingsPage() {
 
             if (!response.ok) throw new Error('Error al eliminar tipo de gasto');
             
-            await fetchExpenseTypes();
+            await fetchData();
         } catch (err) {
             alert('Error: ' + err.message);
         }
     };
 
-    // Iniciar edición
     const startEdit = (item) => {
         setEditingId(item.id);
         setFormData({ name: item.name, amount: item.amount.toString() });
     };
 
-    // Cancelar edición/creación
     const cancelEdit = () => {
         setEditingId(null);
         setIsCreating(false);
@@ -150,8 +198,137 @@ export default function SettingsPage() {
                 <div>
                     <h1 className="text-2xl font-bold gradient-text">Configuración</h1>
                     <p className="text-muted-foreground">
-                        Gestiona los tipos de gastos predefinidos del sistema
+                        Gestiona los tipos de gastos y tasas de cambio del sistema
                     </p>
+                </div>
+            </motion.div>
+
+            {/* Currency Settings Section */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.05 }}
+                className="glass rounded-2xl p-6"
+            >
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600">
+                        <Globe className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-semibold">Tasas de Cambio</h2>
+                        <p className="text-sm text-muted-foreground">
+                            Configure las tasas de conversión entre monedas
+                        </p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    {/* USD to MN */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">
+                            1 USD = ? MN
+                        </label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="number"
+                                value={currencyRates.RATE_USD_MN}
+                                onChange={(e) => setCurrencyRates({ ...currencyRates, RATE_USD_MN: parseFloat(e.target.value) || 0 })}
+                                className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                step="0.01"
+                            />
+                        </div>
+                    </div>
+
+                    {/* MXN to USD */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">
+                            1 MXN = ? USD
+                        </label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="number"
+                                value={currencyRates.RATE_MXN_USD}
+                                onChange={(e) => setCurrencyRates({ ...currencyRates, RATE_MXN_USD: parseFloat(e.target.value) || 0 })}
+                                className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                step="0.01"
+                            />
+                        </div>
+                    </div>
+
+                    {/* EUR to MN */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">
+                            1 EUR = ? MN
+                        </label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="number"
+                                value={currencyRates.RATE_EUR_MN}
+                                onChange={(e) => setCurrencyRates({ ...currencyRates, RATE_EUR_MN: parseFloat(e.target.value) || 0 })}
+                                className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                step="0.01"
+                            />
+                        </div>
+                    </div>
+
+                    {/* MXN to MN */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">
+                            1 MXN = ? MN
+                        </label>
+                        <div className="relative">
+                            <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="number"
+                                value={currencyRates.RATE_MXN_MN}
+                                onChange={(e) => setCurrencyRates({ ...currencyRates, RATE_MXN_MN: parseFloat(e.target.value) || 0 })}
+                                className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                step="0.01"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Margin Multiplier */}
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium text-muted-foreground">
+                            Multiplicador de Margen
+                        </label>
+                        <div className="relative">
+                            <TrendingUp className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="number"
+                                value={currencyRates.MARGIN_MULTIPLIER}
+                                onChange={(e) => setCurrencyRates({ ...currencyRates, MARGIN_MULTIPLIER: parseFloat(e.target.value) || 0 })}
+                                className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
+                                step="0.1"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                    <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={handleSaveRates}
+                        disabled={savingRates}
+                        className={cn(
+                            "flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all",
+                            "bg-gradient-to-r from-emerald-500 to-teal-500 text-white",
+                            "hover:shadow-lg hover:shadow-emerald-500/25",
+                            "disabled:opacity-50 disabled:cursor-not-allowed"
+                        )}
+                    >
+                        {savingRates ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Save className="w-4 h-4" />
+                        )}
+                        Guardar Tasas
+                    </motion.button>
                 </div>
             </motion.div>
 
@@ -330,14 +507,9 @@ export default function SettingsPage() {
                                             </>
                                         ) : (
                                             <>
-                                                <td className="py-3 px-4 font-medium">
-                                                    {item.name}
-                                                </td>
-                                                <td className="py-3 px-4">
-                                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-secondary text-sm">
-                                                        <DollarSign className="w-3 h-3" />
-                                                        {item.amount.toFixed(2)}
-                                                    </span>
+                                                <td className="py-3 px-4 font-medium">{item.name}</td>
+                                                <td className="py-3 px-4 text-muted-foreground">
+                                                    ${item.amount.toFixed(2)}
                                                 </td>
                                                 <td className="py-3 px-4">
                                                     <div className="flex items-center justify-end gap-2">
@@ -345,7 +517,7 @@ export default function SettingsPage() {
                                                             whileHover={{ scale: 1.05 }}
                                                             whileTap={{ scale: 0.95 }}
                                                             onClick={() => startEdit(item)}
-                                                            className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+                                                            className="p-2 rounded-lg hover:bg-secondary transition-colors"
                                                             title="Editar"
                                                         >
                                                             <Edit2 className="w-4 h-4" />
@@ -354,7 +526,7 @@ export default function SettingsPage() {
                                                             whileHover={{ scale: 1.05 }}
                                                             whileTap={{ scale: 0.95 }}
                                                             onClick={() => handleDelete(item.id)}
-                                                            className="p-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                                            className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
                                                             title="Eliminar"
                                                         >
                                                             <Trash2 className="w-4 h-4" />
@@ -366,34 +538,8 @@ export default function SettingsPage() {
                                     </motion.tr>
                                 ))}
                             </AnimatePresence>
-
-                            {/* Empty State */}
-                            {expenseTypes.length === 0 && !isCreating && (
-                                <tr>
-                                    <td colSpan={3} className="py-12 text-center">
-                                        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                                            <Receipt className="w-12 h-12 opacity-20" />
-                                            <p>No hay tipos de gasto configurados</p>
-                                            <p className="text-sm">Haz clic en "Nuevo Gasto" para agregar uno</p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )}
                         </tbody>
                     </table>
-                </div>
-
-                {/* Info Note */}
-                <div className="mt-6 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-blue-300">
-                        <p className="font-medium mb-1">Información</p>
-                        <p>
-                            Los tipos de gasto configurados aquí aparecerán en la lista desplegable 
-                            al registrar un gasto en el Punto de Venta (POS). Los cambios se reflejan 
-                            inmediatamente en todas las sesiones.
-                        </p>
-                    </div>
                 </div>
             </motion.div>
         </div>

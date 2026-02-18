@@ -5,7 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const archiver = require('archiver');
-const nodemailer = require('nodemailer'); // Added
+const nodemailer = require('nodemailer');
+const sharp = require('sharp');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -218,6 +219,68 @@ const mnxStorage = multer.diskStorage({
     }
 });
 const mnxUpload = multer({ storage: mnxStorage });
+
+// Multer Storage for Product Images (20MB limit)
+const productImageStorage = multer.memoryStorage();
+const productImageUpload = multer({ 
+    storage: productImageStorage,
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Solo se permiten archivos de imagen'), false);
+        }
+    }
+});
+
+// Image Processing Function - Creates 4 versions of each image
+async function processProductImage(buffer, filename) {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    
+    const baseName = path.parse(filename).name;
+    const timestamp = Date.now();
+    
+    // Generate unique filenames for each version
+    const versions = {
+        original: `prod_${timestamp}_${baseName}_orig.jpg`,
+        medium: `prod_${timestamp}_${baseName}_med.jpg`,    // 1000x1000
+        small: `prod_${timestamp}_${baseName}_sm.jpg`,      // 512x512
+        thumbnail: `prod_${timestamp}_${baseName}_thumb.jpg` // 100x100
+    };
+    
+    // Process original (compress but keep high quality)
+    await sharp(buffer)
+        .jpeg({ quality: 90, progressive: true })
+        .toFile(path.join(uploadDir, versions.original));
+    
+    // Process medium (1000x1000, fit inside)
+    await sharp(buffer)
+        .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85, progressive: true })
+        .toFile(path.join(uploadDir, versions.medium));
+    
+    // Process small (512x512, for slow connections)
+    await sharp(buffer)
+        .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80, progressive: true })
+        .toFile(path.join(uploadDir, versions.small));
+    
+    // Process thumbnail (100x100, for icons)
+    await sharp(buffer)
+        .resize(100, 100, { fit: 'cover' })
+        .jpeg({ quality: 75, progressive: true })
+        .toFile(path.join(uploadDir, versions.thumbnail));
+    
+    // Return URLs for all versions
+    return {
+        original: `/uploads/${versions.original}`,
+        medium: `/uploads/${versions.medium}`,
+        small: `/uploads/${versions.small}`,
+        thumbnail: `/uploads/${versions.thumbnail}`
+    };
+}
 
 // --- MNX UPLOAD AND EXTRACTION ---
 // Helper to authenticate admin requests (for routes defined before auth middleware)
@@ -1451,9 +1514,25 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL,
     url TEXT NOT NULL,
+    size_type TEXT DEFAULT 'medium',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
   )
 `);
+
+// Migration: Add size_type column if it doesn't exist
+try {
+    db.exec(`ALTER TABLE product_images ADD COLUMN size_type TEXT DEFAULT 'medium'`);
+    console.log('Added size_type column to product_images table');
+} catch (e) {
+    // Column already exists, ignore error
+}
+
+try {
+    db.exec(`ALTER TABLE product_images ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+} catch (e) {
+    // Column already exists, ignore error
+}
 
 // Migration: Move existing single images to new table
 const checkMigration = db.prepare("SELECT count(*) as count FROM product_images").get();
@@ -1556,12 +1635,34 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     supplier TEXT,
     total REAL DEFAULT 0,
+    currency TEXT DEFAULT 'MN',
+    exchange_rate REAL DEFAULT 1,
     date DATETIME DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER,
     notes TEXT,
+    payment_method TEXT DEFAULT 'cash',
     FOREIGN KEY(user_id) REFERENCES users(id)
   )
 `);
+
+// Migration: Add new columns to purchases if not exists
+try {
+    const purchaseCols = db.prepare("PRAGMA table_info(purchases)").all();
+    const columns = purchaseCols.map(c => c.name);
+    
+    if (!columns.includes('currency')) {
+        console.log("Migrating: Adding currency to purchases...");
+        db.exec("ALTER TABLE purchases ADD COLUMN currency TEXT DEFAULT 'MN'");
+    }
+    if (!columns.includes('exchange_rate')) {
+        console.log("Migrating: Adding exchange_rate to purchases...");
+        db.exec("ALTER TABLE purchases ADD COLUMN exchange_rate REAL DEFAULT 1");
+    }
+    if (!columns.includes('payment_method')) {
+        console.log("Migrating: Adding payment_method to purchases...");
+        db.exec("ALTER TABLE purchases ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+} catch (e) { console.log("Migration check (purchases):", e.message); }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS purchase_items (
@@ -1570,10 +1671,22 @@ db.exec(`
     product_id INTEGER NOT NULL,
     quantity INTEGER DEFAULT 0,
     cost_price REAL DEFAULT 0,
+    cost_price_currency TEXT DEFAULT 'MN',
     FOREIGN KEY(purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
     FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
   )
 `);
+
+// Migration: Add cost_price_currency to purchase_items if not exists
+try {
+    const itemCols = db.prepare("PRAGMA table_info(purchase_items)").all();
+    const columns = itemCols.map(c => c.name);
+    
+    if (!columns.includes('cost_price_currency')) {
+        console.log("Migrating: Adding cost_price_currency to purchase_items...");
+        db.exec("ALTER TABLE purchase_items ADD COLUMN cost_price_currency TEXT DEFAULT 'MN'");
+    }
+} catch (e) { console.log("Migration check (purchase_items):", e.message); }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS losses (
@@ -1835,12 +1948,18 @@ app.get('/api/expense-types', authenticate, (req, res) => {
 app.post('/api/expense-types', authenticate, requireAdmin, (req, res) => {
     try {
         const { name, amount, payment_method } = req.body;
+        console.log('POST /api/expense-types - Received:', { name, amount, payment_method });
+        
         if (!name || amount === undefined) {
+            console.log('POST /api/expense-types - Validation failed: missing name or amount');
             return res.status(400).json({ error: 'Nombre y monto son requeridos' });
         }
+        
         const result = db.prepare('INSERT INTO expense_types (name, amount, payment_method) VALUES (?, ?, ?)').run(name, amount, payment_method || 'cash');
+        console.log('POST /api/expense-types - Created successfully:', result.lastInsertRowid);
         res.json({ success: true, id: result.lastInsertRowid });
     } catch (e) {
+        console.error('POST /api/expense-types - Error:', e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2414,6 +2533,9 @@ app.get('/api/products', authenticate, (req, res) => {
         // Attach stock levels per inventory
         const getStocks = db.prepare("SELECT inventory_id, quantity FROM product_inventory WHERE product_id = ?");
 
+        // Get images for all products
+        const getImages = db.prepare("SELECT url, size_type FROM product_images WHERE product_id = ?");
+        
         const productsWithStock = productsList.map(p => {
             const stocks = getStocks.all(p.id);
             const inventoryMap = {};
@@ -2428,15 +2550,25 @@ app.get('/api/products', authenticate, (req, res) => {
                 }
             });
 
-            // Compatibility: MCH v2 POS uses 'inventory' map. Entradas uses 'quantity'.
-            // If inventoryId specific requested, quantity = that stock. Else total?
-            // POS expects 'total_quantity' or looks inside 'inventory' map.
+            // Get images grouped by size_type
+            const images = getImages.all(p.id);
+            const imageVersions = {
+                original: images.filter(img => img.size_type === 'original').map(img => img.url),
+                medium: images.filter(img => img.size_type === 'medium').map(img => img.url),
+                small: images.filter(img => img.size_type === 'small').map(img => img.url),
+                thumbnail: images.filter(img => img.size_type === 'thumbnail').map(img => img.url)
+            };
+            
+            // For backwards compatibility, also provide 'images' array with medium sizes
+            const allImages = images.map(img => img.url);
 
             return {
                 ...p,
                 inventory: inventoryMap,
                 total_quantity: totalStock,
-                quantity: inventoryId ? specificStock : totalStock // Dynamic mapping for frontend compatibility
+                quantity: inventoryId ? specificStock : totalStock,
+                images: allImages,
+                image_versions: imageVersions
             };
         });
 
@@ -2449,18 +2581,48 @@ app.get('/api/products', authenticate, (req, res) => {
 });
 
 // 3. Create Product
-app.post('/api/products', authenticate, requireEditor, (req, res) => {
+app.post('/api/products', authenticate, requireEditor, productImageUpload.array('images', 5), async (req, res) => {
     try {
-        const { name, cost_mx, sale_price_manual, description, image } = req.body;
+        const { name, cost_mx, sale_price_manual, description, quantity, label_color, code } = req.body;
 
         if (!name) return res.status(400).json({ error: 'Nombre es requerido' });
 
+        // Insert product
         const info = db.prepare(`
-            INSERT INTO products (name, cost_mx, sale_price_manual, description, image)
-            VALUES (?, ?, ?, ?, ?)
-        `).run(name, cost_mx || 0, sale_price_manual || 0, description || '', image || '');
+            INSERT INTO products (name, code, cost_mx, sale_price_manual, description, label_color, quantity)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            name, 
+            code || null,
+            cost_mx || 0, 
+            sale_price_manual || 0, 
+            description || '', 
+            label_color || 'none',
+            quantity || 0
+        );
+        
+        const productId = info.lastInsertRowid;
 
-        res.json({ success: true, id: info.lastInsertRowid });
+        // Process and save images if any
+        if (req.files && req.files.length > 0) {
+            const insertImage = db.prepare('INSERT INTO product_images (product_id, url, size_type) VALUES (?, ?, ?)');
+            
+            for (const file of req.files) {
+                try {
+                    const processedVersions = await processProductImage(file.buffer, file.originalname);
+                    // Store all versions as JSON in the url field for now
+                    // Or store each version separately - let's store the medium as main and others as variants
+                    insertImage.run(productId, processedVersions.medium, 'medium');
+                    insertImage.run(productId, processedVersions.small, 'small');
+                    insertImage.run(productId, processedVersions.thumbnail, 'thumbnail');
+                    insertImage.run(productId, processedVersions.original, 'original');
+                } catch (imgError) {
+                    console.error('Error processing image:', imgError);
+                }
+            }
+        }
+
+        res.json({ success: true, id: productId });
     } catch (e) {
         logError("POST /api/products", e);
         res.status(500).json({ error: e.message });
@@ -2468,10 +2630,10 @@ app.post('/api/products', authenticate, requireEditor, (req, res) => {
 });
 
 // 3.5 Update Product
-app.put('/api/products/:id', authenticate, requireEditor, (req, res) => {
+app.put('/api/products/:id', authenticate, requireEditor, productImageUpload.array('images', 5), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, cost_mx, sale_price_manual, description, label_color, deletedImages } = req.body;
+        const { name, cost_mx, sale_price_manual, description, label_color, code, deletedImages } = req.body;
 
         // Check if product exists
         const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
@@ -2482,10 +2644,11 @@ app.put('/api/products/:id', authenticate, requireEditor, (req, res) => {
         // Update product fields
         db.prepare(`
             UPDATE products 
-            SET name = ?, cost_mx = ?, sale_price_manual = ?, description = ?, label_color = ?
+            SET name = ?, code = ?, cost_mx = ?, sale_price_manual = ?, description = ?, label_color = ?
             WHERE id = ?
         `).run(
             name || existing.name,
+            code || existing.code,
             cost_mx !== undefined ? cost_mx : existing.cost_mx,
             sale_price_manual !== undefined ? sale_price_manual : existing.sale_price_manual,
             description !== undefined ? description : existing.description,
@@ -2498,44 +2661,48 @@ app.put('/api/products/:id', authenticate, requireEditor, (req, res) => {
             try {
                 const imagesToDelete = JSON.parse(deletedImages);
                 if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
-                    // Get current images
-                    const product = db.prepare('SELECT images FROM products WHERE id = ?').get(id);
-                    let currentImages = [];
-                    try {
-                        currentImages = JSON.parse(product.images) || [];
-                    } catch (e) {
-                        currentImages = [];
-                    }
-
-                    // Remove deleted images from array
-                    const updatedImages = currentImages.filter(img => {
-                        const imgPath = img.startsWith('/') ? img : `/${img}`;
-                        const shouldDelete = imagesToDelete.some(del => {
-                            const delPath = del.startsWith('/') ? del : `/${del}`;
-                            return imgPath === delPath || imgPath.endsWith(delPath);
+                    // Get all image versions for this product
+                    const currentImages = db.prepare('SELECT id, url FROM product_images WHERE product_id = ?').all(id);
+                    
+                    for (const delPath of imagesToDelete) {
+                        const delFileName = path.basename(delPath);
+                        // Find and delete all versions of this image
+                        const imagesToRemove = currentImages.filter(img => {
+                            const imgFileName = path.basename(img.url);
+                            return imgFileName.includes(delFileName.replace(/_(orig|med|sm|thumb)\.jpg$/, ''));
                         });
                         
-                        // Delete physical file if it exists
-                        if (shouldDelete) {
-                            const filename = path.basename(img);
-                            const filePath = path.join(__dirname, 'uploads', filename);
+                        for (const img of imagesToRemove) {
+                            // Delete physical file
+                            const filePath = path.join(__dirname, 'uploads', path.basename(img.url));
                             if (fs.existsSync(filePath)) {
                                 fs.unlinkSync(filePath);
-                                console.log(`Deleted image file: ${filename}`);
+                                console.log(`Deleted image file: ${img.url}`);
                             }
+                            // Delete from database
+                            db.prepare('DELETE FROM product_images WHERE id = ?').run(img.id);
                         }
-                        
-                        return !shouldDelete;
-                    });
-
-                    // Update database
-                    db.prepare('UPDATE products SET images = ? WHERE id = ?').run(
-                        JSON.stringify(updatedImages),
-                        id
-                    );
+                    }
                 }
             } catch (e) {
                 console.error('Error handling deleted images:', e);
+            }
+        }
+
+        // Process and add new images
+        if (req.files && req.files.length > 0) {
+            const insertImage = db.prepare('INSERT INTO product_images (product_id, url, size_type) VALUES (?, ?, ?)');
+            
+            for (const file of req.files) {
+                try {
+                    const processedVersions = await processProductImage(file.buffer, file.originalname);
+                    insertImage.run(id, processedVersions.medium, 'medium');
+                    insertImage.run(id, processedVersions.small, 'small');
+                    insertImage.run(id, processedVersions.thumbnail, 'thumbnail');
+                    insertImage.run(id, processedVersions.original, 'original');
+                } catch (imgError) {
+                    console.error('Error processing image:', imgError);
+                }
             }
         }
 
@@ -2557,17 +2724,19 @@ app.delete('/api/products/:id', authenticate, requireEditor, (req, res) => {
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
-        // Delete associated image files
+        // Delete associated image files from new table
         try {
-            const images = JSON.parse(existing.images) || [];
+            const images = db.prepare('SELECT url FROM product_images WHERE product_id = ?').all(id);
             images.forEach(img => {
-                const filename = path.basename(img);
+                const filename = path.basename(img.url);
                 const filePath = path.join(__dirname, 'uploads', filename);
                 if (fs.existsSync(filePath)) {
                     fs.unlinkSync(filePath);
                     console.log(`Deleted image file: ${filename}`);
                 }
             });
+            // Delete from product_images table
+            db.prepare('DELETE FROM product_images WHERE product_id = ?').run(id);
         } catch (e) {
             console.error('Error deleting product images:', e);
         }
@@ -2620,6 +2789,27 @@ app.get('/api/settings', authenticate, (req, res) => {
     res.json(config);
 });
 
+// Update settings (admin only)
+app.put('/api/settings', authenticate, requireAdmin, (req, res) => {
+    try {
+        const updates = req.body;
+        const updateStmt = db.prepare('UPDATE settings SET value = ? WHERE key = ?');
+        const insertStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+        
+        for (const [key, value] of Object.entries(updates)) {
+            const result = updateStmt.run(value, key);
+            if (result.changes === 0) {
+                insertStmt.run(key, value);
+            }
+        }
+        
+        res.json({ success: true });
+    } catch (e) {
+        console.error('PUT /api/settings error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const defaultSettings = [
     { key: 'RATE_MXN_USD', value: 19 },
     { key: 'RATE_USD_MN', value: 550 },
@@ -2659,10 +2849,174 @@ app.get('/api/history/sales', authenticate, (req, res) => {
     }
 });
 
+// --- PURCHASES API (Compras/Entradas) ---
+
+// Get all purchases with items
+app.get('/api/purchases', authenticate, (req, res) => {
+    try {
+        const { inventory_id } = req.query;
+        
+        const purchases = db.prepare(`
+            SELECT p.*, u.username as user_name
+            FROM purchases p
+            LEFT JOIN users u ON p.user_id = u.id
+            ORDER BY p.date DESC
+            LIMIT 1000
+        `).all();
+        
+        // Get items for each purchase
+        const getItems = db.prepare(`
+            SELECT pi.*, pr.name as product_name, pr.code as product_code
+            FROM purchase_items pi
+            JOIN products pr ON pi.product_id = pr.id
+            WHERE pi.purchase_id = ?
+        `);
+        
+        const purchasesWithItems = purchases.map(p => ({
+            ...p,
+            items: getItems.all(p.id)
+        }));
+        
+        res.json(purchasesWithItems);
+    } catch (e) {
+        console.error('GET /api/purchases error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get single purchase with items
+app.get('/api/purchases/:id', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const purchase = db.prepare(`
+            SELECT p.*, u.username as user_name
+            FROM purchases p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.id = ?
+        `).get(id);
+        
+        if (!purchase) {
+            return res.status(404).json({ error: 'Compra no encontrada' });
+        }
+        
+        const items = db.prepare(`
+            SELECT pi.*, pr.name as product_name, pr.code as product_code
+            FROM purchase_items pi
+            JOIN products pr ON pi.product_id = pr.id
+            WHERE pi.purchase_id = ?
+        `).all(id);
+        
+        res.json({ ...purchase, items });
+    } catch (e) {
+        console.error('GET /api/purchases/:id error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Create new purchase
+app.post('/api/purchases', authenticate, requireEditor, (req, res) => {
+    try {
+        const { supplier, items, total, currency, exchange_rate, notes, payment_method, inventory_id } = req.body;
+        
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'Se requieren items para la compra' });
+        }
+        
+        const result = db.transaction(() => {
+            // Insert purchase
+            const purchaseResult = db.prepare(`
+                INSERT INTO purchases (supplier, total, currency, exchange_rate, user_id, notes, payment_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                supplier || '',
+                total || 0,
+                currency || 'MN',
+                exchange_rate || 1,
+                req.user.id,
+                notes || '',
+                payment_method || 'cash'
+            );
+            
+            const purchaseId = purchaseResult.lastInsertRowid;
+            
+            // Insert items and update inventory
+            const insertItem = db.prepare(`
+                INSERT INTO purchase_items (purchase_id, product_id, quantity, cost_price, cost_price_currency)
+                VALUES (?, ?, ?, ?, ?)
+            `);
+            
+            const updateInventory = db.prepare(`
+                INSERT INTO product_inventory (product_id, inventory_id, quantity)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_id, inventory_id) 
+                DO UPDATE SET quantity = quantity + excluded.quantity
+            `);
+            
+            for (const item of items) {
+                insertItem.run(
+                    purchaseId,
+                    item.product_id,
+                    item.quantity,
+                    item.cost_price,
+                    item.cost_price_currency || currency || 'MN'
+                );
+                
+                // Update inventory
+                updateInventory.run(item.product_id, inventory_id || 'mch1', item.quantity);
+            }
+            
+            return purchaseId;
+        })();
+        
+        res.json({ success: true, id: result });
+    } catch (e) {
+        console.error('POST /api/purchases error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Delete purchase (revert inventory)
+app.delete('/api/purchases/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { inventory_id } = req.body;
+        
+        const purchase = db.prepare('SELECT * FROM purchases WHERE id = ?').get(id);
+        if (!purchase) {
+            return res.status(404).json({ error: 'Compra no encontrada' });
+        }
+        
+        db.transaction(() => {
+            // Get items to revert inventory
+            const items = db.prepare('SELECT * FROM purchase_items WHERE purchase_id = ?').all(id);
+            
+            const revertInventory = db.prepare(`
+                UPDATE product_inventory 
+                SET quantity = quantity - ?
+                WHERE product_id = ? AND inventory_id = ?
+            `);
+            
+            for (const item of items) {
+                revertInventory.run(item.quantity, item.product_id, inventory_id || 'mch1');
+            }
+            
+            // Delete purchase (cascade will delete items)
+            db.prepare('DELETE FROM purchases WHERE id = ?').run(id);
+        })();
+        
+        res.json({ success: true });
+    } catch (e) {
+        console.error('DELETE /api/purchases/:id error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get purchase history (legacy endpoint for compatibility)
 app.get('/api/history/purchases', authenticate, (req, res) => {
     try {
         const purchases = db.prepare(`
-            SELECT p.id, p.supplier, p.total, p.date, p.notes
+            SELECT p.id, p.supplier, p.total, p.date, p.notes, p.currency, p.payment_method
             FROM purchases p
             ORDER BY p.date DESC
             LIMIT 1000

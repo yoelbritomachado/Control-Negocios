@@ -4,7 +4,7 @@ import { CartProvider } from './components/CartProvider';
 import MainLayout from './components/MainLayout';
 import POSPage from './pages/POSPage';
 import InventoryPage from './pages/InventoryPage';
-import PurchaseSection from './components/PurchaseSection';
+import PurchasesPage from './pages/PurchasesPage';
 import DashboardPage from './pages/DashboardPage';
 import MigrationTool from './components/MigrationTool';
 import LegacyHistoryPage from './pages/LegacyHistoryPage';
@@ -28,7 +28,7 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="pos" element={<POSPage />} />
             <Route path="entradas" element={<InventoryPage />} />
-            <Route path="compras" element={<PurchaseSection />} />
+            <Route path="compras" element={<PurchasesPage />} />
             <Route path="usuarios" element={<div className="p-10">Módulo de Usuarios (En Construcción)</div>} />
             <Route path="admin/migracion" element={<MigrationTool />} />
             {/* Historial Legacy deshabilitado temporalmente
