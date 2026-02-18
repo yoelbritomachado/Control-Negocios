@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
+import { SafeImage } from '../components/SafeImage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -281,11 +282,13 @@ export default function MermasPage() {
                                             className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors text-left"
                                         >
                                             <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
-                                                {product.image ? (
-                                                    <img src={product.image} alt="" className="w-full h-full object-cover rounded-lg" />
-                                                ) : (
-                                                    <Package className="w-5 h-5 text-muted-foreground" />
-                                                )}
+                                                <SafeImage
+                                                    src={product.image}
+                                                    alt=""
+                                                    containerClassName="w-full h-full"
+                                                    className="rounded-lg"
+                                                    placeholder={<Package className="w-5 h-5 text-muted-foreground" />}
+                                                />
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium truncate">{product.name}</p>
@@ -309,11 +312,13 @@ export default function MermasPage() {
                         >
                             <div className="flex items-center gap-3">
                                 <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center">
-                                    {selectedProduct.image ? (
-                                        <img src={selectedProduct.image} alt="" className="w-full h-full object-cover rounded-lg" />
-                                    ) : (
-                                        <Package className="w-6 h-6 text-muted-foreground" />
-                                    )}
+                                    <SafeImage
+                                        src={selectedProduct.image}
+                                        alt=""
+                                        containerClassName="w-full h-full"
+                                        className="rounded-lg"
+                                        placeholder={<Package className="w-6 h-6 text-muted-foreground" />}
+                                    />
                                 </div>
                                 <div className="flex-1">
                                     <p className="font-medium">{selectedProduct.name}</p>

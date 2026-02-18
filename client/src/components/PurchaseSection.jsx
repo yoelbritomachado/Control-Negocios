@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchProducts } from '../api';
 import { FaBoxOpen, FaClipboardList, FaPlus, FaSearch, FaHistory, FaBarcode } from 'react-icons/fa';
+import { SafeImage } from './SafeImage';
 
 export default function PurchaseSection() {
     const [products, setProducts] = useState([]);
@@ -101,7 +102,16 @@ export default function PurchaseSection() {
                                     <tr key={p.id} className="hover:bg-white/5 transition-colors group">
                                         <td className="p-4 font-medium text-white flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-lg bg-gray-800 border border-gray-700 overflow-hidden shrink-0">
-                                                {p.image_url ? <img src={p.image_url} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-600"><FaBoxOpen /></div>}
+                                                <SafeImage
+                                                    src={p.image_url}
+                                                    alt=""
+                                                    containerClassName="w-full h-full"
+                                                    placeholder={
+                                                        <div className="w-full h-full flex items-center justify-center text-gray-600">
+                                                            <FaBoxOpen />
+                                                        </div>
+                                                    }
+                                                />
                                             </div>
                                             {p.name}
                                         </td>

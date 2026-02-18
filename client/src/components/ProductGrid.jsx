@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { fetchProducts } from '../api';
 import { useCart } from './CartProvider';
 import { FaBoxOpen, FaSearch, FaExclamationCircle } from 'react-icons/fa';
+import { SafeImage } from './SafeImage';
 
 export default function ProductGrid() {
     const [products, setProducts] = useState([]);
@@ -95,11 +96,17 @@ export default function ProductGrid() {
                                 {/* Image Aspect Ratio Frame */}
                                 <div className="aspect-[4/3] bg-gray-800 relative overflow-hidden">
                                     {imageUrl ? (
-                                        <img
+                                        <SafeImage
                                             src={imageUrl}
                                             alt={p.name}
+                                            containerClassName="w-full h-full"
                                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                            loading="lazy"
+                                            placeholder={
+                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-800/50">
+                                                    <FaBoxOpen className="text-2xl mb-1 opacity-50" />
+                                                    <span className="text-[10px] font-medium uppercase tracking-wider">Sin Imagen</span>
+                                                </div>
+                                            }
                                         />
                                     ) : (
                                         <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-800/50">

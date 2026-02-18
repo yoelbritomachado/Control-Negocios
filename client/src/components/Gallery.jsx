@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ImageOff } from 'lucide-react';
 
 const Gallery = ({ viewGallery, setViewGallery }) => {
     const [touchDelta, setTouchDelta] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
+    const [failedImages, setFailedImages] = useState(new Set());
 
     // Gallery Keyboard Navigation
     useEffect(() => {
@@ -23,6 +25,15 @@ const Gallery = ({ viewGallery, setViewGallery }) => {
     }, [viewGallery, setViewGallery]);
 
     if (!viewGallery) return null;
+
+    const handleImageError = useCallback((imgIndex) => {
+        setFailedImages(prev => new Set(prev).add(imgIndex));
+    }, []);
+
+    const validImages = viewGallery.images.map((img, i) => ({
+        src: img,
+        failed: failedImages.has(i)
+    }));
 
     return (
         <div
@@ -63,13 +74,21 @@ const Gallery = ({ viewGallery, setViewGallery }) => {
                         transform: `translate3d(calc(-${viewGallery.index * 100}% + ${touchDelta}px), 0, 0)`
                     }}
                 >
-                    {viewGallery.images.map((img, i) => (
+                    {validImages.map((img, i) => (
                         <div key={i} className="min-w-full h-full flex items-center justify-center p-4">
-                            <img
-                                src={img}
-                                className="max-w-full max-h-full object-contain shadow-2xl pointer-events-none"
-                                alt={`Gallery ${i}`}
-                            />
+                            {img.failed ? (
+                                <div className="flex flex-col items-center justify-center text-white/50">
+                                    <ImageOff className="w-16 h-16 mb-4 opacity-50" />
+                                    <span className="text-sm">Imagen no disponible</span>
+                                </div>
+                            ) : (
+                                <img
+                                    src={img.src}
+                                    className="max-w-full max-h-full object-contain shadow-2xl pointer-events-none"
+                                    alt={`Gallery ${i}`}
+                                    onError={() => handleImageError(i)}
+                                />
+                            )}
                         </div>
                     ))}
                 </div>
