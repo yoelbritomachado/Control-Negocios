@@ -3,23 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
   Building2, Package, Users, Wallet, Shield,
-  X, Check, AlertCircle, Move, Link2, Trash2,
-  MousePointer2, Unlink
+  X, Check, AlertCircle, Trash2
 } from 'lucide-react';
 import { useNexus } from './useNexus';
 import { NexusNode } from './NexusNode';
-import { NexusGraph, NexusMinimap } from './NexusGraph';
+import { NexusMinimap } from './NexusGraph';
 import { NODE_TYPES, NODE_STATUS, VISUAL_CONFIG } from './nexus.types';
 
-// Panel de control para agregar nodos
-const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
+// Panel de control para agregar nodos - AHORA CON TODOS LOS TIPOS
+const AddNodePanel = ({ onAdd, onClose, position }) => {
   const [selectedType, setSelectedType] = useState(null);
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
 
-  const availableTypes = parentNode 
-    ? NODE_TYPES[parentNode.type?.toUpperCase()]?.allowedChildren || []
-    : ['empresa'];
+  // TODOS los tipos disponibles para crear
+  const allTypes = ['empresa', 'administrador', 'inventario', 'vendedor', 'caja'];
 
   const handleSubmit = () => {
     if (!selectedType) {
@@ -32,7 +30,7 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
     }
 
     try {
-      onAdd(selectedType, name);
+      onAdd(selectedType, name, position);
       onClose();
     } catch (e) {
       setError(e.message);
@@ -49,15 +47,14 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="fixed left-4 bottom-4 z-50 w-80 bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700 shadow-2xl p-4"
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      className="fixed z-50 w-80 bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700 shadow-2xl p-4"
+      style={{ left: position?.x || 20, top: position?.y || 20 }}
     >
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-white">
-          {parentNode ? `Agregar a ${parentNode.name}` : 'Nueva Empresa'}
-        </h3>
+        <h3 className="font-semibold text-white">Nuevo Nodo</h3>
         <button onClick={onClose} className="text-slate-400 hover:text-white">
           <X size={18} />
         </button>
@@ -72,8 +69,8 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
 
       <div className="space-y-3 mb-4">
         <label className="text-xs text-slate-400 uppercase tracking-wider">Tipo de nodo</label>
-        <div className="grid grid-cols-3 gap-2">
-          {availableTypes.map(type => {
+        <div className="grid grid-cols-2 gap-2">
+          {allTypes.map(type => {
             const config = NODE_TYPES[type.toUpperCase()];
             const Icon = typeIcons[type];
             
@@ -109,6 +106,7 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
           onChange={(e) => setName(e.target.value)}
           placeholder="Ej: Almacén Norte"
           className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:border-blue-500 focus:outline-none"
+          autoFocus
         />
       </div>
 
@@ -131,61 +129,13 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
   );
 };
 
-// Barra de herramientas con modos
+// Barra de herramientas simplificada
 const Toolbar = ({ 
-  mode, setMode,
   onZoomIn, onZoomOut, onFitView, 
   showGrid, setShowGrid,
-  selectedConnection, onDeleteConnection
+  onClearConnections
 }) => (
   <div className="absolute top-4 right-4 z-40 flex flex-col gap-2">
-    {/* Mode Switcher */}
-    <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
-      <button
-        onClick={() => setMode('select')}
-        className={`p-2 rounded-md transition-colors ${
-          mode === 'select' 
-            ? 'bg-blue-600 text-white' 
-            : 'text-slate-400 hover:text-white hover:bg-slate-800'
-        }`}
-        title="Modo Selección"
-      >
-        <MousePointer2 size={18} />
-      </button>
-      <button
-        onClick={() => setMode('move')}
-        className={`p-2 rounded-md transition-colors ${
-          mode === 'move' 
-            ? 'bg-blue-600 text-white' 
-            : 'text-slate-400 hover:text-white hover:bg-slate-800'
-        }`}
-        title="Modo Mover Nodos"
-      >
-        <Move size={18} />
-      </button>
-      <button
-        onClick={() => setMode('connect')}
-        className={`p-2 rounded-md transition-colors ${
-          mode === 'connect' 
-            ? 'bg-blue-600 text-white' 
-            : 'text-slate-400 hover:text-white hover:bg-slate-800'
-        }`}
-        title="Modo Conectar"
-      >
-        <Link2 size={18} />
-      </button>
-      {selectedConnection && (
-        <button
-          onClick={onDeleteConnection}
-          className="p-2 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors"
-          title="Eliminar Conexión"
-        >
-          <Unlink size={18} />
-        </button>
-      )}
-    </div>
-
-    {/* Zoom Controls */}
     <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
       <button
         onClick={onZoomIn}
@@ -220,133 +170,131 @@ const Toolbar = ({
 );
 
 // Header con estadísticas
-const NexusHeader = ({ stats, mode }) => {
-  const modeLabels = {
-    select: 'Modo: Selección',
-    move: 'Modo: Mover',
-    connect: 'Modo: Conectar'
-  };
-
-  return (
-    <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
-      <div className="flex items-center gap-3 mb-3">
-        <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
-          <Grid3X3 className="w-5 h-5 text-blue-400" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-white">NexusNode</h1>
-          <p className="text-xs text-slate-400">{modeLabels[mode]}</p>
-        </div>
+const NexusHeader = ({ stats }) => (
+  <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
+    <div className="flex items-center gap-3 mb-3">
+      <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
+        <Grid3X3 className="w-5 h-5 text-blue-400" />
       </div>
-      
-      <div className="flex gap-4 text-xs">
-        <div className="text-center">
-          <p className="text-slate-500 uppercase tracking-wider">Nodos</p>
-          <p className="text-lg font-bold text-white">{stats.total}</p>
-        </div>
-        <div className="text-center">
-          <p className="text-slate-500 uppercase tracking-wider">Online</p>
-          <p className="text-lg font-bold text-emerald-400">{stats.online}</p>
-        </div>
-        <div className="text-center">
-          <p className="text-slate-500 uppercase tracking-wider">Offline</p>
-          <p className="text-lg font-bold text-red-400">{stats.offline}</p>
-        </div>
+      <div>
+        <h1 className="text-lg font-bold text-white">NexusNode</h1>
+        <p className="text-xs text-slate-400">Arrastra nodos para mover • Arrastra desde los puntos para conectar</p>
       </div>
     </div>
-  );
-};
+    
+    <div className="flex gap-4 text-xs">
+      <div className="text-center">
+        <p className="text-slate-500 uppercase tracking-wider">Nodos</p>
+        <p className="text-lg font-bold text-white">{stats.total}</p>
+      </div>
+      <div className="text-center">
+        <p className="text-slate-500 uppercase tracking-wider">Online</p>
+        <p className="text-lg font-bold text-emerald-400">{stats.online}</p>
+      </div>
+      <div className="text-center">
+        <p className="text-slate-500 uppercase tracking-wider">Offline</p>
+        <p className="text-lg font-bold text-red-400">{stats.offline}</p>
+      </div>
+    </div>
+  </div>
+);
 
 export const NexusManager = () => {
   const {
     nodes,
-    nodeTree,
     selectedNodeId,
     selectedNode,
-    expandedNodes,
     stats,
     createNode,
     updateNode,
     deleteNode,
     moveNode,
-    selectNode,
-    toggleExpand,
-    getChildren
+    selectNode
   } = useNexus();
 
-  // Modos: 'select' | 'move' | 'connect'
-  const [mode, setMode] = useState('select');
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [pan, setPan] = useState({ x: 50, y: 50 });
   const [showGrid, setShowGrid] = useState(true);
   const [showAddPanel, setShowAddPanel] = useState(false);
-  const [addPanelParent, setAddPanelParent] = useState(null);
+  const [addPanelPosition, setAddPanelPosition] = useState({ x: 20, y: 20 });
   
-  // Estado para drag de nodos
+  // Estados de interacción
   const [draggingNode, setDraggingNode] = useState(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const [connectingFrom, setConnectingFrom] = useState(null);
+  const [tempLine, setTempLine] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
-  // Estado para conexiones
-  const [connectingFrom, setConnectingFrom] = useState(null);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const [selectedConnection, setSelectedConnection] = useState(null);
-  
   const containerRef = useRef(null);
-  const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0 });
 
-  // Calcular conexiones
-  const connections = nodes
-    .filter(n => n.parentId)
-    .map(n => ({ parentId: n.parentId, childId: n.id, id: `${n.parentId}-${n.id}` }));
+  // Convertir coordenadas
+  const screenToCanvas = (screenX, screenY) => ({
+    x: (screenX - pan.x) / zoom,
+    y: (screenY - pan.y) / zoom
+  });
+
+  const canvasToScreen = (canvasX, canvasY) => ({
+    x: canvasX * zoom + pan.x,
+    y: canvasY * zoom + pan.y
+  });
 
   // Handlers de zoom
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 3));
   const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.3));
   const handleFitView = () => {
     setZoom(1);
-    setPan({ x: 0, y: 0 });
+    setPan({ x: 50, y: 50 });
   };
 
-  const handleAddNode = (type, name) => {
-    createNode(type, addPanelParent?.id || null, { 
+  // Crear nodo
+  const handleAddNode = (type, name, position) => {
+    createNode(type, null, { 
       name,
-      position: addPanelParent 
-        ? { 
-            x: addPanelParent.position.x + (getChildren(addPanelParent.id).length * 300),
-            y: addPanelParent.position.y + 200
-          }
-        : { x: 400, y: 50 }
+      position: position || { x: 400, y: 200 }
     });
   };
 
-  // Convertir coordenadas del mouse a coordenadas del canvas
-  const screenToCanvas = (screenX, screenY) => ({
-    x: (screenX - pan.x) / zoom,
-    y: (screenY - pan.y) / zoom
-  });
-
-  // Handlers de mouse para pan y drag
-  const handleMouseDown = (e) => {
-    // Solo pan si clic en el fondo
+  // Doble click en fondo = crear nodo
+  const handleDoubleClick = (e) => {
     if (e.target === containerRef.current || e.target.tagName === 'svg') {
-      isPanning.current = true;
-      panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      const rect = containerRef.current.getBoundingClientRect();
+      const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+      setAddPanelPosition({ x: e.clientX - rect.left + 20, y: e.clientY - rect.top });
+      setShowAddPanel(true);
     }
   };
 
+  // Mouse down en el canvas
+  const handleMouseDown = (e) => {
+    // Solo pan si es el fondo (no un nodo ni conexión)
+    if (e.target === containerRef.current || e.target.tagName === 'svg' || e.target.tagName === 'path') {
+      setIsPanning(true);
+      panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+      selectNode(null);
+      setConnectingFrom(null);
+      setTempLine(null);
+    }
+  };
+
+  // Mouse move
   const handleMouseMove = (e) => {
     const rect = containerRef.current?.getBoundingClientRect();
-    const canvasPos = screenToCanvas(e.clientX - (rect?.left || 0), e.clientY - (rect?.top || 0));
-    setMousePos(canvasPos);
+    if (!rect) return;
+    
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const canvasPos = screenToCanvas(mouseX, mouseY);
 
-    if (isPanning.current) {
+    // Pan
+    if (isPanning) {
       setPan({
         x: e.clientX - panStart.current.x,
         y: e.clientY - panStart.current.y
       });
     }
 
+    // Mover nodo
     if (draggingNode) {
       updateNode(draggingNode.id, {
         position: {
@@ -355,136 +303,141 @@ export const NexusManager = () => {
         }
       });
     }
-  };
 
-  const handleMouseUp = () => {
-    isPanning.current = false;
-    setDraggingNode(null);
-  };
-
-  // Handlers de nodos
-  const handleNodeMouseDown = (e, node) => {
-    e.stopPropagation();
-    
-    if (mode === 'move') {
-      const rect = containerRef.current?.getBoundingClientRect();
-      const canvasPos = screenToCanvas(e.clientX - (rect?.left || 0), e.clientY - (rect?.top || 0));
-      setDragOffset({
-        x: canvasPos.x - node.position.x,
-        y: canvasPos.y - node.position.y
+    // Línea temporal de conexión
+    if (connectingFrom) {
+      const startX = connectingFrom.position.x + VISUAL_CONFIG.nodeWidth / 2;
+      const startY = connectingFrom.position.y + VISUAL_CONFIG.nodeHeight / 2;
+      setTempLine({
+        x1: startX,
+        y1: startY,
+        x2: canvasPos.x,
+        y2: canvasPos.y
       });
-      setDraggingNode(node);
-    } else if (mode === 'connect') {
-      if (!connectingFrom) {
-        setConnectingFrom(node);
-      } else {
-        // Intentar conectar
-        if (connectingFrom.id !== node.id) {
-          try {
-            moveNode(node.id, connectingFrom.id);
-          } catch (err) {
-            alert(err.message);
-          }
+    }
+  };
+
+  // Mouse up
+  const handleMouseUp = (e) => {
+    setIsPanning(false);
+    setDraggingNode(null);
+    
+    // Si estaba conectando y suelta sobre un nodo válido
+    if (connectingFrom && !draggingNode) {
+      // Buscar si soltó sobre otro nodo
+      const rect = containerRef.current?.getBoundingClientRect();
+      const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+      
+      const targetNode = nodes.find(n => {
+        if (n.id === connectingFrom.id) return false;
+        const nx = n.position.x;
+        const ny = n.position.y;
+        return canvasPos.x >= nx && canvasPos.x <= nx + VISUAL_CONFIG.nodeWidth &&
+               canvasPos.y >= ny && canvasPos.y <= ny + VISUAL_CONFIG.nodeHeight;
+      });
+
+      if (targetNode) {
+        try {
+          moveNode(targetNode.id, connectingFrom.id);
+        } catch (err) {
+          // Silencioso - no se pudo conectar
         }
+      }
+    }
+    
+    setConnectingFrom(null);
+    setTempLine(null);
+  };
+
+  // Tecla ESC para cancelar
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
         setConnectingFrom(null);
+        setTempLine(null);
+        setDraggingNode(null);
+        setShowAddPanel(false);
       }
-    } else {
-      selectNode(node.id);
-    }
-  };
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
-  const handleConnectionClick = (conn) => {
-    setSelectedConnection(selectedConnection?.id === conn.id ? null : conn);
-  };
-
-  const handleDeleteConnection = () => {
-    if (selectedConnection) {
-      const childNode = nodes.find(n => n.id === selectedConnection.childId);
-      if (childNode) {
-        // Desconectar (mover a raíz)
-        moveNode(childNode.id, null);
-      }
-      setSelectedConnection(null);
-    }
-  };
-
-  // Renderizar línea temporal de conexión
-  const renderTempConnection = () => {
-    if (!connectingFrom) return null;
+  // Handlers de nodo
+  const handleNodeDragStart = (e, node) => {
+    e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
     
-    const startX = connectingFrom.position.x + VISUAL_CONFIG.nodeWidth / 2;
-    const startY = connectingFrom.position.y + VISUAL_CONFIG.nodeHeight / 2;
-    const endX = mousePos.x;
-    const endY = mousePos.y;
-    
-    const midY = (startY + endY) / 2;
-    const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
-    
-    return (
-      <path
-        d={path}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="2"
-        strokeDasharray="5,5"
-        opacity="0.8"
-      />
-    );
+    setDragOffset({
+      x: canvasPos.x - node.position.x,
+      y: canvasPos.y - node.position.y
+    });
+    setDraggingNode(node);
+    selectNode(node.id);
   };
 
-  // Renderizar nodos
-  const renderNodes = () => {
-    return nodes.map(node => (
-      <motion.div
-        key={node.id}
-        className="absolute"
-        style={{
-          left: node.position.x,
-          top: node.position.y,
-          zIndex: draggingNode?.id === node.id ? 100 : 10,
-          cursor: mode === 'move' ? 'grab' : mode === 'connect' ? 'crosshair' : 'pointer'
-        }}
-        onMouseDown={(e) => handleNodeMouseDown(e, node)}
-        layoutId={node.id}
-      >
-        <NexusNode
-          node={node}
-          isSelected={selectedNodeId === node.id}
-          isExpanded={expandedNodes.has(node.id)}
-          isConnecting={connectingFrom?.id === node.id}
-          onSelect={selectNode}
-          onExpand={toggleExpand}
-          onEdit={(n) => console.log('Edit:', n)}
-          onDelete={deleteNode}
-        />
-      </motion.div>
-    ));
+  const handleConnectionPointDragStart = (e, node, point) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setConnectingFrom(node);
+  };
+
+  // Renderizar conexiones
+  const renderConnections = () => {
+    return nodes
+      .filter(n => n.parentId)
+      .map(n => {
+        const parent = nodes.find(p => p.id === n.parentId);
+        if (!parent) return null;
+
+        const startX = parent.position.x + VISUAL_CONFIG.nodeWidth / 2;
+        const startY = parent.position.y + VISUAL_CONFIG.nodeHeight;
+        const endX = n.position.x + VISUAL_CONFIG.nodeWidth / 2;
+        const endY = n.position.y;
+        const midY = (startY + endY) / 2;
+
+        return (
+          <g key={`${parent.id}-${n.id}`}>
+            <path
+              d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+              fill="none"
+              stroke="rgba(148, 163, 184, 0.4)"
+              strokeWidth="2"
+              className="hover:stroke-blue-400 transition-colors cursor-pointer"
+              onClick={() => {
+                // Desconectar al hacer click
+                moveNode(n.id, null);
+              }}
+            />
+          </g>
+        );
+      });
   };
 
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-140px)] bg-slate-950 overflow-hidden cursor-grab active:cursor-grabbing rounded-xl border border-slate-800"
+      className="relative w-full h-[calc(100vh-140px)] bg-slate-950 overflow-hidden rounded-xl border border-slate-800 select-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onDoubleClick={handleDoubleClick}
     >
       {/* Grid Background */}
       {showGrid && (
         <div 
-          className="absolute inset-0 opacity-30 pointer-events-none"
+          className="absolute inset-0 opacity-20 pointer-events-none"
           style={{
-            backgroundImage: `
-              radial-gradient(circle, rgba(148,163,184,0.1) 1px, transparent 1px)
-            `,
+            backgroundImage: `radial-gradient(circle, rgba(148,163,184,0.3) 1px, transparent 1px)`,
             backgroundSize: '20px 20px',
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
           }}
         />
       )}
 
-      {/* Graph Layer */}
+      {/* Canvas Layer */}
       <div
         className="absolute inset-0"
         style={{
@@ -492,62 +445,56 @@ export const NexusManager = () => {
           transformOrigin: '0 0'
         }}
       >
-        <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-          {/* Connections */}
-          {connections.map(conn => {
-            const parent = nodes.find(n => n.id === conn.parentId);
-            const child = nodes.find(n => n.id === conn.childId);
-            if (!parent || !child) return null;
-            
-            const startX = parent.position.x + VISUAL_CONFIG.nodeWidth / 2;
-            const startY = parent.position.y + VISUAL_CONFIG.nodeHeight;
-            const endX = child.position.x + VISUAL_CONFIG.nodeWidth / 2;
-            const endY = child.position.y;
-            const midY = (startY + endY) / 2;
-            const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
-            
-            const isSelected = selectedConnection?.id === conn.id;
-            
-            return (
-              <g key={conn.id}>
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={isSelected ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)'}
-                  strokeWidth={isSelected ? 3 : 2}
-                  className="pointer-events-auto cursor-pointer"
-                  onClick={() => handleConnectionClick(conn)}
-                />
-                {isSelected && (
-                  <circle cx={endX} cy={endY} r="4" fill="#ef4444" className="pointer-events-auto cursor-pointer" />
-                )}
-              </g>
-            );
-          })}
+        {/* SVG para conexiones */}
+        <svg className="absolute inset-0 w-[3000px] h-[3000px] pointer-events-auto overflow-visible">
+          {renderConnections()}
           
-          {/* Temp connection while dragging */}
-          {renderTempConnection()}
+          {/* Línea temporal mientras arrastra */}
+          {tempLine && (
+            <path
+              d={`M ${tempLine.x1} ${tempLine.y1} L ${tempLine.x2} ${tempLine.y2}`}
+              fill="none"
+              stroke="#3b82f6"
+              strokeWidth="2"
+              strokeDasharray="5,5"
+              opacity="0.8"
+            />
+          )}
         </svg>
-        
-        {/* Nodes */}
+
+        {/* Nodos */}
         <AnimatePresence>
-          {renderNodes()}
+          {nodes.map(node => (
+            <motion.div
+              key={node.id}
+              className="absolute"
+              style={{
+                left: node.position.x,
+                top: node.position.y,
+                zIndex: draggingNode?.id === node.id ? 100 : 10
+              }}
+              onMouseDown={(e) => handleNodeDragStart(e, node)}
+            >
+              <NexusNode
+                node={node}
+                isSelected={selectedNodeId === node.id}
+                isConnectingFrom={connectingFrom?.id === node.id}
+                onConnectionPointDrag={handleConnectionPointDragStart}
+                onDelete={() => deleteNode(node.id)}
+              />
+            </motion.div>
+          ))}
         </AnimatePresence>
       </div>
 
       {/* UI Overlay */}
-      <NexusHeader stats={stats} mode={mode} />
-      
+      <NexusHeader stats={stats} />
       <Toolbar
-        mode={mode}
-        setMode={setMode}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onFitView={handleFitView}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
-        selectedConnection={selectedConnection}
-        onDeleteConnection={handleDeleteConnection}
       />
 
       {/* Mini-map */}
@@ -560,29 +507,12 @@ export const NexusManager = () => {
           height: (containerRef.current?.clientHeight || 800) / zoom
         }}
         onNavigate={(pos) => {
-          setPan({ x: -pos.x * zoom + containerRef.current.clientWidth / 2, y: -pos.y * zoom + containerRef.current.clientHeight / 2 });
+          setPan({ 
+            x: -pos.x * zoom + containerRef.current.clientWidth / 2, 
+            y: -pos.y * zoom + containerRef.current.clientHeight / 2 
+          });
         }}
       />
-
-      {/* Mode Indicator */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 backdrop-blur-sm rounded-full px-4 py-2 border border-slate-700 shadow-xl">
-        <p className="text-xs text-slate-400">
-          {mode === 'select' && 'Modo Selección: Click para seleccionar nodos'}
-          {mode === 'move' && 'Modo Mover: Arrastra nodos para reubicarlos'}
-          {mode === 'connect' && (connectingFrom ? 'Modo Conectar: Click en nodo destino' : 'Modo Conectar: Click en nodo origen')}
-        </p>
-      </div>
-
-      {/* Add Node Button */}
-      <button
-        onClick={() => {
-          setAddPanelParent(selectedNode);
-          setShowAddPanel(true);
-        }}
-        className="absolute right-4 bottom-16 z-50 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-xl hover:shadow-2xl transition-all hover:scale-110"
-      >
-        <Plus size={24} />
-      </button>
 
       {/* Add Node Panel */}
       <AnimatePresence>
@@ -590,44 +520,28 @@ export const NexusManager = () => {
           <AddNodePanel
             onAdd={handleAddNode}
             onClose={() => setShowAddPanel(false)}
-            parentNode={addPanelParent}
+            position={addPanelPosition}
           />
         )}
       </AnimatePresence>
 
-      {/* Selected Node Info */}
-      <AnimatePresence>
-        {selectedNode && mode === 'select' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-4 right-20 z-40 bg-slate-900/95 backdrop-blur-xl rounded-xl border border-slate-700 p-4 shadow-xl max-w-xs"
-          >
-            <h4 className="font-semibold text-white mb-1">{selectedNode.name}</h4>
-            <p className="text-xs text-slate-400 mb-3">{selectedNode.description}</p>
-            
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setMode('connect');
-                  setConnectingFrom(selectedNode);
-                }}
-                className="flex-1 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
-              >
-                <Link2 size={14} />
-                Conectar
-              </button>
-              <button
-                onClick={() => deleteNode(selectedNode.id)}
-                className="flex-1 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-xs font-medium transition-colors"
-              >
-                Eliminar
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Help text */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400">
+        {connectingFrom ? 'Suelta sobre otro nodo para conectar • ESC para cancelar' : 'Doble click en fondo = crear • Arrastra nodos = mover • Click en línea = desconectar'}
+      </div>
+
+      {/* Cancel connection button */}
+      {connectingFrom && (
+        <button
+          onClick={() => {
+            setConnectingFrom(null);
+            setTempLine(null);
+          }}
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-red-600/90 hover:bg-red-500 text-white rounded-full shadow-xl text-sm font-medium"
+        >
+          Cancelar conexión
+        </button>
+      )}
     </div>
   );
 };
