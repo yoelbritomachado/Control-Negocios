@@ -119,8 +119,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             onChange={(e) => handleTypeChange(e.target.value)}
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
                         >
-                            {expenseTypes.map((expenseType) => (
-                                <option key={expenseType.id} value={expenseType.id} className="bg-gray-900">
+                            {expenseTypes.map((expenseType, index) => (
+                                <option key={expenseType?.id || `expense-type-${index}`} value={expenseType?.id} className="bg-gray-900">
                                     {expenseType.name} (${expenseType.amount.toFixed(2)})
                                 </option>
                             ))}
@@ -910,7 +910,7 @@ export default function POSLayout() {
                                     <AnimatePresence mode="popLayout">
                                         {cart.map((item, index) => (
                                             <motion.div
-                                                key={`cart-item-${item.id}-${index}`}
+                                                key={`cart-item-${item?.id || 'no-id'}-${index}-${Date.now()}`}
                                                 layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
