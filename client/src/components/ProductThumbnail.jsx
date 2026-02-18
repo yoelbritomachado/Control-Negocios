@@ -84,8 +84,6 @@ const ProductThumbnail = React.memo(({ product, onClick }) => {
       )}
     </div>
   );
-};
-
 });
 
 ProductThumbnail.displayName = 'ProductThumbnail';
