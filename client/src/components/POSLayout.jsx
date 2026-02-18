@@ -879,7 +879,7 @@ export default function POSLayout() {
                                     <AnimatePresence mode="popLayout">
                                         {cart.map((item, index) => (
                                             <motion.div
-                                                key={item.id || `item-${index}`}
+                                                key={`cart-item-${item.id}-${index}`}
                                                 layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1052,7 +1052,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {savedSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id || `saved-${index}`}
+                                        key={`saved-sale-${sale.id}-${index}`}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1096,7 +1096,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {expenses.map((expense, index) => (
                                     <motion.div
-                                        key={`expense-${expense.id}`}
+                                        key={`expense-${expense.id}-${index}`}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1125,7 +1125,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
-                                        key={sale.id || `recent-${index}`}
+                                        key={`recent-sale-${sale.id}-${index}`}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}

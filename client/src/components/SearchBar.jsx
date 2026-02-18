@@ -85,14 +85,20 @@ export const SearchBar = forwardRef(({
         if (debouncedQuery.length >= 1) {
             const isNumber = /^\d+$/.test(debouncedQuery);
             onSearch?.(debouncedQuery, isNumber);
-            if (showDropdown && results.length > 0) {
-                setIsOpen(true);
-            }
         } else {
             onSearch?.('', false);
             setIsOpen(false);
         }
-    }, [debouncedQuery, onSearch, showDropdown, results.length]);
+    }, [debouncedQuery, onSearch]);
+
+    // Controlar visibilidad del dropdown basado en results
+    useEffect(() => {
+        if (showDropdown && results.length > 0 && debouncedQuery.length >= 1) {
+            setIsOpen(true);
+        } else if (results.length === 0) {
+            setIsOpen(false);
+        }
+    }, [results.length, showDropdown, debouncedQuery.length]);
 
     // Cerrar dropdown al hacer click fuera
     useEffect(() => {
