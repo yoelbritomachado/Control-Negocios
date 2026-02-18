@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
   Building2, Package, Users, Wallet, Shield,
-  X, Check, AlertCircle, Trash2
+  X, Check, AlertCircle, Trash2, GitBranch, Minus
 } from 'lucide-react';
 import { useNexus } from './useNexus';
 import { NexusNode } from './NexusNode';
@@ -131,9 +131,22 @@ const AddNodePanel = ({ onAdd, onClose, position }) => {
 // Barra de herramientas
 const Toolbar = ({ 
   onZoomIn, onZoomOut, onFitView, 
-  showGrid, setShowGrid
+  showGrid, setShowGrid,
+  lineStyle, setLineStyle
 }) => (
   <div className="absolute top-4 right-4 z-40 flex flex-col gap-2">
+    {/* Line Style Toggle */}
+    <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
+      <button
+        onClick={() => setLineStyle(lineStyle === 'curved' ? 'orthogonal' : 'curved')}
+        className={`p-2 rounded-md transition-colors ${lineStyle === 'curved' ? 'text-blue-400 bg-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+        title={lineStyle === 'curved' ? 'Líneas curvas' : 'Líneas rectas (90°)'}
+      >
+        {lineStyle === 'curved' ? <GitBranch size={18} /> : <Minus size={18} />}
+      </button>
+    </div>
+
+    {/* Zoom Controls */}
     <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
       <button
         onClick={onZoomIn}
@@ -168,7 +181,7 @@ const Toolbar = ({
 );
 
 // Header con estadísticas
-const NexusHeader = ({ stats }) => (
+const NexusHeader = ({ stats, lineStyle }) => (
   <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
     <div className="flex items-center gap-3 mb-3">
       <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
@@ -176,7 +189,9 @@ const NexusHeader = ({ stats }) => (
       </div>
       <div>
         <h1 className="text-lg font-bold text-white">NexusNode</h1>
-        <p className="text-xs text-slate-400">Scroll = Zoom • Arrastra fondo = Mover vista • Arrastra nodos = Mover</p>
+        <p className="text-xs text-slate-400">
+          {lineStyle === 'curved' ? 'Líneas curvas' : 'Líneas rectas (90°)'} • Scroll = Zoom
+        </p>
       </div>
     </div>
     
@@ -214,6 +229,7 @@ export const NexusManager = () => {
   const [showGrid, setShowGrid] = useState(true);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addPanelPosition, setAddPanelPosition] = useState({ x: 20, y: 20 });
+  const [lineStyle, setLineStyle] = useState('curved'); // 'curved' | 'orthogonal'
   
   // Estados de interacción
   const [draggingNode, setDraggingNode] = useState(null);
@@ -225,6 +241,12 @@ export const NexusManager = () => {
   const containerRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
   const lastTouchDistance = useRef(0);
+
+  // TAMAÑOS DEL NODO
+  const NODE_WIDTH = 260;
+  const NODE_HEIGHT = 160;
+  const OUTPUT_OFFSET = 158; // Posición Y del punto de salida (desde top)
+  const INPUT_OFFSET = 2;    // Posición Y del punto de entrada (desde top)
 
   // Convertir coordenadas
   const screenToCanvas = (screenX, screenY) => ({
@@ -240,22 +262,18 @@ export const NexusManager = () => {
     setPan({ x: 50, y: 50 });
   };
 
-  // ZOOM CON SCROLL DEL MOUSE
+  // ZOOM CON SCROLL
   const handleWheel = (e) => {
     e.preventDefault();
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    // Posición del mouse relativa al canvas
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    
-    // Factor de zoom
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const newZoom = Math.max(0.3, Math.min(3, zoom * delta));
-    
-    // Ajustar pan para hacer zoom hacia el mouse
     const zoomRatio = newZoom / zoom;
+    
     setPan({
       x: mouseX - (mouseX - pan.x) * zoomRatio,
       y: mouseY - (mouseY - pan.y) * zoomRatio
@@ -263,7 +281,7 @@ export const NexusManager = () => {
     setZoom(newZoom);
   };
 
-  // PINCH TO ZOOM EN MÓVILES
+  // PINCH TO ZOOM
   const handleTouchStart = (e) => {
     if (e.touches.length === 2) {
       const distance = Math.hypot(
@@ -281,27 +299,22 @@ export const NexusManager = () => {
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
-      
       const delta = distance / lastTouchDistance.current;
       const newZoom = Math.max(0.3, Math.min(3, zoom * delta));
-      
-      // Centro del pinch
       const rect = containerRef.current?.getBoundingClientRect();
       const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
       const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
-      
       const zoomRatio = newZoom / zoom;
+      
       setPan({
         x: centerX - (centerX - pan.x) * zoomRatio,
         y: centerY - (centerY - pan.y) * zoomRatio
       });
       setZoom(newZoom);
-      
       lastTouchDistance.current = distance;
     }
   };
 
-  // Crear nodo
   const handleAddNode = (type, name, position) => {
     createNode(type, null, { 
       name,
@@ -309,7 +322,6 @@ export const NexusManager = () => {
     });
   };
 
-  // Doble click en fondo = crear nodo
   const handleDoubleClick = (e) => {
     if (e.target === containerRef.current || e.target.tagName === 'svg') {
       const rect = containerRef.current.getBoundingClientRect();
@@ -318,7 +330,6 @@ export const NexusManager = () => {
     }
   };
 
-  // Mouse down
   const handleMouseDown = (e) => {
     if (e.target === containerRef.current || e.target.tagName === 'svg') {
       setIsPanning(true);
@@ -326,7 +337,6 @@ export const NexusManager = () => {
     }
   };
 
-  // Mouse move
   const handleMouseMove = (e) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -351,10 +361,10 @@ export const NexusManager = () => {
       });
     }
 
-    // Línea temporal de conexión - DESDE EL PUNTO EXACTO
+    // Línea temporal desde el PUNTO DE SALIDA
     if (connectingFrom) {
-      const outputX = connectingFrom.position.x + 130; // Centro horizontal
-      const outputY = connectingFrom.position.y + 158; // Justo en el punto inferior
+      const outputX = connectingFrom.position.x + NODE_WIDTH / 2;
+      const outputY = connectingFrom.position.y + OUTPUT_OFFSET;
       setTempLine({
         x1: outputX,
         y1: outputY,
@@ -364,7 +374,6 @@ export const NexusManager = () => {
     }
   };
 
-  // Mouse up
   const handleMouseUp = (e) => {
     setIsPanning(false);
     setDraggingNode(null);
@@ -377,8 +386,8 @@ export const NexusManager = () => {
         if (n.id === connectingFrom.id) return false;
         const nx = n.position.x;
         const ny = n.position.y;
-        return canvasPos.x >= nx && canvasPos.x <= nx + 260 &&
-               canvasPos.y >= ny && canvasPos.y <= ny + 160;
+        return canvasPos.x >= nx && canvasPos.x <= nx + NODE_WIDTH &&
+               canvasPos.y >= ny && canvasPos.y <= ny + NODE_HEIGHT;
       });
 
       if (targetNode) {
@@ -392,7 +401,6 @@ export const NexusManager = () => {
     setTempLine(null);
   };
 
-  // Tecla ESC
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -406,7 +414,6 @@ export const NexusManager = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Handlers de nodo
   const handleNodeDragStart = (e, node) => {
     e.stopPropagation();
     const rect = containerRef.current?.getBoundingClientRect();
@@ -424,7 +431,22 @@ export const NexusManager = () => {
     setConnectingFrom(node);
   };
 
-  // Renderizar conexiones - DESDE LOS PUNTOS EXACTOS
+  // Generar path según estilo de línea
+  const generatePath = (startX, startY, endX, endY) => {
+    if (lineStyle === 'curved') {
+      // Curva Bezier suave
+      const deltaY = endY - startY;
+      const controlY1 = startY + deltaY * 0.5;
+      const controlY2 = endY - deltaY * 0.5;
+      return `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
+    } else {
+      // Líneas ortogonales (90°)
+      const midY = (startY + endY) / 2;
+      return `M ${startX} ${startY} L ${startX} ${midY} L ${endX} ${midY} L ${endX} ${endY}`;
+    }
+  };
+
+  // Renderizar conexiones - DESDE PUNTOS EXACTOS
   const renderConnections = () => {
     return nodes
       .filter(n => n.parentId)
@@ -432,51 +454,46 @@ export const NexusManager = () => {
         const parent = nodes.find(p => p.id === n.parentId);
         if (!parent) return null;
 
-        // PUNTO DE SALIDA (output) del padre - bottom center (donde está el punto visual)
-        const NODE_WIDTH = 260;
-        const NODE_HEIGHT = 160;
-        const startX = parent.position.x + NODE_WIDTH / 2; // Centro horizontal
-        const startY = parent.position.y + NODE_HEIGHT - 2; // Justo en el punto inferior (-2px para que toque el punto)
+        // PUNTO DE SALIDA (output) - bottom center del padre
+        const startX = parent.position.x + NODE_WIDTH / 2;
+        const startY = parent.position.y + OUTPUT_OFFSET;
         
-        // PUNTO DE ENTRADA (input) del hijo - top center
-        const endX = n.position.x + NODE_WIDTH / 2; // Centro horizontal
-        const endY = n.position.y + 2; // Justo en el punto superior (+2px para que toque el punto)
+        // PUNTO DE ENTRADA (input) - top center del hijo
+        const endX = n.position.x + NODE_WIDTH / 2;
+        const endY = n.position.y + INPUT_OFFSET;
         
-        // Curva Bezier suave
-        const deltaY = endY - startY;
-        const controlY1 = startY + deltaY * 0.5;
-        const controlY2 = endY - deltaY * 0.5;
-        const path = `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
-
+        const path = generatePath(startX, startY, endX, endY);
         const typeConfig = NODE_TYPES[parent.type?.toUpperCase()];
 
         return (
           <g key={`${parent.id}-${n.id}`}>
-            {/* Línea principal animada */}
+            {/* Línea animada */}
             <path
               d={path}
               fill="none"
               stroke={typeConfig?.color || '#64748b'}
               strokeWidth="2"
-              strokeDasharray="8,4"
-              opacity="0.6"
+              strokeDasharray={lineStyle === 'curved' ? "8,4" : "none"}
+              opacity="0.7"
             >
-              <animate
-                attributeName="stroke-dashoffset"
-                from="24"
-                to="0"
-                dur="1s"
-                repeatCount="indefinite"
-              />
+              {lineStyle === 'curved' && (
+                <animate
+                  attributeName="stroke-dashoffset"
+                  from="24"
+                  to="0"
+                  dur="1s"
+                  repeatCount="indefinite"
+                />
+              )}
             </path>
-            {/* Línea de fondo sólida */}
+            {/* Línea de fondo */}
             <path
               d={path}
               fill="none"
               stroke={typeConfig?.color || '#64748b'}
-              strokeWidth="2"
-              opacity="0.2"
-              className="hover:opacity-50 transition-opacity cursor-pointer"
+              strokeWidth="4"
+              opacity="0.1"
+              className="hover:opacity-30 transition-opacity cursor-pointer"
               onClick={() => moveNode(n.id, null)}
             />
           </g>
@@ -519,17 +536,9 @@ export const NexusManager = () => {
       >
         {/* SVG para conexiones */}
         <svg className="absolute inset-0 w-[3000px] h-[3000px] pointer-events-auto overflow-visible">
-          <defs>
-            {/* Gradiente para las líneas */}
-            <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.8" />
-            </linearGradient>
-          </defs>
-          
           {renderConnections()}
           
-          {/* Línea temporal mientras arrastra */}
+          {/* Línea temporal */}
           {tempLine && (
             <path
               d={`M ${tempLine.x1} ${tempLine.y1} L ${tempLine.x2} ${tempLine.y2}`}
@@ -576,13 +585,15 @@ export const NexusManager = () => {
       </div>
 
       {/* UI Overlay */}
-      <NexusHeader stats={stats} />
+      <NexusHeader stats={stats} lineStyle={lineStyle} />
       <Toolbar
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onFitView={handleFitView}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
+        lineStyle={lineStyle}
+        setLineStyle={setLineStyle}
       />
 
       {/* Mini-map */}
@@ -614,11 +625,11 @@ export const NexusManager = () => {
       </AnimatePresence>
 
       {/* Help text */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400">
-        {connectingFrom ? 'Suelta sobre otro nodo para conectar • ESC para cancelar' : 'Scroll = Zoom • Pinch = Zoom móvil • Doble click fondo = crear nodo'}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400 text-center">
+        {connectingFrom ? 'Suelta sobre otro nodo • ESC para cancelar' : 'Scroll=Zoom • Click icono arriba para líneas rectas/curvas'}
       </div>
 
-      {/* Cancel connection button */}
+      {/* Cancel connection */}
       {connectingFrom && (
         <button
           onClick={() => {
