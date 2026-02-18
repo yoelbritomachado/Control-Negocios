@@ -79,11 +79,11 @@ const ProductTable = ({ products, currentInventory, onProductUpdated, onEdit, se
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-            {products.map((product) => {
+            {products.map((product, index) => {
               const stock = getStock(product);
               return (
                 <tr
-                  key={product.id}
+                  key={`product-row-${product.id}-${index}`}
                   style={getRowStyle(product.label_color)}
                   className="transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                 >

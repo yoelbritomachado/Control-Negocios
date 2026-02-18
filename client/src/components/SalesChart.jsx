@@ -139,8 +139,8 @@ export function SalesChart() {
             </div>
 
             {/* Chart */}
-            <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
+            <div className="h-80 min-h-[300px] relative">
+                <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={300}>
                     <BarChart
                         data={salesData}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
@@ -198,7 +198,7 @@ export function SalesChart() {
                         >
                             {salesData.map((entry, index) => (
                                 <Cell
-                                    key={`cell-${index}`}
+                                    key={`sales-cell-${entry.day}-${index}`}
                                     fill={
                                         entry.isToday
                                             ? 'url(#barGradientToday)'
