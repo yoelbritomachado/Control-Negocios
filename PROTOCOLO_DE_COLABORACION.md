@@ -244,11 +244,13 @@ git push origin main
 
 > **Antes de hacer `git commit`, verifica estos puntos para evitar errores comunes:**
 
-### Validación de Código JS
+### Validación de Código JS/React
 - [ ] **No hay variables duplicadas** (shadowing): Buscar `let posCart`, `let db`, `let currentUser` - deben usar `window.`
 - [ ] **No hay funciones zombie**: Al refactorizar, buscar y eliminar la definición antigua de la función
 - [ ] **Funciones expuestas globalmente**: Las funciones usadas en `onclick` deben tener `window.nombreFuncion = nombreFuncion`
 - [ ] **Referencias a window**: Variables globales deben usarse como `window.variable`, no directamente
+- [ ] **Keys únicas en listas React**: Al usar `.map()`, cada elemento debe tener `key={item.id}` único
+- [ ] **No usar índice como key**: Evita `key={index}` a menos que sea estrictamente necesario
 
 ### Validación de Estructura
 - [ ] **Orden de scripts**: `data.js` debe cargar antes que `app.js` / `pos.js`
@@ -267,6 +269,8 @@ git push origin main
 | `function already declared` | Código zombie no eliminado | Borrar definición antigua |
 | Función no responde | No expuesta globalmente | Agregar `window.func = func` |
 | Pantalla blanca/negra | Orden de carga incorrecto | Verificar `<script>` en HTML |
+| `two children with the same key` | Keys duplicadas en listas React | Asegurar que `key={item.id}` sea único y no undefined |
+| `Each child in a list should have unique key` | Falta prop `key` en map() | Agregar `key={item.id || index}` |
 
 ---
 

@@ -152,11 +152,55 @@ if (-not $duplicateFound) {
 Write-Host ""
 
 # ============================================
-# 4. VERIFICAR EXPOSICIÓN GLOBAL DE FUNCIONES
-Write-Host "📋 PASO 4: Verificando exposición de funciones globales..." -ForegroundColor White
+# 4. DETECTAR KEYS DUPLICADAS O PROBLEMÁTICAS EN REACT
+Write-Host "📋 PASO 4: Verificando keys en listas React..." -ForegroundColor White
 Write-Host ""
 
-$onclickFiles = Get-ChildItem -Path "client" -Recurse -Filter "*.js" -ErrorAction SilentlyContinue
+$keyIssues = 0
+$jsxFiles = Get-ChildItem -Path "client" -Recurse -Include "*.jsx", "*.js" -ErrorAction SilentlyContinue
+
+foreach ($file in $jsxFiles) {
+    try {
+        $content = Get-Content $file.FullName -Raw
+        
+        # Buscar .map() sin key
+        $mapWithoutKey = [regex]::Matches($content, "\.map\s*\([^)]*\)\s*=>\s*<[^>]+>(?!.*key)")
+        if ($mapWithoutKey.Count -gt 0) {
+            Show-Warning "Posible .map() sin prop 'key' en $($file.Name)"
+            Show-Info "Cada elemento de lista necesita: key={item.id}"
+            $keyIssues++
+        }
+        
+        # Buscar key={undefined} o key={null}
+        if ($content -match 'key=\{undefined\}|key=\{null\}|key=""') {
+            Show-Error "Key vacía o undefined detectada en $($file.Name)"
+            Show-Info "Asegura que el ID exista: key={item?.id || index}"
+            $keyIssues++
+        }
+        
+        # Buscar key={index} (malpractice, pero no crítico)
+        $indexKeys = [regex]::Matches($content, "key=\{\s*index\s*\}|key=\{i\}")
+        if ($indexKeys.Count -gt 3) {  # Solo advertir si hay muchos
+            Show-Warning "Se usan índices como key en $($file.Name) - puede causar problemas"
+            Show-Info "Mejor usar un ID único del objeto si está disponible"
+        }
+    } catch {
+        # Ignorar errores
+    }
+}
+
+if ($keyIssues -eq 0) {
+    Show-Success "Keys de React correctamente definidas"
+}
+
+Write-Host ""
+
+# ============================================
+# 5. VERIFICAR EXPOSICIÓN GLOBAL DE FUNCIONES
+Write-Host "📋 PASO 5: Verificando exposición de funciones globales..." -ForegroundColor White
+Write-Host ""
+
+$onclickFiles = Get-ChildItem -Path "client" -Recurse -Include "*.js", "*.jsx" -ErrorAction SilentlyContinue
 $exposureIssues = 0
 
 foreach ($file in $onclickFiles) {
@@ -207,8 +251,8 @@ if ($exposureIssues -eq 0) {
 Write-Host ""
 
 # ============================================
-# 5. VERIFICAR ARCHIVOS CRÍTICOS
-Write-Host "📋 PASO 5: Verificando archivos de memoria..." -ForegroundColor White
+# 6. VERIFICAR ARCHIVOS CRÍTICOS
+Write-Host "📋 PASO 6: Verificando archivos de memoria..." -ForegroundColor White
 Write-Host ""
 
 $criticalFiles = @(
