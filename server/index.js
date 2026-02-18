@@ -985,9 +985,8 @@ const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_type
 if (expenseTypesCount.count === 0) {
     console.log("Inserting default expense types...");
     const defaultTypes = [
-        { name: 'Área (Luz/Agua)', amount: 3000, payment_method: 'cash' },
+        { name: 'Área', amount: 3000, payment_method: 'cash' },
         { name: 'Limpieza', amount: 100, payment_method: 'cash' },
-        { name: 'Transporte', amount: 200, payment_method: 'cash' },
         { name: 'Otros', amount: 0, payment_method: 'cash' }
     ];
     const insertExpenseType = db.prepare('INSERT INTO expense_types (name, amount, payment_method) VALUES (?, ?, ?)');
