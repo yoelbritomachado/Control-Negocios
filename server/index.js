@@ -565,6 +565,248 @@ app.post('/api/sessions/close', (req, res) => {
     }
 });
 
+// Send Session for Review (Seller)
+app.post('/api/sessions/send-for-review', (req, res) => {
+    try {
+        const { declared_cash, notes } = req.body;
+        const userId = req.user.id;
+        const username = req.user.username || 'Vendedor';
+
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
+
+        // Calculate Sales Totals
+        const salesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(s.total), 0) as total_sales,
+                COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+            FROM sales s
+            JOIN sale_items si ON s.id = si.sale_id
+            WHERE s.session_id = ?
+        `).get(session.id);
+
+        // Calculate Sales by Payment Method
+        const salesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(total), 0) as total
+            FROM sales
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        // Calculate Expenses Totals
+        const expensesData = db.prepare(`
+            SELECT 
+                COALESCE(SUM(amount), 0) as total_expenses
+            FROM expenses
+            WHERE session_id = ?
+        `).get(session.id);
+
+        // Calculate Expenses by Payment Method
+        const expensesByMethod = db.prepare(`
+            SELECT 
+                payment_method,
+                COALESCE(SUM(amount), 0) as total
+            FROM expenses
+            WHERE session_id = ?
+            GROUP BY payment_method
+        `).all(session.id);
+
+        const totalProfit = salesData.total_sales - salesData.total_cost;
+        const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
+
+        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
+        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+        const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+        
+        const finalCash = cashSales - cashExpenses;
+        const finalTransfer = transferSales - transferExpenses;
+
+        // Update session status to 'pending_review'
+        db.prepare(`
+            UPDATE sales_sessions 
+            SET end_time = ?, 
+                declared_cash = ?, 
+                total_sales = ?, 
+                total_cost = ?, 
+                total_profit = ?, 
+                wage_amount = ?, 
+                status = 'pending_review',
+                notes = ?
+            WHERE id = ?
+        `).run(
+            new Date().toISOString(),
+            declared_cash || 0,
+            salesData.total_sales,
+            salesData.total_cost,
+            totalProfit,
+            wage,
+            notes || '',
+            session.id
+        );
+
+        // Create notification for all admins
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+        const notificationData = JSON.stringify({
+            session_id: session.id,
+            seller_id: userId,
+            seller_name: username,
+            total_sales: salesData.total_sales,
+            wage: wage
+        });
+
+        const insertNotification = db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'session_pending', ?, ?, ?)
+        `);
+
+        for (const admin of admins) {
+            insertNotification.run(
+                admin.id,
+                'Sesión pendiente de revisión',
+                `${username} ha enviado la sesión #${session.id} para revisión. Total: $${salesData.total_sales.toFixed(2)}`,
+                notificationData
+            );
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Sesión enviada para revisión',
+            wage: wage,
+            summary: {
+                sales: {
+                    total: salesData.total_sales,
+                    cash: cashSales,
+                    transfer: transferSales
+                },
+                expenses: {
+                    total: expensesData.total_expenses,
+                    cash: cashExpenses,
+                    transfer: transferExpenses
+                },
+                final: {
+                    cash: finalCash,
+                    transfer: finalTransfer,
+                    total: finalCash + finalTransfer
+                }
+            }
+        });
+
+    } catch (e) {
+        logError("Send Session for Review", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Approve Session (Admin/Owner)
+app.post('/api/sessions/:id/approve', checkAdmin, (req, res) => {
+    try {
+        const sessionId = req.params.id;
+        const adminId = req.user.id;
+        const adminName = req.user.username || 'Administrador';
+
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE id = ?").get(sessionId);
+        if (!session) return res.status(404).json({ error: "Sesión no encontrada." });
+        if (session.status !== 'pending_review') return res.status(400).json({ error: "La sesión no está pendiente de revisión." });
+
+        // Update session to closed
+        db.prepare("UPDATE sales_sessions SET status = 'closed', approved_by = ? WHERE id = ?")
+            .run(adminId, sessionId);
+
+        // Create notification for seller
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'session_approved', ?, ?, ?)
+        `).run(
+            session.user_id,
+            'Sesión aprobada',
+            `Tu sesión #${sessionId} ha sido revisada y aprobada por ${adminName}`,
+            JSON.stringify({ session_id: sessionId, approved_by: adminId })
+        );
+
+        res.json({ success: true, message: 'Sesión aprobada correctamente' });
+
+    } catch (e) {
+        logError("Approve Session", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- NOTIFICATIONS ENDPOINTS ---
+
+// Get notifications for current user
+app.get('/api/notifications', (req, res) => {
+    try {
+        const userId = req.user.id;
+        const notifications = db.prepare(`
+            SELECT * FROM notifications 
+            WHERE user_id = ? OR user_id IS NULL
+            ORDER BY created_at DESC
+            LIMIT 50
+        `).all(userId);
+
+        // Parse JSON data field
+        const parsedNotifications = notifications.map(n => ({
+            ...n,
+            data: n.data ? JSON.parse(n.data) : null,
+            is_read: !!n.is_read
+        }));
+
+        // Get unread count
+        const unreadCount = db.prepare(`
+            SELECT COUNT(*) as count FROM notifications 
+            WHERE (user_id = ? OR user_id IS NULL) AND is_read = 0
+        `).get(userId);
+
+        res.json({ 
+            notifications: parsedNotifications, 
+            unread_count: unreadCount.count 
+        });
+    } catch (e) {
+        logError("Get Notifications", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Mark notification as read
+app.put('/api/notifications/:id/read', (req, res) => {
+    try {
+        const notificationId = req.params.id;
+        const userId = req.user.id;
+
+        db.prepare(`
+            UPDATE notifications 
+            SET is_read = 1 
+            WHERE id = ? AND (user_id = ? OR user_id IS NULL)
+        `).run(notificationId, userId);
+
+        res.json({ success: true });
+    } catch (e) {
+        logError("Mark Notification Read", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Mark all notifications as read
+app.put('/api/notifications/read-all', (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        db.prepare(`
+            UPDATE notifications 
+            SET is_read = 1 
+            WHERE (user_id = ? OR user_id IS NULL) AND is_read = 0
+        `).run(userId);
+
+        res.json({ success: true });
+    } catch (e) {
+        logError("Mark All Notifications Read", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Get Session Status
 app.get('/api/sessions/status', (req, res) => {
     try {
@@ -1051,6 +1293,38 @@ try {
         db.exec("ALTER TABLE losses ADD COLUMN inventory TEXT DEFAULT 'mch1'");
     }
 } catch (e) { console.log("Migration check (losses):", e.message); }
+
+// Notifications table
+console.log("Creating notifications table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    data TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`);
+
+// Create index for faster queries
+try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(is_read)');
+} catch (e) { console.log("Index creation (notifications):", e.message); }
+
+// Migration: Add approved_by to sales_sessions if not exists
+try {
+    const sessionCols = db.prepare("PRAGMA table_info(sales_sessions)").all();
+    const hasApprovedBy = sessionCols.some(c => c.name === 'approved_by');
+    if (!hasApprovedBy) {
+        console.log("Migrating: Adding approved_by to sales_sessions...");
+        db.exec("ALTER TABLE sales_sessions ADD COLUMN approved_by INTEGER REFERENCES users(id)");
+    }
+} catch (e) { console.log("Migration check (sales_sessions approved_by):", e.message); }
 
 // Helper to get system config safely
 const getSystemConfig = (key) => {

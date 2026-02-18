@@ -246,8 +246,9 @@ export const NexusManager = () => {
   // TAMAÑOS DEL NODO
   const NODE_WIDTH = 260;
   const NODE_HEIGHT = 160;
-  const OUTPUT_OFFSET = 158; // Posición Y del punto de salida (desde top)
-  const INPUT_OFFSET = 2;    // Posición Y del punto de entrada (desde top)
+  // Los puntos están en el borde (-6px), centro del punto está a 6px del borde
+  const OUTPUT_OFFSET = NODE_HEIGHT + 6; // 166px - centro del punto de salida
+  const INPUT_OFFSET = -6;               // -6px - centro del punto de entrada
 
   // Convertir coordenadas
   const screenToCanvas = (screenX, screenY) => ({
@@ -362,10 +363,10 @@ export const NexusManager = () => {
       });
     }
 
-    // Línea temporal desde el PUNTO DE SALIDA
+    // Línea temporal desde el PUNTO DE SALIDA (borde inferior)
     if (connectingFrom) {
       const outputX = connectingFrom.position.x + NODE_WIDTH / 2;
-      const outputY = connectingFrom.position.y + OUTPUT_OFFSET;
+      const outputY = connectingFrom.position.y + NODE_HEIGHT + 6; // +6px porque el punto está sobresaliendo
       setTempLine({
         x1: outputX,
         y1: outputY,
@@ -447,7 +448,7 @@ export const NexusManager = () => {
     }
   };
 
-  // Renderizar conexiones - DESDE PUNTOS EXACTOS
+  // Renderizar conexiones - DESDE PUNTOS EXACTOS EN LOS BORDES
   const renderConnections = () => {
     return nodes
       .filter(n => n.parentId)
@@ -455,13 +456,13 @@ export const NexusManager = () => {
         const parent = nodes.find(p => p.id === n.parentId);
         if (!parent) return null;
 
-        // PUNTO DE SALIDA (output) - bottom center del padre
+        // PUNTO DE SALIDA (output) - borde inferior del padre (sobresale 6px)
         const startX = parent.position.x + NODE_WIDTH / 2;
-        const startY = parent.position.y + OUTPUT_OFFSET;
+        const startY = parent.position.y + NODE_HEIGHT + 6;
         
-        // PUNTO DE ENTRADA (input) - top center del hijo
+        // PUNTO DE ENTRADA (input) - borde superior del hijo (sobresale 6px)
         const endX = n.position.x + NODE_WIDTH / 2;
-        const endY = n.position.y + INPUT_OFFSET;
+        const endY = n.position.y - 6;
         
         const path = generatePath(startX, startY, endX, endY);
         const typeConfig = NODE_TYPES[parent.type?.toUpperCase()];

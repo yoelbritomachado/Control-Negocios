@@ -14,12 +14,17 @@ import {
   Crown,
   Shield,
   ShoppingBag,
-  Check
+  Check,
+  Clock,
+  CheckCheck,
+  AlertCircle,
+  Info
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from './CartProvider';
 import { useRole, ROLES } from '../hooks/useRole';
+import { useNotifications } from '../hooks/useNotifications';
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Monitoreo activo de flujos de caja', icon: LayoutDashboard },
@@ -50,11 +55,32 @@ const roleBgColors = {
   [ROLES.SELLER.id]: 'from-emerald-500 to-teal-600'
 };
 
+// Icono según tipo de notificación
+const notificationIcons = {
+  session_pending: { icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/20' },
+  session_approved: { icon: Check, color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+  low_stock: { icon: AlertCircle, color: 'text-rose-400', bg: 'bg-rose-500/20' },
+  default: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/20' }
+};
+
+// Formatear tiempo relativo
+const formatRelativeTime = (dateString) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000); // segundos
+  
+  if (diff < 60) return 'Hace un momento';
+  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
+  return `Hace ${Math.floor(diff / 86400)} d`;
+};
+
 export function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const { currentInventory } = useCart();
   const { currentRole, userName, changeRole, getRoleInfo, ROLES: RolesList } = useRole();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -67,7 +93,7 @@ export function Header() {
 
   const handleRoleChange = (roleId) => {
     const names = {
-      [ROLES.OWNER.id]: 'Dueño',
+      [ROLES.OWNER.id]: 'Dueno',
       [ROLES.ADMIN.id]: 'Administrador', 
       [ROLES.SELLER.id]: 'Vendedor'
     };
@@ -75,8 +101,23 @@ export function Header() {
     setRoleDropdownOpen(false);
   };
 
-  // Contador de notificaciones (simulado por ahora)
-  const notificationCount = currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id ? 2 : 0;
+  const handleNotificationClick = (notification) => {
+    if (!notification.is_read) {
+      markAsRead(notification.id);
+    }
+    
+    // Navegar según el tipo de notificación
+    if (notification.type === 'session_pending') {
+      navigate('/historial');
+    }
+    
+    setNotificationsOpen(false);
+  };
+
+  const handleMarkAllRead = (e) => {
+    e.stopPropagation();
+    markAllAsRead();
+  };
 
   return (
     <motion.header
@@ -107,7 +148,7 @@ export function Header() {
 
       {/* Right Side - Actions */}
       <div className="flex items-center gap-2 lg:gap-3">
-        {/* Notifications - Solo para Admin/Dueño */}
+        {/* Notifications - Solo para Admin/Dueno */}
         {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
           <div className="relative">
             <motion.button
@@ -117,9 +158,9 @@ export function Header() {
               className="relative p-2 lg:p-2.5 rounded-xl bg-secondary/50 hover:bg-secondary transition-colors"
             >
               <Bell className="w-4 h-4 lg:w-5 lg:h-5 text-muted-foreground" />
-              {notificationCount > 0 && (
+              {unreadCount > 0 && (
                 <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
-                  {notificationCount}
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </motion.button>
@@ -132,32 +173,70 @@ export function Header() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-full mt-2 w-80 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+                  className="absolute right-0 top-full mt-2 w-96 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
                 >
-                  <div className="p-3 border-b border-slate-800">
+                  <div className="p-3 border-b border-slate-800 flex items-center justify-between">
                     <h3 className="font-semibold text-sm">Notificaciones</h3>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleMarkAllRead}
+                        className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3 h-3" />
+                        Marcar todo
+                      </button>
+                    )}
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    <div className="p-3 hover:bg-slate-800/50 cursor-pointer border-b border-slate-800/50">
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-sm font-medium">Sesión pendiente de revisión</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">El vendedor envió una sesión para cerrar</p>
-                          <p className="text-[10px] text-muted-foreground mt-1">Hace 5 minutos</p>
-                        </div>
+                  
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <Bell className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">No hay notificaciones</p>
                       </div>
-                    </div>
-                    <div className="p-3 hover:bg-slate-800/50 cursor-pointer">
-                      <div className="flex items-start gap-2">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-sm font-medium">Stock bajo</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">3 productos están por debajo del mínimo</p>
-                          <p className="text-[10px] text-muted-foreground mt-1">Hace 1 hora</p>
-                        </div>
-                      </div>
-                    </div>
+                    ) : (
+                      notifications.map((notification) => {
+                        const config = notificationIcons[notification.type] || notificationIcons.default;
+                        const Icon = config.icon;
+                        
+                        return (
+                          <button
+                            key={notification.id}
+                            onClick={() => handleNotificationClick(notification)}
+                            className={cn(
+                              'w-full text-left p-3 hover:bg-slate-800/50 transition-colors border-b border-slate-800/50 last:border-0',
+                              !notification.is_read && 'bg-slate-800/20'
+                            )}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={cn(
+                                'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                                config.bg
+                              )}>
+                                <Icon className={cn('w-4 h-4', config.color)} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className={cn(
+                                  'text-sm',
+                                  notification.is_read ? 'text-slate-300' : 'text-white font-medium'
+                                )}>
+                                  {notification.title}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                                  {notification.message}
+                                </p>
+                                <p className="text-[10px] text-slate-500 mt-1">
+                                  {formatRelativeTime(notification.created_at)}
+                                </p>
+                              </div>
+                              {!notification.is_read && (
+                                <div className="w-2 h-2 rounded-full bg-cyan-400 mt-1.5 flex-shrink-0" />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -243,7 +322,7 @@ export function Header() {
                 
                 <div className="p-2 border-t border-slate-800 bg-slate-900/50">
                   <p className="text-[10px] text-muted-foreground text-center">
-                    Cambiar rol recargará la página
+                    Cambiar rol recargara la pagina
                   </p>
                 </div>
               </motion.div>

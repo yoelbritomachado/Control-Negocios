@@ -761,35 +761,66 @@ export default function POSLayout() {
 
     const handleCloseSession = async (cash, notes) => {
         try {
-            const res = await api.post('/sessions/close', { declared_cash: cash, notes });
+            // Usar endpoint diferente según el rol
+            const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
+            const res = await api.post(endpoint, { declared_cash: cash, notes });
             setCloseSummary(res.data.summary);
-            setAlertModal({
-                isOpen: true,
-                title: 'Sesión cerrada exitosamente',
-                message: (
-                    <div className="space-y-2">
-                        <p>Resumen del turno:</p>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                            <div className="text-slate-400">Ventas:</div>
-                            <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Gastos:</div>
-                            <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Neto Efectivo:</div>
-                            <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
-                            <div className="text-slate-400">Transferencia:</div>
-                            <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+            
+            if (isSeller) {
+                // Mensaje para vendedor que envía sesión
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Sesión enviada para revisión',
+                    message: (
+                        <div className="space-y-2">
+                            <p className="text-emerald-400">Tu sesión ha sido enviada al administrador para revisión.</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm pt-2 border-t border-white/10">
+                                <div className="text-slate-400">Ventas:</div>
+                                <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Gastos:</div>
+                                <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Neto Efectivo:</div>
+                                <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Transferencia:</div>
+                                <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+                            </div>
+                            <p className="pt-2 border-t border-white/10">Tu comisión estimada (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                            <p className="text-xs text-muted-foreground mt-2">Recibirás una notificación cuando sea aprobada.</p>
                         </div>
-                        <p className="pt-2 border-t border-white/10">Tu comisión (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
-                    </div>
-                ),
-                type: 'success',
-                onClose: () => window.location.reload()
-            });
+                    ),
+                    type: 'success',
+                    onClose: () => window.location.reload()
+                });
+            } else {
+                // Mensaje para admin/dueño que cierra sesión
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Sesión cerrada exitosamente',
+                    message: (
+                        <div className="space-y-2">
+                            <p>Resumen del turno:</p>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                                <div className="text-slate-400">Ventas:</div>
+                                <div className="text-right font-mono">${res.data.summary?.sales?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Gastos:</div>
+                                <div className="text-right font-mono text-rose-400">-${res.data.summary?.expenses?.total?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Neto Efectivo:</div>
+                                <div className="text-right font-mono text-emerald-400">${res.data.summary?.final?.cash?.toFixed(2) || '0.00'}</div>
+                                <div className="text-slate-400">Transferencia:</div>
+                                <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
+                            </div>
+                            <p className="pt-2 border-t border-white/10">Comisión del vendedor (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                        </div>
+                    ),
+                    type: 'success',
+                    onClose: () => window.location.reload()
+                });
+            }
         } catch (e) {
             setAlertModal({
                 isOpen: true,
                 title: 'Error',
-                message: "Error al cerrar sesion",
+                message: isSeller ? "Error al enviar sesión" : "Error al cerrar sesion",
                 type: 'danger'
             });
         }
