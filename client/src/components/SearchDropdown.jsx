@@ -4,6 +4,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { Package2, Plus, X } from 'lucide-react';
 
+// Helper para generar keys únicas y seguras
+const generateSafeKey = (prefix, item, index) => {
+    const itemId = item?.id || item?.code || item?.product_id;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
+    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+};
+
 // Componente de Dropdown usando Portal para evitar problemas de z-index
 export function SearchDropdown({ 
     isOpen, 
@@ -73,10 +80,9 @@ export function SearchDropdown({
                 
                 {searchResults.map((product, index) => {
                     const stock = product.inventory?.[currentInventory] || 0;
-                    const uniqueKey = product?.id || product?.code || `prod-${index}`;
                     return (
                         <motion.button
-                            key={uniqueKey}
+                            key={generateSafeKey('search-prod', product, index)}
                             initial={{ opacity: 0, x: -10 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: index * 0.03 }}

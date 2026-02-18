@@ -4,6 +4,13 @@ import { useCart } from './CartProvider';
 import { FaBoxOpen, FaSearch, FaExclamationCircle } from 'react-icons/fa';
 import { SafeImage } from './SafeImage';
 
+// Helper para generar keys únicas y seguras
+const generateSafeKey = (prefix, item, index) => {
+    const itemId = item?.id || item?.code || item?.product_id;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
+    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+};
+
 export default function ProductGrid() {
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -64,7 +71,6 @@ export default function ProductGrid() {
                         const invId = localStorage.getItem('currentInventory') || 'mch1';
                         const stock = p.inventory && p.inventory[invId] !== undefined ? p.inventory[invId] : (p.quantity || 0);
                         const hasStock = stock > 0;
-                        const uniqueKey = p?.id || p?.code || `prod-grid-${index}`;
 
                         const imageUrl = p.image
                             ? (p.image.startsWith('http') ? p.image : `${API_URL}${p.image}`)
@@ -72,7 +78,7 @@ export default function ProductGrid() {
 
                         return (
                             <div
-                                key={uniqueKey}
+                                key={generateSafeKey('prod-grid', p, index)}
                                 onClick={() => hasStock && addToCart(p)}
                                 className={`
                                     bg-[#1A1D21] border border-gray-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 group relative
