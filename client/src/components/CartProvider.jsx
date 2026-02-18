@@ -4,18 +4,49 @@ const CartContext = createContext();
 
 export const useCart = () => useContext(CartContext);
 
+// Helper para detectar IDs temporales
+const isTempId = (id) => {
+    if (!id) return true;
+    const strId = String(id);
+    return strId.startsWith('session_') || strId.startsWith('temp_');
+};
+
+// Función para limpiar ventas con IDs temporales
+const cleanSavedSales = (sales) => {
+    if (!Array.isArray(sales)) return [];
+    const cleaned = sales.filter(sale => {
+        const hasTempItems = sale.items?.some(item => 
+            isTempId(item.id) && isTempId(item.product_id)
+        );
+        return !hasTempItems;
+    });
+    const removedCount = sales.length - cleaned.length;
+    if (removedCount > 0) {
+        console.log(`🧹 Se eliminaron ${removedCount} venta(s) guardada(s) con IDs temporales`);
+    }
+    return cleaned;
+};
+
 export const CartProvider = ({ children }) => {
     const [cart, setCart] = useState(() => {
         try {
             const saved = localStorage.getItem('mch_cart');
-            return saved ? JSON.parse(saved) : [];
+            const parsed = saved ? JSON.parse(saved) : [];
+            // Limpiar carrito de items con IDs temporales
+            const cleaned = parsed.filter(item => !isTempId(item.id));
+            const removed = parsed.length - cleaned.length;
+            if (removed > 0) {
+                console.log(`🧹 Se eliminaron ${removed} producto(s) con IDs temporales del carrito`);
+            }
+            return cleaned;
         } catch (e) { return []; }
     });
 
     const [savedSales, setSavedSales] = useState(() => {
         try {
             const saved = localStorage.getItem('mch_saved_sales');
-            return saved ? JSON.parse(saved) : [];
+            const parsed = saved ? JSON.parse(saved) : [];
+            return cleanSavedSales(parsed);
         } catch (e) { return []; }
     });
 
@@ -34,9 +65,19 @@ export const CartProvider = ({ children }) => {
         localStorage.setItem('mch_cart', JSON.stringify(cart));
     }, [cart]);
 
+    // Limpiar carrito de items con IDs temporales al iniciar
+    useEffect(() => {
+        setCart(prev => prev.filter(item => !isTempId(item.id)));
+    }, []);
+
     useEffect(() => {
         localStorage.setItem('mch_saved_sales', JSON.stringify(savedSales));
     }, [savedSales]);
+
+    // Limpiar ventas con IDs temporales al iniciar
+    useEffect(() => {
+        setSavedSales(prev => cleanSavedSales(prev));
+    }, []);
 
     useEffect(() => {
         if (editingSession) {
