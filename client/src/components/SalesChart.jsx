@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart,
@@ -13,6 +13,7 @@ import {
 import { TrendingUp, Download, Filter } from 'lucide-react';
 import { cn } from '../lib/utils';
 
+// Generate data once - outside component to prevent regeneration on every render
 const generateSalesData = () => {
     const data = [];
     for (let i = 1; i <= 30; i++) {
@@ -31,19 +32,16 @@ const salesData = generateSalesData();
 
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+        // Simplified tooltip without heavy animations to reduce GPU usage
         return (
-            <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-popover/95 backdrop-blur-xl border border-border/50 rounded-xl p-4 shadow-xl bg-gray-900 border-gray-700 text-white"
-            >
+            <div className="bg-popover/95 backdrop-blur-xl border border-border/50 rounded-xl p-4 shadow-xl bg-gray-900 border-gray-700 text-white animate-in fade-in duration-150">
                 <p className="text-sm font-medium text-gray-400 mb-1">
                     Día {label}
                 </p>
                 <p className="text-lg font-bold text-cyan-400">
                     ${payload[0].value.toLocaleString('es-CU')}
                 </p>
-            </motion.div>
+            </div>
         );
     }
     return null;
@@ -53,9 +51,28 @@ export function SalesChart() {
     const [selectedMonth, setSelectedMonth] = useState('current');
     const [hoveredBar, setHoveredBar] = useState(null);
 
-    const totalSales = salesData.reduce((acc, curr) => acc + curr.sales, 0);
-    const avgSales = totalSales / salesData.length;
-    const maxSales = Math.max(...salesData.map(d => d.sales));
+    // Memoize calculations to prevent recalculation on every render
+    const { totalSales, avgSales, maxSales } = useMemo(() => {
+        const total = salesData.reduce((acc, curr) => acc + curr.sales, 0);
+        return {
+            totalSales: total,
+            avgSales: total / salesData.length,
+            maxSales: Math.max(...salesData.map(d => d.sales))
+        };
+    }, []);
+
+    // Memoized mouse handlers to prevent unnecessary re-renders
+    const handleMouseMove = useCallback((state) => {
+        if (state.isTooltipActive && state.activeTooltipIndex !== undefined) {
+            setHoveredBar(state.activeTooltipIndex);
+        } else {
+            setHoveredBar(null);
+        }
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        setHoveredBar(null);
+    }, []);
 
     return (
         <motion.div
@@ -144,14 +161,8 @@ export function SalesChart() {
                     <BarChart
                         data={salesData}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                        onMouseMove={(state) => {
-                            if (state.isTooltipActive && state.activeTooltipIndex !== undefined) {
-                                setHoveredBar(state.activeTooltipIndex);
-                            } else {
-                                setHoveredBar(null);
-                            }
-                        }}
-                        onMouseLeave={() => setHoveredBar(null)}
+                        onMouseMove={handleMouseMove}
+                        onMouseLeave={handleMouseLeave}
                     >
                         <defs>
                             <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -196,24 +207,26 @@ export function SalesChart() {
                             radius={[4, 4, 0, 0]}
                             maxBarSize={40}
                         >
-                            {salesData.map((entry, index) => (
-                                <Cell
-                                    key={`sales-cell-${entry.day}-${index}`}
-                                    fill={
-                                        entry.isToday
-                                            ? 'url(#barGradientToday)'
-                                            : hoveredBar === index
-                                                ? 'url(#barGradientHover)'
-                                                : 'url(#barGradient)'
-                                    }
-                                    style={{
-                                        filter: hoveredBar === index
-                                            ? 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.5))'
-                                            : 'none',
-                                        transition: 'all 0.2s ease',
-                                    }}
-                                />
-                            ))}
+                            {salesData.map((entry, index) => {
+                                const isHovered = hoveredBar === index;
+                                const fill = entry.isToday
+                                    ? 'url(#barGradientToday)'
+                                    : isHovered
+                                        ? 'url(#barGradientHover)'
+                                        : 'url(#barGradient)';
+                                
+                                return (
+                                    <Cell
+                                        key={`sales-cell-${entry.day}-${index}`}
+                                        fill={fill}
+                                        style={{
+                                            // Simplified hover effect - CSS transition only, no drop-shadow for GPU performance
+                                            opacity: isHovered ? 1 : 0.9,
+                                            transition: 'opacity 0.15s ease',
+                                        }}
+                                    />
+                                );
+                            })}
                         </Bar>
                     </BarChart>
                 </ResponsiveContainer>
