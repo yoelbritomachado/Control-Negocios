@@ -7,7 +7,7 @@
 ## 📋 DECISIONES DE DISEÑO Y FUNCIONALIDAD
 
 ### 2026-02-18 - Módulo de Traslados (Transferencias entre Inventarios)
-**Status**: 🔄 En implementación
+**Status**: ✅ Implementado
 
 **Requerimiento**: Crear un módulo para transferir mercancía entre almacenes y puntos de venta.
 
