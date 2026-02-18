@@ -3,8 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
   Building2, Package, Users, Wallet, Shield,
-  X, Check, AlertCircle
+  X, Check, AlertCircle, ArrowLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useNexus } from './useNexus';
 import { NexusNode } from './NexusNode';
 import { NexusGraph, NexusMinimap } from './NexusGraph';
@@ -168,7 +169,7 @@ const Toolbar = ({ onZoomIn, onZoomOut, onFitView, showGrid, setShowGrid }) => (
 
 // Header con estadísticas
 const NexusHeader = ({ stats }) => (
-  <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
+  <div className="absolute top-4 left-40 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
     <div className="flex items-center gap-3 mb-3">
       <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
         <Grid3X3 className="w-5 h-5 text-blue-400" />
@@ -197,6 +198,7 @@ const NexusHeader = ({ stats }) => (
 );
 
 export const NexusManager = () => {
+  const navigate = useNavigate();
   const {
     nodes,
     nodeTree,
@@ -297,6 +299,15 @@ export const NexusManager = () => {
     <div 
       ref={containerRef}
       className="relative w-full h-screen bg-slate-950 overflow-hidden cursor-grab active:cursor-grabbing"
+    >
+      {/* Back Button */}
+      <button
+        onClick={() => navigate('/')}
+        className="absolute top-4 left-4 z-50 flex items-center gap-2 px-4 py-2 bg-slate-800/90 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition-colors"
+      >
+        <ArrowLeft size={18} />
+        <span className="text-sm">Volver al Sistema</span>
+      </button>
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

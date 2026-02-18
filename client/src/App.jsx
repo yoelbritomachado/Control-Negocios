@@ -22,6 +22,9 @@ function App() {
     <BrowserRouter>
       <CartProvider>
         <Routes>
+          {/* Ruta Nexus - Fuera del MainLayout para pantalla completa */}
+          <Route path="/nexus" element={<NexusManager />} />
+          
           {/* Rutas con Layout Principal (Sidebar y Header Global) */}
           <Route path="/" element={<MainLayout />}>
             <Route index element={<DashboardPage />} />
@@ -39,7 +42,6 @@ function App() {
             <Route path="historial/mermas" element={<HistoryMermasPage />} />
             <Route path="mermas" element={<MermasPage />} />
             <Route path="configuracion" element={<SettingsPage />} />
-            <Route path="nexus" element={<NexusManager />} />
           </Route>
         </Routes>
       </CartProvider>
