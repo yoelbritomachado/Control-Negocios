@@ -48,7 +48,7 @@ export function Header({ userName, userRole }) {
       className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 lg:gap-4 mb-6 lg:mb-8"
     >
       {/* Left Side - Title */}
-      <div className="min-w-0">
+      <div className="min-w-0 pl-12 lg:pl-0">
         <div className="flex items-center gap-2 lg:gap-3 mb-1">
           <motion.div
             initial={{ scale: 0 }}
@@ -60,7 +60,7 @@ export function Header({ userName, userRole }) {
             {currentPage.subtitle}
           </p>
         </div>
-        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight flex items-center gap-2 lg:gap-3">
+        <h1 className="text-lg sm:text-xl lg:text-3xl font-bold tracking-tight flex items-center gap-1.5 lg:gap-3">
           <PageIcon className="w-5 h-5 lg:w-7 lg:h-7 text-cyan-400 flex-shrink-0" />
           <span className="truncate">{currentPage.title}:</span>
           <span className="gradient-text-cyan truncate">{inventoryLabel}</span>

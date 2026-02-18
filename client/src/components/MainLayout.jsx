@@ -210,10 +210,11 @@ export default function MainLayout() {
             <main className={cn(
                 'transition-all duration-500 min-h-screen flex-1',
                 // En móvil: padding-top para el botón de menú, sin margin-left
-                // En desktop: margin-left para el sidebar
-                'pt-16 lg:pt-0 lg:ml-72'
+                // En desktop: margin-left para el sidebar (72 = 18rem = w-72)
+                'pt-16 lg:pt-0',
+                'lg:ml-72'
             )}>
-                <div className="p-4 sm:p-6 lg:p-8">
+                <div className="p-3 sm:p-4 lg:p-8">
                     <Header
                         userName={userInfo.userName}
                         userRole={userInfo.userRole}
