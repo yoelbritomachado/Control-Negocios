@@ -41,6 +41,29 @@ Si en el futuro se solicita algo que contradiga lo anterior, el agente debe:
 ### 2026-02-18 - Restructuración del Menú de Gestión
 **Status**: ✅ Implementado
 
+### 2026-02-18 - Historial de Ventas con Edición de Sesiones
+**Status**: ✅ Implementado
+
+**Requerimiento**: Crear historial de ventas con datos de ejemplo y permitir editar sesiones sin perder el carrito actual.
+
+**Funcionalidad implementada**:
+1. **Ventas de ejemplo**: 7 ventas con diferentes estados (abiertas, pendientes, cerradas)
+2. **Diseño tipo lista expandible**: Click para ver detalles de productos
+3. **Botón "Editar Sesión"**:
+   - Si hay carrito actual → Pregunta si guardar como ticket pendiente
+   - Carga la sesión seleccionada en el POS
+   - Muestra banner indicando sesión en edición
+4. **Múltiples sesiones**: Cada sesión es independiente, no interfieren entre sí
+
+**Estados de venta**:
+- `open` (EN PROCESO): Azul, sesión activa editable
+- `pending_review` (EN REVISIÓN): Amber, esperando aprobación
+- `closed` (CERRADA): Verde, venta completada
+
+**Datos guardados en localStorage**:
+- `editing_session`: Info de sesión en edición
+- `mch_saved_sales`: Tickets pendientes guardados
+
 **Requerimiento**: Eliminar el menú "Historial" general y crear menús independientes para cada tipo de historial.
 
 **Cambios en el menú (Gestión)**:

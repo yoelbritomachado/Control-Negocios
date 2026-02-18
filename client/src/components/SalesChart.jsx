@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart,
@@ -50,6 +50,13 @@ const CustomTooltip = ({ active, payload, label }) => {
 export function SalesChart() {
     const [selectedMonth, setSelectedMonth] = useState('current');
     const [hoveredBar, setHoveredBar] = useState(null);
+    const [isMounted, setIsMounted] = useState(false);
+    
+    // Delay chart render to avoid dimension errors
+    useEffect(() => {
+        const timer = setTimeout(() => setIsMounted(true), 100);
+        return () => clearTimeout(timer);
+    }, []);
 
     // Memoize calculations to prevent recalculation on every render
     const { totalSales, avgSales, maxSales } = useMemo(() => {
@@ -157,6 +164,11 @@ export function SalesChart() {
 
             {/* Chart */}
             <div className="h-80 min-h-[300px] relative">
+                {!isMounted ? (
+                    <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                        <div className="animate-pulse">Cargando gráfico...</div>
+                    </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={300}>
                     <BarChart
                         data={salesData}
@@ -230,6 +242,7 @@ export function SalesChart() {
                         </Bar>
                     </BarChart>
                 </ResponsiveContainer>
+                )}
             </div>
         </motion.div>
     );

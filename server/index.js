@@ -1506,6 +1506,121 @@ app.post('/api/products', authenticate, requireEditor, (req, res) => {
     }
 });
 
+// 3.5 Update Product
+app.put('/api/products/:id', authenticate, requireEditor, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, cost_mx, sale_price_manual, description, label_color, deletedImages } = req.body;
+
+        // Check if product exists
+        const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Update product fields
+        db.prepare(`
+            UPDATE products 
+            SET name = ?, cost_mx = ?, sale_price_manual = ?, description = ?, label_color = ?
+            WHERE id = ?
+        `).run(
+            name || existing.name,
+            cost_mx !== undefined ? cost_mx : existing.cost_mx,
+            sale_price_manual !== undefined ? sale_price_manual : existing.sale_price_manual,
+            description !== undefined ? description : existing.description,
+            label_color || existing.label_color,
+            id
+        );
+
+        // Handle deleted images
+        if (deletedImages) {
+            try {
+                const imagesToDelete = JSON.parse(deletedImages);
+                if (Array.isArray(imagesToDelete) && imagesToDelete.length > 0) {
+                    // Get current images
+                    const product = db.prepare('SELECT images FROM products WHERE id = ?').get(id);
+                    let currentImages = [];
+                    try {
+                        currentImages = JSON.parse(product.images) || [];
+                    } catch (e) {
+                        currentImages = [];
+                    }
+
+                    // Remove deleted images from array
+                    const updatedImages = currentImages.filter(img => {
+                        const imgPath = img.startsWith('/') ? img : `/${img}`;
+                        const shouldDelete = imagesToDelete.some(del => {
+                            const delPath = del.startsWith('/') ? del : `/${del}`;
+                            return imgPath === delPath || imgPath.endsWith(delPath);
+                        });
+                        
+                        // Delete physical file if it exists
+                        if (shouldDelete) {
+                            const filename = path.basename(img);
+                            const filePath = path.join(__dirname, 'uploads', filename);
+                            if (fs.existsSync(filePath)) {
+                                fs.unlinkSync(filePath);
+                                console.log(`Deleted image file: ${filename}`);
+                            }
+                        }
+                        
+                        return !shouldDelete;
+                    });
+
+                    // Update database
+                    db.prepare('UPDATE products SET images = ? WHERE id = ?').run(
+                        JSON.stringify(updatedImages),
+                        id
+                    );
+                }
+            } catch (e) {
+                console.error('Error handling deleted images:', e);
+            }
+        }
+
+        res.json({ success: true, message: 'Producto actualizado correctamente' });
+    } catch (e) {
+        logError("PUT /api/products/:id", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3.6 Delete Product
+app.delete('/api/products/:id', authenticate, requireEditor, (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Check if product exists
+        const existing = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
+        if (!existing) {
+            return res.status(404).json({ error: 'Producto no encontrado' });
+        }
+
+        // Delete associated image files
+        try {
+            const images = JSON.parse(existing.images) || [];
+            images.forEach(img => {
+                const filename = path.basename(img);
+                const filePath = path.join(__dirname, 'uploads', filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                    console.log(`Deleted image file: ${filename}`);
+                }
+            });
+        } catch (e) {
+            console.error('Error deleting product images:', e);
+        }
+
+        // Delete product (cascade will handle inventory records)
+        db.prepare('DELETE FROM products WHERE id = ?').run(id);
+
+        res.json({ success: true, message: 'Producto eliminado correctamente' });
+    } catch (e) {
+        logError("DELETE /api/products/:id", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 4. Update Stock (Move/Set)
 app.post('/api/inventory/adjustment', authenticate, requireEditor, (req, res) => {
     try {
