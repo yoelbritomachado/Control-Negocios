@@ -22,12 +22,29 @@ const backupDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
-// Middleware
+// Initialize Database FIRST (before any middleware that uses it)
+const db = new Database(dbPath);
+console.log('Database initialized at:', dbPath);
+
+// CORS Configuration
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL
+].filter(Boolean);
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: function(origin, callback) {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin) || process.env.FRONTEND_URL === '*') {
+            callback(null, true);
+        } else {
+            console.warn('CORS blocked origin:', origin);
+            callback(null, true); // Allow all in development
+        }
+    },
     credentials: true
 }));
-app.use(cors());
 app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Custom middleware for /uploads with fallback placeholder
@@ -67,6 +84,85 @@ app.use('/uploads', (req, res, next) => {
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     res.send(svg);
 }, express.static(path.join(__dirname, 'uploads')));
+
+// --- PERMISSION HELPERS (defined before routes) ---
+const checkAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
+        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
+    }
+    next();
+};
+
+const checkEditor = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
+        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
+    }
+    next();
+};
+
+const requireAdmin = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+        return res.status(403).json({ error: 'Requiere permisos de administrador o dueño.' });
+    }
+    next();
+};
+
+const requireEditor = (req, res, next) => {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner' && req.user.can_edit !== 1) {
+        return res.status(403).json({ error: 'No tienes permisos para editar.' });
+    }
+    next();
+};
+
+// --- AUTHENTICATION MIDDLEWARE ---
+const authenticate = (req, res, next) => {
+    // Allow public access to login/register/auth
+    if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
+        return next();
+    }
+    // Allow public access to uploads
+    if (req.path.startsWith('/uploads')) {
+        return next();
+    }
+
+    // If req.user ya existe, usarlo
+    if (req.user && req.user.id) {
+        return next();
+    }
+
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    // If no token, create a default user (system works without login)
+    if (!token) {
+        req.user = {
+            id: 1,
+            username: 'default',
+            role: 'admin',
+            email: 'default@system.local',
+            can_edit: 1
+        };
+        return next();
+    }
+
+    const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
+    if (!user) {
+        req.user = {
+            id: 1,
+            username: 'default',
+            role: 'admin',
+            email: 'default@system.local',
+            can_edit: 1
+        };
+        return next();
+    }
+
+    req.user = user;
+    next();
+};
+
+// Apply authentication middleware
+app.use(authenticate);
 
 // Global middleware to set default user if no authentication
 // This allows the system to work without login
@@ -1090,9 +1186,6 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 
 // Permission helpers are now defined at the top of MIDDLEWARE section
 
-// Database setup
-const db = new Database(dbPath); // Use absolute path
-
 // Helper for error logging
 const logError = (context, error) => {
     try {
@@ -1576,78 +1669,6 @@ const getSystemConfig = (key) => {
     }
 };
 
-// --- MIDDLEWARE ---
-
-// Helper for admin permissions - MUST be defined before use
-const checkAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
-        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
-    }
-    next();
-};
-
-// Helper for editor permissions
-const checkEditor = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
-        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
-    }
-    next();
-};
-
-const authenticate = (req, res, next) => {
-    // Allow public access to login/register/verify
-    if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
-        return next();
-    }
-    // Allow public access to uploads
-    if (req.path.startsWith('/uploads')) {
-        return next();
-    }
-
-    // Si req.user ya existe (establecido por middleware global), usarlo
-    if (req.user && req.user.id) {
-        return next();
-    }
-
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    // If no token, create a default user (system works without login)
-    if (!token) {
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
-        return next();
-    }
-
-    const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
-    if (!user) {
-        // If token is invalid, also use default user instead of failing
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
-        return next();
-    }
-
-    req.user = user;
-    next();
-};
-
-const requireAdmin = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL) {
-        return res.status(403).json({ error: 'Requiere permisos de administrador.' });
-    }
-    next();
-};
-
 // --- EXPENSE TYPES ENDPOINTS ---
 
 // Get all expense types
@@ -2076,12 +2097,6 @@ app.post('/api/transfers/:id/reject', authenticate, (req, res) => {
     }
 });
 
-const requireEditor = (req, res, next) => {
-    if (req.user.role !== 'admin' && req.user.email !== ADMIN_EMAIL && req.user.can_edit !== 1) {
-        return res.status(403).json({ error: 'No tienes permisos para editar el inventario.' });
-    }
-    next();
-};
 // ------------------
 
 // Login endpoint
