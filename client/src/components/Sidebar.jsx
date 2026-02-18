@@ -428,16 +428,28 @@ export function Sidebar({ isDark, toggleTheme }) {
                     </motion.button>
 
                     {/* Settings */}
-                    <motion.button
-                        whileHover={{ x: 4 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-secondary/80 text-muted-foreground hover:text-foreground transition-all duration-300"
-                    >
-                        <Settings className="w-5 h-5 flex-shrink-0" />
-                        {!(isCollapsed && !isMobile) && (
-                            <span className="font-medium text-sm">Configuración</span>
+                    <NavLink
+                        to="/configuracion"
+                        onClick={() => isMobile && setIsMobileOpen(false)}
+                        className={({ isActive }) => cn(
+                            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300',
+                            isActive
+                                ? 'bg-gradient-to-r from-violet-500/20 to-purple-500/10 text-violet-400 border border-violet-500/30'
+                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
                         )}
-                    </motion.button>
+                    >
+                        {({ isActive }) => (
+                            <>
+                                <Settings className={cn(
+                                    'w-5 h-5 flex-shrink-0',
+                                    isActive && 'text-violet-400'
+                                )} />
+                                {!(isCollapsed && !isMobile) && (
+                                    <span className="font-medium text-sm">Configuración</span>
+                                )}
+                            </>
+                        )}
+                    </NavLink>
                 </div>
             </motion.aside>
         </>

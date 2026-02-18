@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage';
 import MigrationTool from './components/MigrationTool';
 import LegacyHistoryPage from './pages/LegacyHistoryPage';
 import HistoryPage from './pages/HistoryPage';
+import SettingsPage from './pages/SettingsPage';
 import './index.css';
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
               <Route path="admin/historial-legacy" element={<LegacyHistoryPage />} />
               */}
             <Route path="historial" element={<HistoryPage />} />
+            <Route path="configuracion" element={<SettingsPage />} />
           </Route>
         </Routes>
       </CartProvider>
