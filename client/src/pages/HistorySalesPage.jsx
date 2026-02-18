@@ -230,12 +230,12 @@ export default function HistorySalesPage() {
 
     const loadSessionInPOS = (sale) => {
         // Cargar los items de la venta en el carrito
-        const cartItems = sale.items.map(item => ({
-            id: `session_${item.name}`,
+        const cartItems = sale.items.map((item, index) => ({
+            id: item?.product_id || item?.id || `session_${item.name}_${index}_${Date.now()}`,
             name: item.name,
-            code: '',
+            code: item?.code || '',
             sale_price_manual: item.price,
-            cost_mn: item.price * 0.6, // Estimado
+            cost_mn: item.cost || item.price * 0.6,
             quantity: item.quantity
         }));
         

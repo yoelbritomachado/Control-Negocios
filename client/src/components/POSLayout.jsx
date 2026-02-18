@@ -506,8 +506,8 @@ export default function POSLayout() {
                     setSavedSales(prev => [savedSale, ...prev]);
                     
                     // Cargar items de la venta al carrito (reemplazar, no sumar)
-                    const newCartItems = sale.items.map(item => ({
-                        id: item.id,
+                    const newCartItems = sale.items.map((item, index) => ({
+                        id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
                         name: item.name,
                         code: item.code,
                         sale_price_manual: item.sale_price_manual || item.price,
@@ -524,8 +524,8 @@ export default function POSLayout() {
         }
         
         // Cargar items de la venta al carrito (reemplazar, no sumar)
-        const newCartItems = sale.items.map(item => ({
-            id: item.id,
+        const newCartItems = sale.items.map((item, index) => ({
+            id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
             name: item.name,
             code: item.code,
             sale_price_manual: item.sale_price_manual || item.price,
@@ -581,8 +581,8 @@ export default function POSLayout() {
                     
                     // Reemplazar completamente el carrito con los items de la venta
                     // Usar setCart directamente para evitar problemas de sincronización
-                    const newCartItems = sale.items.map(item => ({
-                        id: item.id,
+                    const newCartItems = sale.items.map((item, index) => ({
+                        id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
                         name: item.name,
                         code: item.code,
                         sale_price_manual: item.sale_price_manual || item.price,
@@ -599,8 +599,8 @@ export default function POSLayout() {
         }
         
         // Cargar items de la venta al carrito (reemplazo completo)
-        const newCartItems = sale.items.map(item => ({
-            id: item.id,
+        const newCartItems = sale.items.map((item, index) => ({
+            id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
             name: item.name,
             code: item.code,
             sale_price_manual: item.sale_price_manual || item.price,
