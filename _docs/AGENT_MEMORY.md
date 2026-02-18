@@ -38,6 +38,26 @@ Si en el futuro se solicita algo que contradiga lo anterior, el agente debe:
 2. Notificar al usuario sobre la contradicción
 3. Esperar confirmación antes de proceder
 
+### 2026-02-18 - Restructuración del Menú de Gestión
+**Status**: 🔄 En implementación
+
+**Requerimiento**: Eliminar el menú "Historial" general y crear menús independientes para cada tipo de historial.
+
+**Cambios en el menú (Gestión)**:
+- ❌ Eliminar: "Historial" (general)
+- ✅ Agregar: "Historial de Ventas"
+- ✅ Agregar: "Historial de Compras"  
+- ✅ Agregar: "Historial de Mermas"
+- ✅ Agregar: "Mermas" (módulo para registrar pérdidas/roturas)
+
+**Funcionalidad de Mermas**:
+- Debe existir un módulo independiente para registrar mermas (fuera del POS)
+- También debe haber acceso rápido desde el POS para registrar mermas
+- Tipos de mermas (según SYSTEM_LOGIC_RULES.md):
+  1. **Rotura Interna**: Disminuye stock, sin movimiento de dinero
+  2. **Devolución Producto Nuevo**: Aumenta stock, devuelve dinero
+  3. **Devolución Producto Dañado**: Stock neutral, devuelve dinero
+
 ---
 
 *Última actualización: 2026-02-18*

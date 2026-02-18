@@ -1,7 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { FaTimes, FaUpload, FaClipboard, FaCalculator, FaCheckCircle, FaExclamationCircle, FaImage, FaCrop, FaPaste, FaCamera, FaTrash, FaTag } from 'react-icons/fa';
 import Cropper from 'react-easy-crop';
+
+// Throttle utility
+const throttle = (fn, wait) => {
+  let lastTime = 0;
+  return (...args) => {
+    const now = Date.now();
+    if (now - lastTime >= wait) {
+      lastTime = now;
+      fn(...args);
+    }
+  };
+};
 
 const createImage = (url) =>
   new Promise((resolve, reject) => {
@@ -56,6 +68,32 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
   // Image State Management
   const [imagePreviews, setImagePreviews] = useState([]);
   const [deletedImages, setDeletedImages] = useState([]);
+  
+  // Memory management - track all object URLs for cleanup
+  const objectUrlsRef = useRef(new Set());
+  
+  // Helper to create tracked object URLs
+  const createTrackedObjectURL = (blob) => {
+    const url = URL.createObjectURL(blob);
+    objectUrlsRef.current.add(url);
+    return url;
+  };
+  
+  // Helper to revoke and untrack object URLs
+  const revokeTrackedObjectURL = (url) => {
+    if (url && objectUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      objectUrlsRef.current.delete(url);
+    }
+  };
+  
+  // Cleanup all object URLs on unmount
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      objectUrlsRef.current.clear();
+    };
+  }, []);
 
   // Image Selection Logic (Mobile/Desktop)
   const [selectedIds, setSelectedIds] = useState([]);
@@ -284,7 +322,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     if (e.clipboardData.files && e.clipboardData.files.length > 0) {
       const file = e.clipboardData.files[0];
       if (file.type.startsWith('image/')) {
-        const url = URL.createObjectURL(file);
+        const url = createTrackedObjectURL(file);
         setTempImage(url);
         setIsCropping(true);
         setShowMobilePasteInput(false);
@@ -298,7 +336,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
         const blob = items[i].getAsFile();
-        const url = URL.createObjectURL(blob);
+        const url = createTrackedObjectURL(blob);
         setTempImage(url);
         setIsCropping(true);
         setShowMobilePasteInput(false);
@@ -337,9 +375,12 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
       const croppedBlob = await getCroppedImg(tempImage, croppedAreaPixels);
       const file = new File([croppedBlob], `cropped_${Date.now()}.jpg`, { type: "image/jpeg" });
 
+      // Revoke the temporary crop image URL
+      revokeTrackedObjectURL(tempImage);
+      
       const newImage = {
         id: `new-${Date.now()}`,
-        url: URL.createObjectURL(file),
+        url: createTrackedObjectURL(file),
         isFile: true,
         file: file
       };
@@ -422,7 +463,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
         return;
       }
       // Create URL from blob
-      const url = URL.createObjectURL(file);
+      const url = createTrackedObjectURL(file);
       setTempImage(url);
       setIsCropping(true); // Trigger cropping modal
       e.target.value = ''; // Reset input to allow selecting same file again
@@ -439,7 +480,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
       for (const item of items) {
         if (item.types.includes('image/png') || item.types.includes('image/jpeg')) {
           const blob = await item.getType('image/png') || await item.getType('image/jpeg');
-          setTempImage(URL.createObjectURL(blob));
+          setTempImage(createTrackedObjectURL(blob));
           setIsCropping(true);
           return;
         }

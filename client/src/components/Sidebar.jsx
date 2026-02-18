@@ -18,7 +18,10 @@ import {
     ChevronDown,
     Check,
     Menu,
-    X
+    X,
+    Receipt,
+    Trash2,
+    AlertTriangle
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
@@ -29,8 +32,14 @@ const menuItems = [
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/entradas', category: 'management' },
     { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
-    { id: 'history', label: 'Historial', icon: History, path: '/historial', category: 'management' },
+    { id: 'mermas', label: 'Mermas', icon: AlertTriangle, path: '/mermas', category: 'management' },
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
+];
+
+const historyMenuItems = [
+    { id: 'history-sales', label: 'Historial de Ventas', icon: Receipt, path: '/historial/ventas' },
+    { id: 'history-purchases', label: 'Historial de Compras', icon: ArrowLeftRight, path: '/historial/compras' },
+    { id: 'history-mermas', label: 'Historial de Mermas', icon: Trash2, path: '/historial/mermas' },
 ];
 
 const adminMenuItems = [
@@ -323,6 +332,40 @@ export function Sidebar({ isDark, toggleTheme }) {
                                         <item.icon className={cn(
                                             'w-5 h-5 transition-colors flex-shrink-0',
                                             isActive && 'text-cyan-400'
+                                        )} />
+                                        {!isCollapsed && (
+                                            <span className="font-medium text-sm">{item.label}</span>
+                                        )}
+                                    </>
+                                )}
+                            </NavLink>
+                        ))}
+                    </div>
+
+                    {/* Historiales Section */}
+                    <div className="mt-6">
+                        {!isCollapsed && (
+                            <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                                Historiales
+                            </p>
+                        )}
+                        {historyMenuItems.map((item) => (
+                            <NavLink
+                                key={item.id}
+                                to={item.path}
+                                onClick={() => isMobile && setIsMobileOpen(false)}
+                                className={({ isActive }) => cn(
+                                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
+                                    isActive
+                                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-400 border border-amber-500/30'
+                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                )}
+                            >
+                                {({ isActive }) => (
+                                    <>
+                                        <item.icon className={cn(
+                                            'w-5 h-5 transition-colors flex-shrink-0',
+                                            isActive && 'text-amber-400'
                                         )} />
                                         {!isCollapsed && (
                                             <span className="font-medium text-sm">{item.label}</span>
