@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
+  Plus, ZoomIn, ZoomOut, Maximize2, Minimize2, Grid3X3,
   Crown, Building2, Shield, Package, Users, Store,
   X, Check, AlertCircle, Trash2, GitBranch, Minus
 } from 'lucide-react';
@@ -133,22 +133,23 @@ const AddNodePanel = ({ onAdd, onClose, position }) => {
 const Toolbar = ({ 
   onZoomIn, onZoomOut, onFitView, 
   showGrid, setShowGrid,
-  lineStyle, setLineStyle
+  lineStyle, setLineStyle,
+  isFullscreen, toggleFullscreen
 }) => (
-  <div className="absolute top-4 right-4 z-40 flex flex-col gap-2">
-    {/* Line Style Toggle */}
-    <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
+  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
+    <div className="bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-1.5 shadow-2xl flex items-center gap-1">
+      {/* Line Style Toggle */}
       <button
         onClick={() => setLineStyle(lineStyle === 'curved' ? 'orthogonal' : 'curved')}
-        className={`p-2 rounded-md transition-colors ${lineStyle === 'curved' ? 'text-blue-400 bg-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+        className={`p-2 rounded-lg transition-colors ${lineStyle === 'curved' ? 'text-blue-400 bg-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
         title={lineStyle === 'curved' ? 'Líneas curvas' : 'Líneas rectas (90°)'}
       >
         {lineStyle === 'curved' ? <GitBranch size={18} /> : <Minus size={18} />}
       </button>
-    </div>
-
-    {/* Zoom Controls */}
-    <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
+      
+      <div className="w-px h-5 bg-slate-700 mx-1" />
+      
+      {/* Zoom Controls */}
       <button
         onClick={onZoomIn}
         className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-md transition-colors"
@@ -172,10 +173,21 @@ const Toolbar = ({
       </button>
       <button
         onClick={() => setShowGrid(!showGrid)}
-        className={`p-2 rounded-md transition-colors ${showGrid ? 'text-blue-400 bg-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-        title="Mostrar grid"
+        className={`p-2 rounded-lg transition-colors ${showGrid ? 'text-blue-400 bg-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+        title={showGrid ? 'Ocultar grid' : 'Mostrar grid de fondo'}
       >
         <Grid3X3 size={18} />
+      </button>
+      
+      <div className="w-px h-5 bg-slate-700 mx-1" />
+      
+      {/* Fullscreen Toggle */}
+      <button
+        onClick={toggleFullscreen}
+        className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+        title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+      >
+        {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
       </button>
     </div>
   </div>
@@ -231,6 +243,7 @@ export const NexusManager = () => {
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addPanelPosition, setAddPanelPosition] = useState({ x: 20, y: 20 });
   const [lineStyle, setLineStyle] = useState('curved'); // 'curved' | 'orthogonal'
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   // Estados de interacción
   const [draggingNode, setDraggingNode] = useState(null);
@@ -505,7 +518,7 @@ export const NexusManager = () => {
   return (
     <div 
       ref={containerRef}
-      className="relative w-full h-[calc(100vh-140px)] bg-black overflow-hidden rounded-xl border border-slate-800 select-none"
+      className="relative w-full h-[calc(100vh-140px)] bg-slate-950 overflow-hidden rounded-xl border border-slate-800 select-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

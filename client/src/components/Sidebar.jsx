@@ -79,10 +79,8 @@ export function Sidebar({ isDark, toggleTheme }) {
     const { currentInventory, setCurrentInventory } = useCart();
     
     const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'owner';
-    
-    // Debug log para verificar rol
-    console.log('Sidebar - currentUser:', currentUser, 'isAdmin:', isAdmin);
+    // TEMP: Mostrar todo para todos hasta que se implemente login correcto
+    const isAdmin = true; // currentUser?.role === 'admin' || currentUser?.role === 'owner';
 
     const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
 
@@ -323,7 +321,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Gestión
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin)).map((item) => (
+                        {menuItems.filter(item => item.category === 'management').map((item) => (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
