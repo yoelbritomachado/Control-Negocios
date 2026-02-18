@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
+import { useRole } from '../hooks/useRole';
 import { Database } from 'lucide-react';
 import { Grid3X3 } from 'lucide-react';
 
@@ -56,11 +57,7 @@ const inventories = [
     { id: 'alm', label: 'Almacén' },
 ];
 
-const ROLES = [
-    { id: 'owner', label: 'Dueño', icon: '👑' },
-    { id: 'admin', label: 'Administrador', icon: '⚙️' },
-    { id: 'seller', label: 'Vendedor', icon: '🛒' },
-];
+
 
 // Hook para detectar si es móvil
 function useIsMobile() {
@@ -79,25 +76,11 @@ export function Sidebar({ isDark, toggleTheme }) {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isInventoryOpen, setIsInventoryOpen] = useState(false);
-    const [isRoleOpen, setIsRoleOpen] = useState(false);
     const location = useLocation();
     const isMobile = useIsMobile();
     
     const { currentInventory, setCurrentInventory } = useCart();
-    
-    // Role selector - stored in localStorage
-    const [currentRole, setCurrentRole] = useState(() => {
-        return localStorage.getItem('mch_role') || 'owner';
-    });
-    
-    const handleRoleChange = (roleId) => {
-        setCurrentRole(roleId);
-        localStorage.setItem('mch_role', roleId);
-        setIsRoleOpen(false);
-    };
-    
-    const isAdmin = currentRole === 'admin' || currentRole === 'owner';
-    const currentRoleLabel = ROLES.find(r => r.id === currentRole)?.label || 'Dueño';
+    const { isAdmin } = useRole();
 
     const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
 
@@ -250,75 +233,6 @@ export function Sidebar({ isDark, toggleTheme }) {
                                         >
                                             <span>{inventory.label}</span>
                                             {currentInventory === inventory.id && (
-                                                <Check className="w-3.5 h-3.5" />
-                                            )}
-                                        </button>
-                                    ))}
-                                </div>
-                            </motion.div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Role Selector */}
-                <div className="px-3 mb-4">
-                    <div className="relative">
-                        <button
-                            onClick={() => !isCollapsed && setIsRoleOpen(!isRoleOpen)}
-                            className={cn(
-                                'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300',
-                                'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20',
-                                'hover:border-cyan-500/40 text-left group'
-                            )}
-                        >
-                            <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 group-hover:text-cyan-300 transition-colors">
-                                <Users className="w-5 h-5" />
-                            </div>
-
-                            {!isCollapsed && (
-                                <>
-                                    <div className="flex-1 overflow-hidden">
-                                        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                                            Rol Actual
-                                        </p>
-                                        <p className="text-sm font-semibold truncate text-foreground">
-                                            {currentRoleLabel}
-                                        </p>
-                                    </div>
-                                    <ChevronDown className={cn(
-                                        "w-4 h-4 text-muted-foreground transition-transform duration-300",
-                                        isRoleOpen && "rotate-180"
-                                    )} />
-                                </>
-                            )}
-                        </button>
-
-                        {!isCollapsed && (
-                            <motion.div
-                                initial={false}
-                                animate={{
-                                    height: isRoleOpen ? 'auto' : 0,
-                                    opacity: isRoleOpen ? 1 : 0
-                                }}
-                                className="overflow-hidden"
-                            >
-                                <div className="mt-1 p-1 rounded-xl bg-secondary/30 border border-white/5 backdrop-blur-md space-y-0.5">
-                                    {ROLES.map((role) => (
-                                        <button
-                                            key={role.id}
-                                            onClick={() => handleRoleChange(role.id)}
-                                            className={cn(
-                                                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                                currentRole === role.id
-                                                    ? 'bg-cyan-500/20 text-cyan-400'
-                                                    : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
-                                            )}
-                                        >
-                                            <span className="flex items-center gap-2">
-                                                <span>{role.icon}</span>
-                                                {role.label}
-                                            </span>
-                                            {currentRole === role.id && (
                                                 <Check className="w-3.5 h-3.5" />
                                             )}
                                         </button>
