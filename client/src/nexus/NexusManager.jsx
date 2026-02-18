@@ -3,12 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, ZoomIn, ZoomOut, Maximize2, Grid3X3,
   Building2, Package, Users, Wallet, Shield,
-  X, Check, AlertCircle
+  X, Check, AlertCircle, Move, Link2, Trash2,
+  MousePointer2, Unlink
 } from 'lucide-react';
 import { useNexus } from './useNexus';
 import { NexusNode } from './NexusNode';
 import { NexusGraph, NexusMinimap } from './NexusGraph';
-import { NODE_TYPES, NODE_STATUS } from './nexus.types';
+import { NODE_TYPES, NODE_STATUS, VISUAL_CONFIG } from './nexus.types';
 
 // Panel de control para agregar nodos
 const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
@@ -130,9 +131,61 @@ const AddNodePanel = ({ onAdd, onClose, parentNode }) => {
   );
 };
 
-// Barra de herramientas
-const Toolbar = ({ onZoomIn, onZoomOut, onFitView, showGrid, setShowGrid }) => (
+// Barra de herramientas con modos
+const Toolbar = ({ 
+  mode, setMode,
+  onZoomIn, onZoomOut, onFitView, 
+  showGrid, setShowGrid,
+  selectedConnection, onDeleteConnection
+}) => (
   <div className="absolute top-4 right-4 z-40 flex flex-col gap-2">
+    {/* Mode Switcher */}
+    <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
+      <button
+        onClick={() => setMode('select')}
+        className={`p-2 rounded-md transition-colors ${
+          mode === 'select' 
+            ? 'bg-blue-600 text-white' 
+            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+        }`}
+        title="Modo Selección"
+      >
+        <MousePointer2 size={18} />
+      </button>
+      <button
+        onClick={() => setMode('move')}
+        className={`p-2 rounded-md transition-colors ${
+          mode === 'move' 
+            ? 'bg-blue-600 text-white' 
+            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+        }`}
+        title="Modo Mover Nodos"
+      >
+        <Move size={18} />
+      </button>
+      <button
+        onClick={() => setMode('connect')}
+        className={`p-2 rounded-md transition-colors ${
+          mode === 'connect' 
+            ? 'bg-blue-600 text-white' 
+            : 'text-slate-400 hover:text-white hover:bg-slate-800'
+        }`}
+        title="Modo Conectar"
+      >
+        <Link2 size={18} />
+      </button>
+      {selectedConnection && (
+        <button
+          onClick={onDeleteConnection}
+          className="p-2 rounded-md text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors"
+          title="Eliminar Conexión"
+        >
+          <Unlink size={18} />
+        </button>
+      )}
+    </div>
+
+    {/* Zoom Controls */}
     <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
       <button
         onClick={onZoomIn}
@@ -167,35 +220,42 @@ const Toolbar = ({ onZoomIn, onZoomOut, onFitView, showGrid, setShowGrid }) => (
 );
 
 // Header con estadísticas
-// Header con estadísticas
-const NexusHeader = ({ stats }) => (
-  <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
-    <div className="flex items-center gap-3 mb-3">
-      <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
-        <Grid3X3 className="w-5 h-5 text-blue-400" />
+const NexusHeader = ({ stats, mode }) => {
+  const modeLabels = {
+    select: 'Modo: Selección',
+    move: 'Modo: Mover',
+    connect: 'Modo: Conectar'
+  };
+
+  return (
+    <div className="absolute top-4 left-4 z-40 bg-slate-900/90 backdrop-blur-sm rounded-xl border border-slate-700 p-4 shadow-xl">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="p-2 bg-gradient-to-br from-blue-500/20 to-purple-500/10 rounded-lg border border-blue-500/30">
+          <Grid3X3 className="w-5 h-5 text-blue-400" />
+        </div>
+        <div>
+          <h1 className="text-lg font-bold text-white">NexusNode</h1>
+          <p className="text-xs text-slate-400">{modeLabels[mode]}</p>
+        </div>
       </div>
-      <div>
-        <h1 className="text-lg font-bold text-white">NexusNode</h1>
-        <p className="text-xs text-slate-400">Gestión Empresarial Nodal</p>
+      
+      <div className="flex gap-4 text-xs">
+        <div className="text-center">
+          <p className="text-slate-500 uppercase tracking-wider">Nodos</p>
+          <p className="text-lg font-bold text-white">{stats.total}</p>
+        </div>
+        <div className="text-center">
+          <p className="text-slate-500 uppercase tracking-wider">Online</p>
+          <p className="text-lg font-bold text-emerald-400">{stats.online}</p>
+        </div>
+        <div className="text-center">
+          <p className="text-slate-500 uppercase tracking-wider">Offline</p>
+          <p className="text-lg font-bold text-red-400">{stats.offline}</p>
+        </div>
       </div>
     </div>
-    
-    <div className="flex gap-4 text-xs">
-      <div className="text-center">
-        <p className="text-slate-500 uppercase tracking-wider">Nodos</p>
-        <p className="text-lg font-bold text-white">{stats.total}</p>
-      </div>
-      <div className="text-center">
-        <p className="text-slate-500 uppercase tracking-wider">Online</p>
-        <p className="text-lg font-bold text-emerald-400">{stats.online}</p>
-      </div>
-      <div className="text-center">
-        <p className="text-slate-500 uppercase tracking-wider">Offline</p>
-        <p className="text-lg font-bold text-red-400">{stats.offline}</p>
-      </div>
-    </div>
-  </div>
-);
+  );
+};
 
 export const NexusManager = () => {
   const {
@@ -208,27 +268,39 @@ export const NexusManager = () => {
     createNode,
     updateNode,
     deleteNode,
+    moveNode,
     selectNode,
     toggleExpand,
     getChildren
   } = useNexus();
 
+  // Modos: 'select' | 'move' | 'connect'
+  const [mode, setMode] = useState('select');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showGrid, setShowGrid] = useState(true);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addPanelParent, setAddPanelParent] = useState(null);
   
+  // Estado para drag de nodos
+  const [draggingNode, setDraggingNode] = useState(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  
+  // Estado para conexiones
+  const [connectingFrom, setConnectingFrom] = useState(null);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [selectedConnection, setSelectedConnection] = useState(null);
+  
   const containerRef = useRef(null);
-  const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0 });
+  const isPanning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0 });
 
   // Calcular conexiones
   const connections = nodes
     .filter(n => n.parentId)
-    .map(n => ({ parentId: n.parentId, childId: n.id }));
+    .map(n => ({ parentId: n.parentId, childId: n.id, id: `${n.parentId}-${n.id}` }));
 
-  // Handlers
+  // Handlers de zoom
   const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 3));
   const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.3));
   const handleFitView = () => {
@@ -248,43 +320,138 @@ export const NexusManager = () => {
     });
   };
 
+  // Convertir coordenadas del mouse a coordenadas del canvas
+  const screenToCanvas = (screenX, screenY) => ({
+    x: (screenX - pan.x) / zoom,
+    y: (screenY - pan.y) / zoom
+  });
+
+  // Handlers de mouse para pan y drag
   const handleMouseDown = (e) => {
-    if (e.target === containerRef.current) {
-      isDragging.current = true;
-      dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    // Solo pan si clic en el fondo
+    if (e.target === containerRef.current || e.target.tagName === 'svg') {
+      isPanning.current = true;
+      panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     }
   };
 
   const handleMouseMove = (e) => {
-    if (isDragging.current) {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const canvasPos = screenToCanvas(e.clientX - (rect?.left || 0), e.clientY - (rect?.top || 0));
+    setMousePos(canvasPos);
+
+    if (isPanning.current) {
       setPan({
-        x: e.clientX - dragStart.current.x,
-        y: e.clientY - dragStart.current.y
+        x: e.clientX - panStart.current.x,
+        y: e.clientY - panStart.current.y
+      });
+    }
+
+    if (draggingNode) {
+      updateNode(draggingNode.id, {
+        position: {
+          x: canvasPos.x - dragOffset.x,
+          y: canvasPos.y - dragOffset.y
+        }
       });
     }
   };
 
   const handleMouseUp = () => {
-    isDragging.current = false;
+    isPanning.current = false;
+    setDraggingNode(null);
   };
 
-  // Renderizar nodos recursivamente
-  const renderNodes = (nodeList, level = 0) => {
-    return nodeList.map(node => (
+  // Handlers de nodos
+  const handleNodeMouseDown = (e, node) => {
+    e.stopPropagation();
+    
+    if (mode === 'move') {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const canvasPos = screenToCanvas(e.clientX - (rect?.left || 0), e.clientY - (rect?.top || 0));
+      setDragOffset({
+        x: canvasPos.x - node.position.x,
+        y: canvasPos.y - node.position.y
+      });
+      setDraggingNode(node);
+    } else if (mode === 'connect') {
+      if (!connectingFrom) {
+        setConnectingFrom(node);
+      } else {
+        // Intentar conectar
+        if (connectingFrom.id !== node.id) {
+          try {
+            moveNode(node.id, connectingFrom.id);
+          } catch (err) {
+            alert(err.message);
+          }
+        }
+        setConnectingFrom(null);
+      }
+    } else {
+      selectNode(node.id);
+    }
+  };
+
+  const handleConnectionClick = (conn) => {
+    setSelectedConnection(selectedConnection?.id === conn.id ? null : conn);
+  };
+
+  const handleDeleteConnection = () => {
+    if (selectedConnection) {
+      const childNode = nodes.find(n => n.id === selectedConnection.childId);
+      if (childNode) {
+        // Desconectar (mover a raíz)
+        moveNode(childNode.id, null);
+      }
+      setSelectedConnection(null);
+    }
+  };
+
+  // Renderizar línea temporal de conexión
+  const renderTempConnection = () => {
+    if (!connectingFrom) return null;
+    
+    const startX = connectingFrom.position.x + VISUAL_CONFIG.nodeWidth / 2;
+    const startY = connectingFrom.position.y + VISUAL_CONFIG.nodeHeight / 2;
+    const endX = mousePos.x;
+    const endY = mousePos.y;
+    
+    const midY = (startY + endY) / 2;
+    const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+    
+    return (
+      <path
+        d={path}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth="2"
+        strokeDasharray="5,5"
+        opacity="0.8"
+      />
+    );
+  };
+
+  // Renderizar nodos
+  const renderNodes = () => {
+    return nodes.map(node => (
       <motion.div
         key={node.id}
         className="absolute"
         style={{
           left: node.position.x,
           top: node.position.y,
-          zIndex: 10 + level
+          zIndex: draggingNode?.id === node.id ? 100 : 10,
+          cursor: mode === 'move' ? 'grab' : mode === 'connect' ? 'crosshair' : 'pointer'
         }}
+        onMouseDown={(e) => handleNodeMouseDown(e, node)}
         layoutId={node.id}
       >
         <NexusNode
           node={node}
           isSelected={selectedNodeId === node.id}
           isExpanded={expandedNodes.has(node.id)}
+          isConnecting={connectingFrom?.id === node.id}
           onSelect={selectNode}
           onExpand={toggleExpand}
           onEdit={(n) => console.log('Edit:', n)}
@@ -298,7 +465,6 @@ export const NexusManager = () => {
     <div 
       ref={containerRef}
       className="relative w-full h-[calc(100vh-140px)] bg-slate-950 overflow-hidden cursor-grab active:cursor-grabbing rounded-xl border border-slate-800"
-    >
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -307,7 +473,7 @@ export const NexusManager = () => {
       {/* Grid Background */}
       {showGrid && (
         <div 
-          className="absolute inset-0 opacity-30"
+          className="absolute inset-0 opacity-30 pointer-events-none"
           style={{
             backgroundImage: `
               radial-gradient(circle, rgba(148,163,184,0.1) 1px, transparent 1px)
@@ -326,27 +492,62 @@ export const NexusManager = () => {
           transformOrigin: '0 0'
         }}
       >
-        <NexusGraph
-          nodes={nodes}
-          connections={connections}
-          selectedNodeId={selectedNodeId}
-        />
+        <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+          {/* Connections */}
+          {connections.map(conn => {
+            const parent = nodes.find(n => n.id === conn.parentId);
+            const child = nodes.find(n => n.id === conn.childId);
+            if (!parent || !child) return null;
+            
+            const startX = parent.position.x + VISUAL_CONFIG.nodeWidth / 2;
+            const startY = parent.position.y + VISUAL_CONFIG.nodeHeight;
+            const endX = child.position.x + VISUAL_CONFIG.nodeWidth / 2;
+            const endY = child.position.y;
+            const midY = (startY + endY) / 2;
+            const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+            
+            const isSelected = selectedConnection?.id === conn.id;
+            
+            return (
+              <g key={conn.id}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={isSelected ? '#3b82f6' : 'rgba(148, 163, 184, 0.3)'}
+                  strokeWidth={isSelected ? 3 : 2}
+                  className="pointer-events-auto cursor-pointer"
+                  onClick={() => handleConnectionClick(conn)}
+                />
+                {isSelected && (
+                  <circle cx={endX} cy={endY} r="4" fill="#ef4444" className="pointer-events-auto cursor-pointer" />
+                )}
+              </g>
+            );
+          })}
+          
+          {/* Temp connection while dragging */}
+          {renderTempConnection()}
+        </svg>
         
         {/* Nodes */}
         <AnimatePresence>
-          {renderNodes(nodes)}
+          {renderNodes()}
         </AnimatePresence>
       </div>
 
       {/* UI Overlay */}
-      <NexusHeader stats={stats} />
+      <NexusHeader stats={stats} mode={mode} />
       
       <Toolbar
+        mode={mode}
+        setMode={setMode}
         onZoomIn={handleZoomIn}
         onZoomOut={handleZoomOut}
         onFitView={handleFitView}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
+        selectedConnection={selectedConnection}
+        onDeleteConnection={handleDeleteConnection}
       />
 
       {/* Mini-map */}
@@ -363,13 +564,22 @@ export const NexusManager = () => {
         }}
       />
 
+      {/* Mode Indicator */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/90 backdrop-blur-sm rounded-full px-4 py-2 border border-slate-700 shadow-xl">
+        <p className="text-xs text-slate-400">
+          {mode === 'select' && 'Modo Selección: Click para seleccionar nodos'}
+          {mode === 'move' && 'Modo Mover: Arrastra nodos para reubicarlos'}
+          {mode === 'connect' && (connectingFrom ? 'Modo Conectar: Click en nodo destino' : 'Modo Conectar: Click en nodo origen')}
+        </p>
+      </div>
+
       {/* Add Node Button */}
       <button
         onClick={() => {
           setAddPanelParent(selectedNode);
           setShowAddPanel(true);
         }}
-        className="absolute left-4 bottom-4 z-50 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-xl hover:shadow-2xl transition-all hover:scale-110"
+        className="absolute right-4 bottom-16 z-50 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-xl hover:shadow-2xl transition-all hover:scale-110"
       >
         <Plus size={24} />
       </button>
@@ -387,7 +597,7 @@ export const NexusManager = () => {
 
       {/* Selected Node Info */}
       <AnimatePresence>
-        {selectedNode && (
+        {selectedNode && mode === 'select' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -400,12 +610,13 @@ export const NexusManager = () => {
             <div className="flex gap-2">
               <button
                 onClick={() => {
-                  setAddPanelParent(selectedNode);
-                  setShowAddPanel(true);
+                  setMode('connect');
+                  setConnectingFrom(selectedNode);
                 }}
-                className="flex-1 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium transition-colors"
+                className="flex-1 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1"
               >
-                + Agregar hijo
+                <Link2 size={14} />
+                Conectar
               </button>
               <button
                 onClick={() => deleteNode(selectedNode.id)}

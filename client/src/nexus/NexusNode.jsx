@@ -28,6 +28,7 @@ export const NexusNode = React.memo(({
   node,
   isSelected = false,
   isExpanded = false,
+  isConnecting = false,
   onSelect,
   onExpand,
   onEdit,
@@ -92,15 +93,18 @@ export const NexusNode = React.memo(({
       style={{
         ...style,
         background: `linear-gradient(135deg, ${typeConfig.bgColor} 0%, rgba(15, 23, 42, 0.95) 100%)`,
-        borderColor: isSelected ? typeConfig.color : typeConfig.borderColor,
-        boxShadow: isSelected 
-          ? `0 0 30px ${typeConfig.color}40, 0 10px 40px rgba(0,0,0,0.4)`
-          : `0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
+        borderColor: isConnecting ? '#3b82f6' : isSelected ? typeConfig.color : typeConfig.borderColor,
+        boxShadow: isConnecting
+          ? '0 0 30px #3b82f660, 0 10px 40px rgba(0,0,0,0.4)'
+          : isSelected 
+            ? `0 0 30px ${typeConfig.color}40, 0 10px 40px rgba(0,0,0,0.4)`
+            : `0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`
       }}
       className={`
         relative w-[280px] rounded-xl overflow-hidden cursor-pointer select-none
         border-2 transition-all duration-300
         ${isSelected ? 'ring-2 ring-offset-2 ring-offset-slate-900' : ''}
+        ${isConnecting ? 'animate-pulse' : ''}
       `}
     >
       {/* Header */}
