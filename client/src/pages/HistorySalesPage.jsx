@@ -213,7 +213,7 @@ export default function HistorySalesPage() {
         // Guardar carrito actual como ticket pendiente
         if (cart.length > 0) {
             const savedSale = {
-                id: Date.now(),
+                id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 items: [...cart],
                 total: cart.reduce((sum, item) => sum + (item.sale_price_manual * item.quantity), 0),
                 time: new Date().toLocaleTimeString(),
@@ -231,13 +231,15 @@ export default function HistorySalesPage() {
     const loadSessionInPOS = (sale) => {
         // Cargar los items de la venta en el carrito
         const cartItems = sale.items.map((item, index) => ({
-            id: item?.product_id || item?.id || `session_${item.name}_${index}_${Date.now()}`,
+            // Usar ID existente o crear uno estable basado en datos del item (NO usar Date.now())
+            id: item?.product_id || item?.id || `hist-item-${sale.id}-${index}-${item.name?.replace(/\s+/g, '-') || 'unknown'}`,
+            product_id: item?.product_id || item?.id, // Preservar product_id para referencia
             name: item.name,
             code: item?.code || '',
             sale_price_manual: item.price,
             cost_mn: item.cost || item.price * 0.6,
             quantity: item.quantity
-        }));
+        });
         
         setCart(cartItems);
         
@@ -411,7 +413,9 @@ export default function HistorySalesPage() {
                                         <div className="lg:w-1/6">
                                             <span className={cn(
                                                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium",
-                                                `bg-${status.color}-500/20 text-${status.color}-400 border border-${status.color}-500/30`
+                                                status.color === 'blue' && "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+                                                status.color === 'amber' && "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+                                                status.color === 'green' && "bg-green-500/20 text-green-400 border border-green-500/30"
                                             )}>
                                                 <StatusIcon className="w-3 h-3" />
                                                 {status.label}
@@ -484,7 +488,7 @@ export default function HistorySalesPage() {
                                                     <div className="space-y-2">
                                                         {sale.items.map((item, idx) => (
                                                             <div 
-                                                                key={idx}
+                                                                key={item.id || item.product_id || `item-${idx}-${item.name?.replace(/\s+/g, '-') || 'unknown'}`}
                                                                 className="flex items-center justify-between py-2 px-3 rounded-lg bg-background/50"
                                                             >
                                                                 <div className="flex items-center gap-3">

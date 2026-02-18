@@ -20,10 +20,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
 // Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
+// NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
 const generateSafeKey = (prefix, item, index) => {
     const itemId = item?.id || item?.code || item?.product_id || item?.sale_id;
     const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
-    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+    return `${prefix}-${safeId || 'no-id'}-${index}`;
 };
 
 // Helper para verificar si un ID es temporal
@@ -482,7 +483,7 @@ export default function POSLayout() {
         if (cart.length === 0) return;
 
         const savedSale = {
-            id: `S-${Date.now()}`,
+            id: `saved-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             items: [...cart],
             total: total,
             time: new Date().toLocaleTimeString(),
@@ -523,7 +524,7 @@ export default function POSLayout() {
                 onConfirm: () => {
                     // Guardar carrito actual como venta guardada
                     const savedSale = {
-                        id: Date.now(),
+                        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         items: [...cart],
                         total: total,
                         time: new Date().toLocaleTimeString(),
@@ -601,7 +602,7 @@ export default function POSLayout() {
                 onConfirm: () => {
                     // Guardar carrito actual como venta guardada
                     const savedSale = {
-                        id: Date.now(),
+                        id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         items: [...cart],
                         total: total,
                         time: new Date().toLocaleTimeString(),
@@ -1290,7 +1291,7 @@ export default function POSLayout() {
                                     await api.post('/expenses', data);
                                     // Agregar el gasto a la lista local
                                     const newExpense = {
-                                        id: Date.now(),
+                                        id: `exp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                                         type: 'expense',
                                         name: data.type,
                                         amount: data.amount,

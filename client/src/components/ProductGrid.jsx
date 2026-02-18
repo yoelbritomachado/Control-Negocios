@@ -5,10 +5,11 @@ import { FaBoxOpen, FaSearch, FaExclamationCircle } from 'react-icons/fa';
 import { SafeImage } from './SafeImage';
 
 // Helper para generar keys únicas y seguras
+// NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
 const generateSafeKey = (prefix, item, index) => {
     const itemId = item?.id || item?.code || item?.product_id;
     const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
-    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+    return `${prefix}-${safeId || 'no-id'}-${index}`;
 };
 
 export default function ProductGrid() {

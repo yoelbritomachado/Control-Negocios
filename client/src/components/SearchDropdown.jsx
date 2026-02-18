@@ -5,10 +5,11 @@ import { cn } from '../lib/utils';
 import { Package2, Plus, X } from 'lucide-react';
 
 // Helper para generar keys únicas y seguras
+// NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
 const generateSafeKey = (prefix, item, index) => {
     const itemId = item?.id || item?.code || item?.product_id;
     const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
-    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+    return `${prefix}-${safeId || 'no-id'}-${index}`;
 };
 
 // Componente de Dropdown usando Portal para evitar problemas de z-index
