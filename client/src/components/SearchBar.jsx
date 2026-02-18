@@ -51,7 +51,7 @@ export const SearchBar = forwardRef(({
     const [internalQuery, setInternalQuery] = useState('');
     const query = isControlled ? value : internalQuery;
     const setQuery = isControlled ? onChange : setInternalQuery;
-    
+
     const [isOpen, setIsOpen] = useState(false);
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const inputRef = useRef(null);
@@ -261,20 +261,21 @@ export const SearchBar = forwardRef(({
 
                         {/* Lista de resultados */}
                         <div className="p-2 space-y-1">
-                            {results.map((item, index) => (
-                                renderResult ? (
-                                    <div key={item.id || index} onClick={() => handleSelect(item)}>
+                            {results.map((item, index) => {
+                                const safeKey = `search-item-${item.id || 'no-id'}-${index}`;
+                                return renderResult ? (
+                                    <div key={safeKey} onClick={() => handleSelect(item)}>
                                         {renderResult(item, index)}
                                     </div>
                                 ) : (
                                     <DefaultResultItem
-                                        key={item.id || index}
+                                        key={safeKey}
                                         item={item}
                                         index={index}
                                         onClick={() => handleSelect(item)}
                                     />
-                                )
-                            ))}
+                                );
+                            })}
                         </div>
                     </motion.div>
                 )}

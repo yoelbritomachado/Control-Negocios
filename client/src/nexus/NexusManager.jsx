@@ -10,13 +10,12 @@ import { NexusNode } from './NexusNode';
 import { NexusMinimap } from './NexusGraph';
 import { NODE_TYPES, NODE_STATUS, VISUAL_CONFIG } from './nexus.types';
 
-// Panel de control para agregar nodos - AHORA CON TODOS LOS TIPOS
+// Panel de control para agregar nodos
 const AddNodePanel = ({ onAdd, onClose, position }) => {
   const [selectedType, setSelectedType] = useState(null);
   const [name, setName] = useState('');
   const [error, setError] = useState(null);
 
-  // TODOS los tipos disponibles para crear
   const allTypes = ['empresa', 'administrador', 'inventario', 'vendedor', 'caja'];
 
   const handleSubmit = () => {
@@ -129,11 +128,10 @@ const AddNodePanel = ({ onAdd, onClose, position }) => {
   );
 };
 
-// Barra de herramientas simplificada
+// Barra de herramientas
 const Toolbar = ({ 
   onZoomIn, onZoomOut, onFitView, 
-  showGrid, setShowGrid,
-  onClearConnections
+  showGrid, setShowGrid
 }) => (
   <div className="absolute top-4 right-4 z-40 flex flex-col gap-2">
     <div className="bg-slate-900/90 backdrop-blur-sm rounded-lg border border-slate-700 p-1 shadow-xl">
@@ -178,7 +176,7 @@ const NexusHeader = ({ stats }) => (
       </div>
       <div>
         <h1 className="text-lg font-bold text-white">NexusNode</h1>
-        <p className="text-xs text-slate-400">Arrastra nodos para mover • Arrastra desde los puntos para conectar</p>
+        <p className="text-xs text-slate-400">Scroll = Zoom • Arrastra fondo = Mover vista • Arrastra nodos = Mover</p>
       </div>
     </div>
     
@@ -208,8 +206,7 @@ export const NexusManager = () => {
     createNode,
     updateNode,
     deleteNode,
-    moveNode,
-    selectNode
+    moveNode
   } = useNexus();
 
   const [zoom, setZoom] = useState(1);
@@ -227,16 +224,12 @@ export const NexusManager = () => {
   
   const containerRef = useRef(null);
   const panStart = useRef({ x: 0, y: 0 });
+  const lastTouchDistance = useRef(0);
 
   // Convertir coordenadas
   const screenToCanvas = (screenX, screenY) => ({
     x: (screenX - pan.x) / zoom,
     y: (screenY - pan.y) / zoom
-  });
-
-  const canvasToScreen = (canvasX, canvasY) => ({
-    x: canvasX * zoom + pan.x,
-    y: canvasY * zoom + pan.y
   });
 
   // Handlers de zoom
@@ -245,6 +238,67 @@ export const NexusManager = () => {
   const handleFitView = () => {
     setZoom(1);
     setPan({ x: 50, y: 50 });
+  };
+
+  // ZOOM CON SCROLL DEL MOUSE
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    // Posición del mouse relativa al canvas
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Factor de zoom
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newZoom = Math.max(0.3, Math.min(3, zoom * delta));
+    
+    // Ajustar pan para hacer zoom hacia el mouse
+    const zoomRatio = newZoom / zoom;
+    setPan({
+      x: mouseX - (mouseX - pan.x) * zoomRatio,
+      y: mouseY - (mouseY - pan.y) * zoomRatio
+    });
+    setZoom(newZoom);
+  };
+
+  // PINCH TO ZOOM EN MÓVILES
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const distance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastTouchDistance.current = distance;
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const distance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      
+      const delta = distance / lastTouchDistance.current;
+      const newZoom = Math.max(0.3, Math.min(3, zoom * delta));
+      
+      // Centro del pinch
+      const rect = containerRef.current?.getBoundingClientRect();
+      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+      
+      const zoomRatio = newZoom / zoom;
+      setPan({
+        x: centerX - (centerX - pan.x) * zoomRatio,
+        y: centerY - (centerY - pan.y) * zoomRatio
+      });
+      setZoom(newZoom);
+      
+      lastTouchDistance.current = distance;
+    }
   };
 
   // Crear nodo
@@ -259,21 +313,16 @@ export const NexusManager = () => {
   const handleDoubleClick = (e) => {
     if (e.target === containerRef.current || e.target.tagName === 'svg') {
       const rect = containerRef.current.getBoundingClientRect();
-      const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
       setAddPanelPosition({ x: e.clientX - rect.left + 20, y: e.clientY - rect.top });
       setShowAddPanel(true);
     }
   };
 
-  // Mouse down en el canvas
+  // Mouse down
   const handleMouseDown = (e) => {
-    // Solo pan si es el fondo (no un nodo ni conexión)
-    if (e.target === containerRef.current || e.target.tagName === 'svg' || e.target.tagName === 'path') {
+    if (e.target === containerRef.current || e.target.tagName === 'svg') {
       setIsPanning(true);
       panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-      selectNode(null);
-      setConnectingFrom(null);
-      setTempLine(null);
     }
   };
 
@@ -286,7 +335,6 @@ export const NexusManager = () => {
     const mouseY = e.clientY - rect.top;
     const canvasPos = screenToCanvas(mouseX, mouseY);
 
-    // Pan
     if (isPanning) {
       setPan({
         x: e.clientX - panStart.current.x,
@@ -294,7 +342,6 @@ export const NexusManager = () => {
       });
     }
 
-    // Mover nodo
     if (draggingNode) {
       updateNode(draggingNode.id, {
         position: {
@@ -306,11 +353,11 @@ export const NexusManager = () => {
 
     // Línea temporal de conexión
     if (connectingFrom) {
-      const startX = connectingFrom.position.x + VISUAL_CONFIG.nodeWidth / 2;
-      const startY = connectingFrom.position.y + VISUAL_CONFIG.nodeHeight / 2;
+      const outputX = connectingFrom.position.x + 130; // centro (260/2)
+      const outputY = connectingFrom.position.y + 160; // bottom
       setTempLine({
-        x1: startX,
-        y1: startY,
+        x1: outputX,
+        y1: outputY,
         x2: canvasPos.x,
         y2: canvasPos.y
       });
@@ -322,9 +369,7 @@ export const NexusManager = () => {
     setIsPanning(false);
     setDraggingNode(null);
     
-    // Si estaba conectando y suelta sobre un nodo válido
     if (connectingFrom && !draggingNode) {
-      // Buscar si soltó sobre otro nodo
       const rect = containerRef.current?.getBoundingClientRect();
       const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
       
@@ -332,16 +377,14 @@ export const NexusManager = () => {
         if (n.id === connectingFrom.id) return false;
         const nx = n.position.x;
         const ny = n.position.y;
-        return canvasPos.x >= nx && canvasPos.x <= nx + VISUAL_CONFIG.nodeWidth &&
-               canvasPos.y >= ny && canvasPos.y <= ny + VISUAL_CONFIG.nodeHeight;
+        return canvasPos.x >= nx && canvasPos.x <= nx + 260 &&
+               canvasPos.y >= ny && canvasPos.y <= ny + 160;
       });
 
       if (targetNode) {
         try {
           moveNode(targetNode.id, connectingFrom.id);
-        } catch (err) {
-          // Silencioso - no se pudo conectar
-        }
+        } catch (err) {}
       }
     }
     
@@ -349,7 +392,7 @@ export const NexusManager = () => {
     setTempLine(null);
   };
 
-  // Tecla ESC para cancelar
+  // Tecla ESC
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -374,16 +417,14 @@ export const NexusManager = () => {
       y: canvasPos.y - node.position.y
     });
     setDraggingNode(node);
-    selectNode(node.id);
   };
 
-  const handleConnectionPointDragStart = (e, node, point) => {
+  const handleConnectionStart = (e, node) => {
     e.stopPropagation();
-    e.preventDefault();
     setConnectingFrom(node);
   };
 
-  // Renderizar conexiones
+  // Renderizar conexiones - DESDE LOS PUNTOS
   const renderConnections = () => {
     return nodes
       .filter(n => n.parentId)
@@ -391,24 +432,48 @@ export const NexusManager = () => {
         const parent = nodes.find(p => p.id === n.parentId);
         if (!parent) return null;
 
-        const startX = parent.position.x + VISUAL_CONFIG.nodeWidth / 2;
-        const startY = parent.position.y + VISUAL_CONFIG.nodeHeight;
-        const endX = n.position.x + VISUAL_CONFIG.nodeWidth / 2;
-        const endY = n.position.y;
+        // PUNTO DE SALIDA (output) del padre - bottom center
+        const startX = parent.position.x + 130; // 260/2
+        const startY = parent.position.y + 160; // height
+        
+        // PUNTO DE ENTRADA (input) del hijo - top center
+        const endX = n.position.x + 130; // 260/2
+        const endY = n.position.y; // top
+        
+        // Curva Bezier
         const midY = (startY + endY) / 2;
+        const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+
+        const typeConfig = NODE_TYPES[parent.type?.toUpperCase()];
 
         return (
           <g key={`${parent.id}-${n.id}`}>
+            {/* Línea principal animada */}
             <path
-              d={`M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`}
+              d={path}
               fill="none"
-              stroke="rgba(148, 163, 184, 0.4)"
+              stroke={typeConfig?.color || '#64748b'}
               strokeWidth="2"
-              className="hover:stroke-blue-400 transition-colors cursor-pointer"
-              onClick={() => {
-                // Desconectar al hacer click
-                moveNode(n.id, null);
-              }}
+              strokeDasharray="8,4"
+              opacity="0.6"
+            >
+              <animate
+                attributeName="stroke-dashoffset"
+                from="24"
+                to="0"
+                dur="1s"
+                repeatCount="indefinite"
+              />
+            </path>
+            {/* Línea de fondo sólida */}
+            <path
+              d={path}
+              fill="none"
+              stroke={typeConfig?.color || '#64748b'}
+              strokeWidth="2"
+              opacity="0.2"
+              className="hover:opacity-50 transition-opacity cursor-pointer"
+              onClick={() => moveNode(n.id, null)}
             />
           </g>
         );
@@ -424,6 +489,9 @@ export const NexusManager = () => {
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
       onDoubleClick={handleDoubleClick}
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
     >
       {/* Grid Background */}
       {showGrid && (
@@ -447,6 +515,14 @@ export const NexusManager = () => {
       >
         {/* SVG para conexiones */}
         <svg className="absolute inset-0 w-[3000px] h-[3000px] pointer-events-auto overflow-visible">
+          <defs>
+            {/* Gradiente para las líneas */}
+            <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.8" />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0.8" />
+            </linearGradient>
+          </defs>
+          
           {renderConnections()}
           
           {/* Línea temporal mientras arrastra */}
@@ -458,7 +534,15 @@ export const NexusManager = () => {
               strokeWidth="2"
               strokeDasharray="5,5"
               opacity="0.8"
-            />
+            >
+              <animate
+                attributeName="stroke-dashoffset"
+                from="10"
+                to="0"
+                dur="0.5s"
+                repeatCount="indefinite"
+              />
+            </path>
           )}
         </svg>
 
@@ -479,7 +563,7 @@ export const NexusManager = () => {
                 node={node}
                 isSelected={selectedNodeId === node.id}
                 isConnectingFrom={connectingFrom?.id === node.id}
-                onConnectionPointDrag={handleConnectionPointDragStart}
+                onConnectionStart={handleConnectionStart}
                 onDelete={() => deleteNode(node.id)}
               />
             </motion.div>
@@ -527,7 +611,7 @@ export const NexusManager = () => {
 
       {/* Help text */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-sm rounded-full px-4 py-2 text-xs text-slate-400">
-        {connectingFrom ? 'Suelta sobre otro nodo para conectar • ESC para cancelar' : 'Doble click en fondo = crear • Arrastra nodos = mover • Click en línea = desconectar'}
+        {connectingFrom ? 'Suelta sobre otro nodo para conectar • ESC para cancelar' : 'Scroll = Zoom • Pinch = Zoom móvil • Doble click fondo = crear nodo'}
       </div>
 
       {/* Cancel connection button */}
