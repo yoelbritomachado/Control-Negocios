@@ -513,8 +513,10 @@ export default function POSLayout() {
                     setSavedSales(prev => [savedSale, ...prev]);
 
                     // Cargar items de la venta al carrito (reemplazar, no sumar)
+                    // IMPORTANTE: Preservar el product_id original para el backend
                     const newCartItems = sale.items.map((item, index) => ({
-                        id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
+                        id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
+                        product_id: item?.product_id || item?.id,
                         name: item.name,
                         code: item.code,
                         sale_price_manual: item.sale_price_manual || item.price,
@@ -531,8 +533,10 @@ export default function POSLayout() {
         }
 
         // Cargar items de la venta al carrito (reemplazar, no sumar)
+        // IMPORTANTE: Preservar el product_id original para el backend
         const newCartItems = sale.items.map((item, index) => ({
-            id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
+            id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
+            product_id: item?.product_id || item?.id,
             name: item.name,
             code: item.code,
             sale_price_manual: item.sale_price_manual || item.price,
@@ -588,8 +592,10 @@ export default function POSLayout() {
 
                     // Reemplazar completamente el carrito con los items de la venta
                     // Usar setCart directamente para evitar problemas de sincronización
+                    // IMPORTANTE: Preservar el product_id original para el backend
                     const newCartItems = sale.items.map((item, index) => ({
-                        id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
+                        id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
+                        product_id: item?.product_id || item?.id,
                         name: item.name,
                         code: item.code,
                         sale_price_manual: item.sale_price_manual || item.price,
@@ -606,8 +612,10 @@ export default function POSLayout() {
         }
 
         // Cargar items de la venta al carrito (reemplazo completo)
+        // IMPORTANTE: Preservar el product_id original para el backend
         const newCartItems = sale.items.map((item, index) => ({
-            id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
+            id: item?.product_id || item?.id || `temp_${index}_${Date.now()}`,
+            product_id: item?.product_id || item?.id,
             name: item.name,
             code: item.code,
             sale_price_manual: item.sale_price_manual || item.price,
@@ -651,8 +659,14 @@ export default function POSLayout() {
                 paymentMethod = 'transfer';
             }
 
+            // Preparar items para el backend - usar product_id si existe, sino el id
+            const itemsForBackend = cart.map(item => ({
+                ...item,
+                id: item.product_id || item.id
+            }));
+
             const res = await api.post('/sales', {
-                items: cart,
+                items: itemsForBackend,
                 total: total,
                 paymentMethod: paymentMethod,
                 amountReceived: paymentData.amountReceived,
@@ -668,10 +682,12 @@ export default function POSLayout() {
 
             if (res.data.success) {
                 // Guardar la venta con sus items para poder editarla después
+                // Preservar product_id para futuras ediciones
                 const completedSale = {
                     id: res.data.saleId,
                     items: cart.map(item => ({
-                        id: item.id,
+                        id: item.product_id || item.id,
+                        product_id: item.product_id || item.id,
                         name: item.name,
                         code: item.code,
                         quantity: item.quantity,
