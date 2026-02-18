@@ -50,12 +50,22 @@ export const CartProvider = ({ children }) => {
         } catch (e) { return []; }
     });
 
-    const [editingSession, setEditingSession] = useState(() => {
-        try {
-            const saved = localStorage.getItem('editing_session');
-            return saved ? JSON.parse(saved) : null;
-        } catch (e) { return null; }
-    });
+    // Helper para validar si una sesión de edición es válida
+const isValidEditingSession = (session) => {
+    if (!session) return false;
+    // Debe tener un sale_id válido
+    if (!session.sale_id) return false;
+    return true;
+};
+
+const [editingSession, setEditingSession] = useState(() => {
+    try {
+        const saved = localStorage.getItem('editing_session');
+        const parsed = saved ? JSON.parse(saved) : null;
+        // Solo mantener si es una sesión válida de edición
+        return isValidEditingSession(parsed) ? parsed : null;
+    } catch (e) { return null; }
+});
 
     const [currentInventory, setCurrentInventory] = useState(
         localStorage.getItem('mch_inventory') || 'alm'

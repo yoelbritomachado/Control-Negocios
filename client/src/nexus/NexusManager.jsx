@@ -351,10 +351,10 @@ export const NexusManager = () => {
       });
     }
 
-    // Línea temporal de conexión
+    // Línea temporal de conexión - DESDE EL PUNTO EXACTO
     if (connectingFrom) {
-      const outputX = connectingFrom.position.x + 130; // centro (260/2)
-      const outputY = connectingFrom.position.y + 160; // bottom
+      const outputX = connectingFrom.position.x + 130; // Centro horizontal
+      const outputY = connectingFrom.position.y + 158; // Justo en el punto inferior
       setTempLine({
         x1: outputX,
         y1: outputY,
@@ -424,7 +424,7 @@ export const NexusManager = () => {
     setConnectingFrom(node);
   };
 
-  // Renderizar conexiones - DESDE LOS PUNTOS
+  // Renderizar conexiones - DESDE LOS PUNTOS EXACTOS
   const renderConnections = () => {
     return nodes
       .filter(n => n.parentId)
@@ -432,17 +432,21 @@ export const NexusManager = () => {
         const parent = nodes.find(p => p.id === n.parentId);
         if (!parent) return null;
 
-        // PUNTO DE SALIDA (output) del padre - bottom center
-        const startX = parent.position.x + 130; // 260/2
-        const startY = parent.position.y + 160; // height
+        // PUNTO DE SALIDA (output) del padre - bottom center (donde está el punto visual)
+        const NODE_WIDTH = 260;
+        const NODE_HEIGHT = 160;
+        const startX = parent.position.x + NODE_WIDTH / 2; // Centro horizontal
+        const startY = parent.position.y + NODE_HEIGHT - 2; // Justo en el punto inferior (-2px para que toque el punto)
         
         // PUNTO DE ENTRADA (input) del hijo - top center
-        const endX = n.position.x + 130; // 260/2
-        const endY = n.position.y; // top
+        const endX = n.position.x + NODE_WIDTH / 2; // Centro horizontal
+        const endY = n.position.y + 2; // Justo en el punto superior (+2px para que toque el punto)
         
-        // Curva Bezier
-        const midY = (startY + endY) / 2;
-        const path = `M ${startX} ${startY} C ${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
+        // Curva Bezier suave
+        const deltaY = endY - startY;
+        const controlY1 = startY + deltaY * 0.5;
+        const controlY2 = endY - deltaY * 0.5;
+        const path = `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
 
         const typeConfig = NODE_TYPES[parent.type?.toUpperCase()];
 

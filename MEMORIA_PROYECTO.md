@@ -373,3 +373,257 @@
 - **Funcionalidad**: Permite buscar productos por nombre o código en tiempo real.
 - **UI**: Barra de búsqueda posicionada junto al botón "Nuevo Producto".
 - **Estado**: Funcionalidad desplegada y documentada.
+
+
+---
+
+## 🆕 FLUJO DE TRABAJO DEL PUNTO DE VENTA (POS) - VENDEDOR
+
+> **Documentado**: 2026-02-18
+> **Importancia**: CRÍTICO - Define el comportamiento completo del POS para vendedores
+
+### 📋 RESUMEN EJECUTIVO
+
+El Punto de Venta (POS) es el módulo principal donde los **vendedores** realizan sus operaciones diarias. Este flujo define cómo se gestionan las sesiones de trabajo, el cierre de sesiones, el historial y el pago de salarios.
+
+---
+
+### 🎯 ROLES Y RESPONSABILIDADES
+
+| Rol | Responsabilidad en POS |
+|-----|------------------------|
+| **Vendedor** | Abrir sesión, registrar ventas/gastos/devoluciones, enviar sesión a revisión, solicitar pago de salario |
+| **Administrador** | Revisar sesiones enviadas, cerrar sesiones, aprobar/rechazar pagos de salario |
+| **Dueño** | Mismo rol que Administrador, acceso total |
+
+---
+
+### 🔄 FLUJO DE SESIÓN DE VENDEDOR
+
+#### 1. APERTURA DE SESIÓN
+
+```
+Vendedor abre POS → Pantalla "Abrir Sesión" → Ingresa efectivo inicial → ABRIR SESIÓN
+```
+
+**Comportamiento:**
+- Al abrir nueva sesión, se **limpia automáticamente** cualquier `editing_session` previa
+- El vendedor ve el POS normal con botón **"Cerrar Sesión"** (NO "Terminar edición")
+- La sesión queda abierta hasta que el vendedor decida cerrarla o enviarla a revisión
+
+#### 2. DURANTE LA SESIÓN
+
+El vendedor puede:
+- Registrar **ventas** (tickets)
+- Registrar **gastos** (con tipo de gasto configurable)
+- Registrar **devoluciones** (3 tipos según LEY 4)
+- Guardar ventas como **pendientes** (tickets guardados)
+
+**Visualización en tiempo real:**
+- Total de ventas del día
+- **Salario acumulado** (5% de ganancias por venta)
+- Lista de movimientos (ventas, gastos, devoluciones)
+
+#### 3. CIERRE/ENVÍO DE SESIÓN
+
+**Para Vendedor:**
+```
+Botón: "ENVIAR SESIÓN A REVISIÓN" (NO "Cerrar Sesión")
+```
+
+Al enviar:
+- La sesión pasa a estado **"Pendiente de Revisión"**
+- Se envía **notificación** a Administrador y Dueño
+- El vendedor NO puede seguir vendiendo en esa sesión
+- El vendedor puede abrir una **nueva sesión** si desea continuar
+
+**Checkbox opcional al enviar:**
+- [ ] "Solicitar pago de salario acumulado"
+
+#### 4. REVISIÓN POR ADMINISTRADOR/DUEÑO
+
+**En Historial de Sesiones (antes Historial de Ventas):**
+- Sesiones marcadas como **"Pendiente Revisión"**
+- Admin/Dueño puede revisar todos los movimientos
+- Admin/Dueño puede editar/ajustar si es necesario
+
+**Al cerrar la sesión:**
+```
+Botón: "CERRAR SESIÓN" (solo Admin/Dueño)
+```
+
+**Popup de cierre:**
+- Monto total de ventas
+- Efectivo esperado
+- **Si el vendedor solicitó pago:**
+  - Monto calculado (5% de ganancias)
+  - Opción de redondeo (ej: $33.50 → $35)
+  - Checkbox: [ ] "Pagar en efectivo" o "Pagar en transferencia"
+  - Campo: Monto final a pagar
+
+**Notificación al vendedor:**
+- "Su sesión ha sido cerrada y revisada"
+- "Pago de salario: $[monto] - [Pendiente/Aceptado]"
+
+---
+
+### 💰 CÁLCULO DE SALARIO DE VENDEDOR
+
+#### FÓRMULA
+
+```
+Ganancia por Venta = Precio de Venta - Costo del Producto
+Salario = 5% de la Ganancia Total del Vendedor
+```
+
+#### EJEMPLO
+
+| Producto | Precio Venta | Costo | Ganancia | 5% Salario |
+|----------|-------------|-------|----------|------------|
+| Collar | $300 | $100 | $200 | $10 |
+| Anillo | $500 | $200 | $300 | $15 |
+| **TOTAL** | $800 | $300 | $500 | **$25** |
+
+#### VISUALIZACIÓN EN POS
+
+En la interfaz del vendedor debe mostrarse:
+```
+💰 Salario Acumulado Hoy: $25.00
+📊 Ganancias Totales: $500.00
+```
+
+Actualizado **en tiempo real** por cada venta realizada.
+
+#### PAGO DE SALARIO
+
+**Proceso:**
+1. Vendedor marca checkbox "Solicitar pago" al enviar sesión
+2. Admin/Dueño ve el monto calculado al cerrar sesión
+3. Admin/Dueño puede:
+   - Pagar monto exacto
+   - Redondear (ej: $25 → $30)
+   - Seleccionar método: Efectivo / Transferencia
+4. El pago se resta del **Control de Efectivo** como gasto
+5. Vendedor recibe notificación de pago realizado
+
+---
+
+### 🔄 ESTADOS DE SESIÓN
+
+```
+[ABIERTA] → [PENDIENTE REVISIÓN] → [CERRADA]
+   ↑                              ↑
+Vendedor                       Admin/Dueño
+vende y registra               revisa y cierra
+```
+
+| Estado | Visible para | Acciones posibles |
+|--------|--------------|-------------------|
+| **ABIERTA** | Vendedor | Vender, gastos, devoluciones, cerrar/enviar |
+| **PENDIENTE REVISIÓN** | Admin/Dueño | Revisar, editar, cerrar |
+| **CERRADA** | Todos | Solo ver historial |
+
+---
+
+### 🖥️ INTERFAZ DEL POS
+
+#### PANTALLA PRINCIPAL (Vendedor vendiendo)
+
+```
+┌─────────────────────────────────────────────────────┐
+│  SESIÓN ABIERTA - MCH1                              │
+│  Vendedor: Juan Pérez                               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  [Buscador de Productos]                            │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐                │
+│  │  Producto 1  │  │  Producto 2  │                │
+│  │  $300        │  │  $500        │                │
+│  └──────────────┘  └──────────────┘                │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  CARRITO:                              $900.00      │
+│  • Collar x1 - $300                                 │
+│  • Anillo x2 - $600                                 │
+├─────────────────────────────────────────────────────┤
+│  💰 Salario Acumulado: $25.00                       │
+├─────────────────────────────────────────────────────┤
+│  [💾 Guardar]  [💰 Cobrar]  [➕ Gasto]  [↩️ Devol]  │
+│                                                     │
+│           [📤 ENVIAR SESIÓN A REVISIÓN]             │
+└─────────────────────────────────────────────────────┘
+```
+
+#### PANTALLA DE EDICIÓN (Revisando sesión enviada)
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🔄 EDITANDO SESIÓN #1234 - MCH1                    │
+│  Vendedor: Juan Pérez | Enviada: 18/02/2026 15:30   │
+│  [Terminar Edición]                                 │
+├─────────────────────────────────────────────────────┤
+│  (Mismo contenido que pantalla principal)           │
+│                                                     │
+│  ⚠️ Solo Admin/Dueño puede ver:                     │
+│  [✅ CERRAR SESIÓN Y PROCESAR PAGO]                 │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔔 SISTEMA DE NOTIFICACIONES
+
+#### Tipos de Notificación
+
+| Tipo | Destinatario | Contenido |
+|------|--------------|-----------|
+| **Sesión Enviada** | Admin, Dueño | "Juan Pérez ha enviado la sesión #1234 para revisión" |
+| **Pago Solicitado** | Admin, Dueño | "Juan Pérez solicita pago de salario: $25.00" |
+| **Sesión Cerrada** | Vendedor | "Tu sesión #1234 ha sido revisada y cerrada" |
+| **Pago Realizado** | Vendedor | "Se te ha pagado $30.00 de salario - Efectivo" |
+
+#### Badge de Notificaciones
+
+```
+🔔 3  (icono con número de notificaciones pendientes)
+```
+
+---
+
+### 📊 HISTORIAL DE SESIONES (Antes Historial de Ventas)
+
+**Renombrar:** El menú "Historial de Ventas" pasa a llamarse **"Historial de Sesiones"**
+
+**Contenido por sesión:**
+- ID de sesión
+- Vendedor
+- Fecha/Hora inicio
+- Fecha/Hora cierre
+- Inventario (sede)
+- **Lista completa de movimientos:**
+  - Ventas (tickets)
+  - Gastos
+  - Devoluciones
+- Totales por método de pago
+- Estado: Abierta / Pendiente / Cerrada
+- Salario del vendedor (si aplica)
+
+---
+
+### ✅ CHECKLIST DE IMPLEMENTACIÓN
+
+- [ ] Renombrar "Historial de Ventas" → "Historial de Sesiones"
+- [ ] Implementar badge de notificaciones funcional
+- [ ] Cambiar botón "Cerrar Sesión" → "Enviar Sesión a Revisión" (para vendedor)
+- [ ] Mostrar "Terminar Edición" solo cuando `editingSession` exista
+- [ ] Implementar cálculo de salario en tiempo real (5% de ganancias)
+- [ ] Agregar checkbox "Solicitar pago de salario" al enviar sesión
+- [ ] Crear popup de cierre de sesión con opciones de pago (Admin/Dueño)
+- [ ] Integrar pago de salario con Control de Efectivo
+- [ ] Implementar sistema de notificaciones
+- [ ] Limpiar `editing_session` al abrir nueva sesión
+
+---
+
+**⚠️ NOTA PARA AGENTES:** Este flujo es CRÍTICO y debe implementarse exactamente como se describe. Cualquier desviación debe ser consultada con el usuario antes de implementar.

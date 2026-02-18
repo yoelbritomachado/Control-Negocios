@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Building2, Shield, Package, Users, Wallet,
@@ -32,6 +32,21 @@ export const NexusNode = React.memo(({
   onDelete
 }) => {
   const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
+  
+  // Cerrar menu al hacer click fuera
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowMenu(false);
+      }
+    };
+    
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMenu]);
   
   const typeConfig = NODE_TYPES[node.type?.toUpperCase()] || NODE_TYPES.EMPRESA;
   const StatusIcon = STATUS_ICONS[node.status]?.icon || CheckCircle2;
@@ -98,21 +113,17 @@ export const NexusNode = React.memo(({
     >
       {/* Connection Point - INPUT (top center) */}
       <div 
-        className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-slate-600 border-2 border-slate-800 z-30 flex items-center justify-center"
+        className="absolute -top-[6px] left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-600 border-2 border-slate-800 z-30"
         title="Punto de entrada"
-      >
-        <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-      </div>
+      />
       
       {/* Connection Point - OUTPUT (bottom center) - ARRASTRABLE */}
       <div 
-        className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full border-2 border-slate-800 z-30 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform shadow-lg"
+        className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-slate-800 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg"
         style={{ backgroundColor: typeConfig.color }}
         onMouseDown={(e) => onConnectionStart?.(e, node)}
         title="Arrastra para conectar a otro nodo"
-      >
-        <div className="w-2 h-2 rounded-full bg-white/50" />
-      </div>
+      />
 
       {/* Header */}
       <div 
@@ -162,6 +173,7 @@ export const NexusNode = React.memo(({
       {/* Dropdown Menu */}
       {showMenu && (
         <motion.div
+          ref={menuRef}
           initial={{ opacity: 0, y: -5 }}
           animate={{ opacity: 1, y: 0 }}
           className="absolute top-10 right-2 z-50 bg-slate-800 rounded-lg shadow-xl border border-slate-700 py-1 min-w-[100px]"
