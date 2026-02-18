@@ -7,7 +7,7 @@
 ## 📋 DECISIONES DE DISEÑO Y FUNCIONALIDAD
 
 ### 2026-02-18 - Menú de Configuración: Tipos de Gastos
-**Status**: Pendiente implementación
+**Status**: ✅ Implementado
 
 **Requerimiento**: Crear un menú de configuración donde se puedan gestionar los tipos de gastos del negocio.
 
