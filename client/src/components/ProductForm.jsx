@@ -15,6 +15,47 @@ const throttle = (fn, wait) => {
   };
 };
 
+// Memoized Gallery Image Component to prevent unnecessary re-renders
+const GalleryImage = React.memo(({ img, isSelected, onSelect, getImageUrl }) => {
+  const safeUrl = useMemo(() => getImageUrl(img.url), [img.url, getImageUrl]);
+  
+  const handleMouseDown = useCallback(() => onSelect(img.id, 'mousedown'), [img.id, onSelect]);
+  const handleClick = useCallback((e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(img.id, 'click');
+  }, [img.id, onSelect]);
+  
+  return (
+    <div
+      className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer transition-all shadow-sm 
+        ${isSelected ? 'ring-4 ring-red-500 scale-95' : 'border border-gray-200 dark:border-gray-700 hover:border-indigo-400 hover:shadow-md'}`}
+      onMouseDown={handleMouseDown}
+      onMouseUp={() => onSelect(img.id, 'mouseup')}
+      onMouseLeave={() => onSelect(img.id, 'mouseleave')}
+      onTouchStart={handleMouseDown}
+      onTouchEnd={() => onSelect(img.id, 'touchend')}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={handleClick}
+    >
+      <img 
+        src={safeUrl} 
+        alt="" 
+        loading="lazy"
+        decoding="async"
+        className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${isSelected ? 'opacity-50 grayscale' : ''}`} 
+      />
+      
+      {/* Hover Overlay */}
+      <div className={`absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 ${isSelected ? '!opacity-100 !bg-red-500/20' : ''}`}>
+         {isSelected && <FaTrash className="text-white drop-shadow-md animate-bounce" size={20}/>}
+      </div>
+    </div>
+  );
+});
+
+GalleryImage.displayName = 'GalleryImage';
+
 const createImage = (url) =>
   new Promise((resolve, reject) => {
     const image = new Image();
@@ -112,6 +153,14 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
   const [isCropping, setIsCropping] = useState(false);
   const [tempImage, setTempImage] = useState(null);
   const [showMobilePasteInput, setShowMobilePasteInput] = useState(false);
+  
+  // Throttled crop change handler for performance
+  const throttledSetCrop = useMemo(() => throttle((newCrop) => setCrop(newCrop), 16), []);
+  
+  // Handle zoom with proper number conversion
+  const handleZoomChange = useCallback((e) => {
+    setZoom(Number(e.target.value));
+  }, []);
 
   // === CURRENCY STATE ===
   const [selectedCurrency, setSelectedCurrency] = useState(settings?.PRIMARY_CURRENCY || 'MXN');
@@ -128,19 +177,26 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
   const removeImage = (id) => {
     setImagePreviews(prev => {
       const imgToRemove = prev.find(img => img.id === id);
-      if (imgToRemove && !imgToRemove.isFile) {
-        try {
-          // Fix for relative URLs
-          const baseUrl = window.location.origin;
-          const urlStr = imgToRemove.url.startsWith('/')
-            ? baseUrl + imgToRemove.url
-            : imgToRemove.url;
+      if (imgToRemove) {
+        // Revoke object URL if it's a blob URL
+        if (imgToRemove.url && imgToRemove.url.startsWith('blob:')) {
+          revokeTrackedObjectURL(imgToRemove.url);
+        }
+        
+        if (!imgToRemove.isFile) {
+          try {
+            // Fix for relative URLs
+            const baseUrl = window.location.origin;
+            const urlStr = imgToRemove.url.startsWith('/')
+              ? baseUrl + imgToRemove.url
+              : imgToRemove.url;
 
-          const urlObj = new URL(urlStr);
-          setDeletedImages(d => [...d, urlObj.pathname]);
-        } catch (e) {
-          // Fallback: just store what we have if it looks like a path
-          setDeletedImages(d => [...d, imgToRemove.url]);
+            const urlObj = new URL(urlStr);
+            setDeletedImages(d => [...d, urlObj.pathname]);
+          } catch (e) {
+            // Fallback: just store what we have if it looks like a path
+            setDeletedImages(d => [...d, imgToRemove.url]);
+          }
         }
       }
       return prev.filter(img => img.id !== id);
@@ -492,123 +548,65 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     }
   };
 
-  // Click Outside Listener (To Deselect) - Enhanced for Drag vs Click
+  // Click Outside Listener (Simplified for performance)
   useEffect(() => {
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-
-    const handleMouseDown = (e) => {
-      startX = e.clientX;
-      startY = e.clientY;
-      isDragging = false;
+    if (!isOpen || selectedIds.length === 0) return;
+    
+    const handleGlobalClick = (e) => {
+      if (galleryRef.current?.contains(e.target)) return;
+      setSelectedIds([]);
     };
 
-    const handleMouseMove = (e) => {
-      if (Math.abs(e.clientX - startX) > 5 || Math.abs(e.clientY - startY) > 5) {
-        isDragging = true;
-      }
-    };
+    // Use capture phase to catch events early
+    document.addEventListener('click', handleGlobalClick, true);
+    return () => document.removeEventListener('click', handleGlobalClick, true);
+  }, [isOpen, selectedIds.length]); // Use length instead of array to reduce re-registrations
 
-    const handleMouseUp = (event) => {
-      if (isDragging) return; // Ignore drag end
-
-      if (galleryRef.current && !galleryRef.current.contains(event.target) && selectedIds.length > 0) {
-        // If clicking on specific UI elements like modals, ignore? 
-        // For now, strict outside gallery deselects.
-        setSelectedIds([]);
-      }
-    };
-
-    // Mobile Touch Logic
-    const handleTouchStartGlobal = (e) => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      isDragging = false;
-    };
-
-    const handleTouchMoveGlobal = (e) => {
-      if (Math.abs(e.touches[0].clientX - startX) > 10 || Math.abs(e.touches[0].clientY - startY) > 10) {
-        isDragging = true;
-      }
-    };
-
-    const handleTouchEndGlobal = (event) => {
-      if (isDragging) return;
-      if (galleryRef.current && !galleryRef.current.contains(event.target) && selectedIds.length > 0) {
-        setSelectedIds([]);
-      }
-    };
-
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    document.addEventListener('touchstart', handleTouchStartGlobal);
-    document.addEventListener('touchmove', handleTouchMoveGlobal);
-    document.addEventListener('touchend', handleTouchEndGlobal);
-
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-
-      document.removeEventListener('touchstart', handleTouchStartGlobal);
-      document.removeEventListener('touchmove', handleTouchMoveGlobal);
-      document.removeEventListener('touchend', handleTouchEndGlobal);
-    };
-  }, [selectedIds]);
-
-  const handleMouseDown = (id) => {
-    console.log('MouseDown/TouchStart on:', id);
-    isLongPressTriggered.current = false; // Reset flag
-    longPressTimer.current = setTimeout(() => {
-      // Long press detected
-      console.log('Long press triggered for:', id);
-      isLongPressTriggered.current = true; // Mark as long press
-
-      setSelectedIds(prev => {
-        if (!prev.includes(id)) {
-          // Vibrate only on first selection
-          try { if (navigator.vibrate) navigator.vibrate(50); } catch (e) { }
-          return [...prev, id];
+  // Unified image selection handler (memoized)
+  const handleImageSelect = useCallback((id, action) => {
+    switch (action) {
+      case 'mousedown':
+      case 'touchstart':
+        isLongPressTriggered.current = false;
+        longPressTimer.current = setTimeout(() => {
+          isLongPressTriggered.current = true;
+          setSelectedIds(prev => {
+            if (!prev.includes(id)) {
+              try { if (navigator.vibrate) navigator.vibrate(50); } catch (e) { }
+              return [...prev, id];
+            }
+            return prev;
+          });
+        }, 600);
+        break;
+        
+      case 'mouseup':
+      case 'mouseleave':
+      case 'touchend':
+        if (longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
         }
-        return prev;
-      });
-    }, 600);
-  };
-
-  const handleMouseUpImage = () => {
-    console.log('MouseUp/TouchEnd');
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
+        break;
+        
+      case 'click':
+        if (isLongPressTriggered.current) {
+          isLongPressTriggered.current = false;
+          return;
+        }
+        
+        // Normal toggle logic
+        if (selectedIds.length > 0) {
+          setSelectedIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+          );
+        }
+        break;
+        
+      default:
+        break;
     }
-  };
-
-  const handleImageClick = (id) => {
-    console.log('Click on:', id, 'LongPress was:', isLongPressTriggered.current);
-
-    // If this click was actually the end of a long press, DO NOT toggle immediately
-    if (isLongPressTriggered.current) {
-      console.log('Ignoring click due to long press');
-      isLongPressTriggered.current = false;
-      return;
-    }
-
-    // Normal toggle logic
-    if (selectedIds.length > 0) {
-      if (selectedIds.includes(id)) {
-        console.log('Deselecting:', id);
-        setSelectedIds(prev => prev.filter(i => i !== id));
-      } else {
-        console.log('Selecting:', id);
-        setSelectedIds(prev => [...prev, id]);
-      }
-    } else {
-      console.log('Normal click (Preview/View)');
-      // Here you could add logic to open the image in full screen
-    }
-  };
+  }, [selectedIds]);
 
   const handleDeleteSelected = () => {
     // Si no hay seleccionados, no hacer nada
@@ -691,26 +689,40 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     }
   };
 
-  // Calculations for Display
+  // Calculations for Display - Memoized for performance
   
-  // Base Calculations (Internal)
-  const rate_usd_mn = settings?.RATE_USD_MN || 530;
-  const rate_mxn_usd = settings?.RATE_MXN_USD || 19;
-  const rate_eur_mn = settings?.RATE_EUR_MN || 590;
-  const margin_multiplier = settings?.MARGIN_MULTIPLIER || 3.5; 
+  // Memoized exchange rates
+  const exchangeRates = useMemo(() => ({
+    rate_usd_mn: settings?.RATE_USD_MN || 530,
+    rate_mxn_usd: settings?.RATE_MXN_USD || 19,
+    rate_eur_mn: settings?.RATE_EUR_MN || 590,
+    margin_multiplier: settings?.MARGIN_MULTIPLIER || 3.5
+  }), [
+    settings?.RATE_USD_MN,
+    settings?.RATE_MXN_USD,
+    settings?.RATE_EUR_MN,
+    settings?.MARGIN_MULTIPLIER
+  ]);
 
-  const cost_mx_val = parseFloat(formData.cost_mx) || 0;
-  
-  // Pivot: Calculate MN first using Cross Rate
-  // Formula: (MXN / Rate_MXN_USD) * Rate_USD_MN
-  const cost_mn = (cost_mx_val / rate_mxn_usd) * rate_usd_mn;
-  
-  // Calculate others from MN
-  const cost_usd = cost_mn / rate_usd_mn;
-  const cost_eur = cost_mn / rate_eur_mn;
-  
-  // Suggested Sale (MN)
-  const sale_unit_mn_suggested = cost_mn * margin_multiplier;
+  // Memoized cost calculations
+  const costCalculations = useMemo(() => {
+    const cost_mx_val = parseFloat(formData.cost_mx) || 0;
+    const { rate_usd_mn, rate_mxn_usd, rate_eur_mn, margin_multiplier } = exchangeRates;
+    
+    // Pivot: Calculate MN first using Cross Rate
+    // Formula: (MXN / Rate_MXN_USD) * Rate_USD_MN
+    const cost_mn = (cost_mx_val / rate_mxn_usd) * rate_usd_mn;
+    
+    return {
+      cost_mx_val,
+      cost_mn,
+      cost_usd: cost_mn / rate_usd_mn,
+      cost_eur: cost_mn / rate_eur_mn,
+      sale_unit_mn_suggested: cost_mn * margin_multiplier
+    };
+  }, [formData.cost_mx, exchangeRates]);
+
+  const { cost_mx_val, cost_mn, cost_usd, cost_eur, sale_unit_mn_suggested } = costCalculations;
 
   /* Safe Parsing of Manual Price */
   const manualPriceVal = parseFloat(formData.sale_price_manual) || 0;
@@ -913,32 +925,16 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
               </div>
 
               <div className="flex-1 grid grid-cols-5 gap-4">
-                {/* Images */}
-                {imagePreviews.map((img) => {
-                  const isSelected = selectedIds.includes(img.id);
-                  const safeUrl = getImageUrl(img.url);
-                  return (
-                    <div
-                      key={img.id}
-                      className={`relative group aspect-square rounded-xl overflow-hidden cursor-pointer transition-all shadow-sm 
-                        ${isSelected ? 'ring-4 ring-red-500 scale-95' : 'border border-gray-200 dark:border-gray-700 hover:border-indigo-400 hover:shadow-md'}`}
-                      onMouseDown={() => handleMouseDown(img.id)}
-                      onMouseUp={handleMouseUpImage}
-                      onMouseLeave={handleMouseUpImage}
-                      onTouchStart={() => handleMouseDown(img.id)}
-                      onTouchEnd={handleMouseUpImage}
-                      onContextMenu={(e) => e.preventDefault()}
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); handleImageClick(img.id); }}
-                    >
-                      <img src={safeUrl} alt="" className={`w-full h-full object-cover transition-transform duration-500 group-hover:scale-110 ${isSelected ? 'opacity-50 grayscale' : ''}`} />
-                      
-                      {/* Hover Overlay */}
-                      <div className={`absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100 ${isSelected ? '!opacity-100 !bg-red-500/20' : ''}`}>
-                         {isSelected && <FaTrash className="text-white drop-shadow-md animate-bounce" size={20}/>}
-                      </div>
-                    </div>
-                  );
-                })}
+                {/* Images - Using memoized component */}
+                {imagePreviews.map((img) => (
+                  <GalleryImage
+                    key={img.id}
+                    img={img}
+                    isSelected={selectedIds.includes(img.id)}
+                    onSelect={handleImageSelect}
+                    getImageUrl={getImageUrl}
+                  />
+                ))}
                 
                 {/* Add Button */}
                 {imagePreviews.length < 5 && (
@@ -1011,7 +1007,10 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
               crop={crop}
               zoom={zoom}
               aspect={1}
-              onCropChange={setCrop}
+              restrictPosition={true}
+              minZoom={1}
+              maxZoom={3}
+              onCropChange={throttledSetCrop}
               onCropComplete={onCropComplete}
               onZoomChange={setZoom}
             />
@@ -1025,7 +1024,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
                 min={1}
                 max={3}
                 step={0.1}
-                onChange={(e) => setZoom(e.target.value)}
+                onChange={handleZoomChange}
                 className="w-full accent-indigo-500 cursor-pointer"
               />
             </div>
