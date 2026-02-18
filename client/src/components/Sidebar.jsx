@@ -35,6 +35,7 @@ const menuItems = [
     { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
     { id: 'mermas', label: 'Mermas', icon: AlertTriangle, path: '/mermas', category: 'management' },
     { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
+    { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'management' },
 ];
 
 const historyMenuItems = [
@@ -44,7 +45,6 @@ const historyMenuItems = [
 ];
 
 const adminMenuItems = [
-    { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'admin' },
     { id: 'migration', label: 'Migración', icon: Database, path: '/admin/migracion', category: 'admin' },
 ];
 
