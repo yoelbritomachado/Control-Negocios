@@ -857,9 +857,10 @@ export default function POSLayout() {
                                     autoFocus={true}
                                     renderResult={(product, index) => {
                                         const stock = product.inventory?.[currentInventory] || 0;
+                                        const uniqueKey = product?.id || product?.code || `prod-result-${index}`;
                                         return (
                                             <motion.button
-                                                key={product.id}
+                                                key={uniqueKey}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: index * 0.03 }}

@@ -269,8 +269,26 @@ git push origin main
 | `function already declared` | Código zombie no eliminado | Borrar definición antigua |
 | Función no responde | No expuesta globalmente | Agregar `window.func = func` |
 | Pantalla blanca/negra | Orden de carga incorrecto | Verificar `<script>` en HTML |
-| `two children with the same key` | Keys duplicadas en listas React | Asegurar que `key={item.id}` sea único y no undefined |
-| `Each child in a list should have unique key` | Falta prop `key` en map() | Agregar `key={item.id || index}` |
+| `two children with the same key` | Keys duplicadas/undefined en listas React | Usar: `key={item?.id \|\| item?.code \|\| `unique-${index}`}` |
+| `Each child in a list should have unique key` | Falta prop `key` en map() | Agregar `key` con fallback seguro |
+
+#### 🚨 Patrón OBLIGATORIO para Keys en React
+Siempre usar **optional chaining + fallback** para evitar keys undefined:
+
+```jsx
+// ❌ PROHIBIDO - Key puede ser undefined
+{items.map(item => <div key={item.id}>...</div>)}
+
+// ❌ PROHIBIDO - Usar índice solo (causa bugs al reordenar)
+{items.map((item, i) => <div key={i}>...</div>)}
+
+// ✅ CORRECTO - Con fallback seguro
+{items.map((item, index) => (
+  <div key={item?.id || item?.code || `unique-${index}`}>...</div>
+))}
+```
+
+**Regla**: Si el objeto viene de una API, SIEMPRE asume que el ID puede ser null/undefined.
 
 ---
 

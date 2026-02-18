@@ -60,22 +60,11 @@ export default function ProductGrid() {
                 </div>
             ) : (
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 pb-20">
-                    {products.map(p => {
-                        // Logic to determine stock based on current inventory context
-                        // If currentInventory is a string ID 'mch1', look it up.
-                        // If not found, default to 0. 
-                        // The API returns p.inventory which is a map { 'mch1': 10, ... }
-                        // It also returns p.quantity which might be mapped already by backend.
-                        // Let's use p.inventory[currentInventory] if available, else p.quantity
-
-                        // We need to know what 'currentInventory' ID we are targeting.
-                        // Ideally passed via props or context.
-                        // For now assuming the backend 'quantity' is what we want if we filtered?
-                        // Actually the backend endpoint /api/products returns everything.
-
+                    {products.map((p, index) => {
                         const invId = localStorage.getItem('currentInventory') || 'mch1';
                         const stock = p.inventory && p.inventory[invId] !== undefined ? p.inventory[invId] : (p.quantity || 0);
                         const hasStock = stock > 0;
+                        const uniqueKey = p?.id || p?.code || `prod-grid-${index}`;
 
                         const imageUrl = p.image
                             ? (p.image.startsWith('http') ? p.image : `${API_URL}${p.image}`)
@@ -83,7 +72,7 @@ export default function ProductGrid() {
 
                         return (
                             <div
-                                key={p.id}
+                                key={uniqueKey}
                                 onClick={() => hasStock && addToCart(p)}
                                 className={`
                                     bg-[#1A1D21] border border-gray-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 group relative

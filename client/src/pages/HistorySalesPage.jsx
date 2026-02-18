@@ -359,14 +359,14 @@ export default function HistorySalesPage() {
                         <p className="text-sm mt-1">Intenta con otros filtros</p>
                     </div>
                 ) : (
-                    filteredSales.map((sale) => {
+                    filteredSales.map((sale, index) => {
                         const status = STATUS_CONFIG[sale.status];
                         const StatusIcon = status.icon;
                         const isExpanded = expandedSale === sale.id;
 
                         return (
                             <motion.div
-                                key={sale.id}
+                                key={sale?.id || `sale-${index}`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 className={cn(

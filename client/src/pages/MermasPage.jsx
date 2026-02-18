@@ -275,9 +275,9 @@ export default function MermasPage() {
                                     exit={{ opacity: 0, y: -10 }}
                                     className="absolute top-full left-0 right-0 mt-2 p-2 rounded-xl bg-slate-900 border border-white/10 shadow-xl z-50"
                                 >
-                                    {searchResults.map((product) => (
+                                    {searchResults.map((product, index) => (
                                         <button
-                                            key={product.id}
+                                            key={product?.id || product?.code || `merma-prod-${index}`}
                                             onClick={() => handleProductSelect(product)}
                                             className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-colors text-left"
                                         >
