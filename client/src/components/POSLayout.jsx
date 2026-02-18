@@ -19,6 +19,13 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
+// Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
+const generateSafeKey = (prefix, item, index) => {
+    const itemId = item?.id || item?.code || item?.product_id || item?.sale_id;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
+    return `${prefix}-${safeId || 'no-id'}-${index}-${Date.now()}`;
+};
+
 // --- SUBCOMPONENTS (MODALS) ---
 
 const ModalOverlay = ({ children, onClose, className }) => (
@@ -82,17 +89,17 @@ const ExpenseModal = ({ onClose, onSave }) => {
 
     const isCustomExpense = () => {
         const selectedType = expenseTypes.find(t => t.id.toString() === type);
-        return selectedType?.name?.toLowerCase().includes('otro') || 
-               selectedType?.name?.toLowerCase().includes('otros') ||
-               selectedType?.amount === 0;
+        return selectedType?.name?.toLowerCase().includes('otro') ||
+            selectedType?.name?.toLowerCase().includes('otros') ||
+            selectedType?.amount === 0;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         const selectedType = expenseTypes.find(t => t.id.toString() === type);
-        await onSave({ 
-            type: selectedType?.name || 'Otro', 
-            amount: parseFloat(amount), 
+        await onSave({
+            type: selectedType?.name || 'Otro',
+            amount: parseFloat(amount),
             description: isCustomExpense() ? desc : selectedType?.name,
             payment_method: paymentMethod
         });
@@ -120,7 +127,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all"
                         >
                             {expenseTypes.map((expenseType, index) => (
-                                <option key={expenseType?.id || `expense-type-${index}`} value={expenseType?.id} className="bg-gray-900">
+                                <option key={generateSafeKey('expense-type', expenseType, index)} value={expenseType?.id} className="bg-gray-900">
                                     {expenseType.name} (${expenseType.amount.toFixed(2)})
                                 </option>
                             ))}
@@ -372,7 +379,7 @@ export default function POSLayout() {
     const [showClose, setShowClose] = useState(false);
     const [showPayment, setShowPayment] = useState(false);
     const [sessionMetrics, setSessionMetrics] = useState(null);
-    
+
     // Confirm Modals
     const [showCartConfirm, setShowCartConfirm] = useState(false);
     const [showSavedConfirm, setShowSavedConfirm] = useState(false);
@@ -387,7 +394,7 @@ export default function POSLayout() {
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
-    
+
     // Mobile view state
     const [mobileView, setMobileView] = useState('cart'); // 'cart' | 'tickets'
 
@@ -504,7 +511,7 @@ export default function POSLayout() {
                         date: new Date().toISOString()
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
-                    
+
                     // Cargar items de la venta al carrito (reemplazar, no sumar)
                     const newCartItems = sale.items.map((item, index) => ({
                         id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
@@ -515,14 +522,14 @@ export default function POSLayout() {
                         quantity: item.quantity
                     }));
                     setCart(newCartItems);
-                    
+
                     // Eliminar la venta guardada
                     setSavedSales(prev => prev.filter(s => s.id !== sale.id));
                 }
             });
             return;
         }
-        
+
         // Cargar items de la venta al carrito (reemplazar, no sumar)
         const newCartItems = sale.items.map((item, index) => ({
             id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
@@ -533,7 +540,7 @@ export default function POSLayout() {
             quantity: item.quantity
         }));
         setCart(newCartItems);
-        
+
         // Eliminar la venta guardada
         setSavedSales(prev => prev.filter(s => s.id !== sale.id));
     };
@@ -560,7 +567,7 @@ export default function POSLayout() {
             });
             return;
         }
-        
+
         // Si hay productos en el carrito, guardarlos primero como venta guardada
         if (cart.length > 0) {
             setConfirmModal({
@@ -578,7 +585,7 @@ export default function POSLayout() {
                         date: new Date().toISOString()
                     };
                     setSavedSales(prev => [savedSale, ...prev]);
-                    
+
                     // Reemplazar completamente el carrito con los items de la venta
                     // Usar setCart directamente para evitar problemas de sincronización
                     const newCartItems = sale.items.map((item, index) => ({
@@ -590,14 +597,14 @@ export default function POSLayout() {
                         quantity: item.quantity
                     }));
                     setCart(newCartItems);
-                    
+
                     // Eliminar la venta original
                     setRecentSales(prev => prev.filter(s => s.id !== sale.id));
                 }
             });
             return;
         }
-        
+
         // Cargar items de la venta al carrito (reemplazo completo)
         const newCartItems = sale.items.map((item, index) => ({
             id: item?.id || item?.product_id || `session_${item.name}_${index}_${Date.now()}`,
@@ -654,11 +661,11 @@ export default function POSLayout() {
                 cashAmount: paymentData.cashAmount,
                 transferAmount: paymentData.transferAmount
             });
-            
+
             if (!res || !res.data) {
                 throw new Error('No se recibió respuesta del servidor');
             }
-            
+
             if (res.data.success) {
                 // Guardar la venta con sus items para poder editarla después
                 const completedSale = {
@@ -724,7 +731,7 @@ export default function POSLayout() {
                 type: 'success',
                 onClose: () => window.location.reload()
             });
-        } catch (e) { 
+        } catch (e) {
             setAlertModal({
                 isOpen: true,
                 title: 'Error',
@@ -750,7 +757,7 @@ export default function POSLayout() {
         // Si llegamos aquí, no hay nada pendiente
         return true;
     };
-    
+
     const handleCartConfirm = (shouldPay) => {
         if (shouldPay) {
             // Volver al POS para cobrar
@@ -770,7 +777,7 @@ export default function POSLayout() {
             }, 100);
         }
     };
-    
+
     const handleSavedConfirm = (shouldPay) => {
         if (shouldPay) {
             // Volver al POS para cobrar las ventas guardadas
@@ -783,7 +790,7 @@ export default function POSLayout() {
             fetchMetricsDirect();
         }
     };
-    
+
     const fetchMetricsDirect = async () => {
         const res = await api.get('/sessions/status');
         setSessionMetrics(res.data);
@@ -795,7 +802,7 @@ export default function POSLayout() {
         if (!checkBeforeCloseSession()) {
             return; // No mostrar el modal, se mostrarán los confirm
         }
-        
+
         await fetchMetricsDirect();
     };
 
@@ -857,10 +864,9 @@ export default function POSLayout() {
                                     autoFocus={true}
                                     renderResult={(product, index) => {
                                         const stock = product.inventory?.[currentInventory] || 0;
-                                        const uniqueKey = product?.id || product?.code || `prod-result-${index}`;
                                         return (
                                             <motion.button
-                                                key={uniqueKey}
+                                                key={generateSafeKey('prod-result', product, index)}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: index * 0.03 }}
@@ -910,7 +916,7 @@ export default function POSLayout() {
                                     <AnimatePresence mode="popLayout">
                                         {cart.map((item, index) => (
                                             <motion.div
-                                                key={`cart-item-${item?.id || 'no-id'}-${index}-${Date.now()}`}
+                                                key={generateSafeKey('cart-item', item, index)}
                                                 layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -997,8 +1003,8 @@ export default function POSLayout() {
                                 onClick={() => setMobileView('cart')}
                                 className={cn(
                                     "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
-                                    mobileView === 'cart' 
-                                        ? "bg-cyan-500/10 text-cyan-400 border-b-2 border-cyan-500" 
+                                    mobileView === 'cart'
+                                        ? "bg-cyan-500/10 text-cyan-400 border-b-2 border-cyan-500"
                                         : "text-muted-foreground hover:text-foreground"
                                 )}
                             >
@@ -1009,8 +1015,8 @@ export default function POSLayout() {
                                 onClick={() => setMobileView('tickets')}
                                 className={cn(
                                     "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
-                                    mobileView === 'tickets' 
-                                        ? "bg-violet-500/10 text-violet-400 border-b-2 border-violet-500" 
+                                    mobileView === 'tickets'
+                                        ? "bg-violet-500/10 text-violet-400 border-b-2 border-violet-500"
                                         : "text-muted-foreground hover:text-foreground"
                                 )}
                             >
@@ -1083,7 +1089,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {savedSales.map((sale, index) => (
                                     <motion.div
-                                        key={`saved-sale-${sale.id}-${index}`}
+                                        key={generateSafeKey('saved-sale', sale, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1127,7 +1133,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {expenses.map((expense, index) => (
                                     <motion.div
-                                        key={`expense-${expense.id}-${index}`}
+                                        key={generateSafeKey('expense', expense, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1156,7 +1162,7 @@ export default function POSLayout() {
                             <AnimatePresence>
                                 {recentSales.map((sale, index) => (
                                     <motion.div
-                                        key={`recent-sale-${sale.id}-${index}`}
+                                        key={generateSafeKey('recent-sale', sale, index)}
                                         initial={{ opacity: 0, x: 20 }}
                                         animate={{ opacity: 1, x: 0 }}
                                         exit={{ opacity: 0, x: -20 }}
@@ -1288,16 +1294,16 @@ export default function POSLayout() {
                                     formData.append('total_amount', returnData.total_amount);
                                     formData.append('notes', returnData.notes);
                                     formData.append('inventory_id', returnData.inventory_id);
-                                    
+
                                     // Agregar imágenes
                                     returnData.images.forEach((image, index) => {
                                         formData.append(`evidence_${index}`, image);
                                     });
-                                    
+
                                     await api.post('/returns', formData, {
                                         headers: { 'Content-Type': 'multipart/form-data' }
                                     });
-                                    
+
                                     setShowReturn(false);
                                     setAlertModal({
                                         isOpen: true,
@@ -1332,7 +1338,7 @@ export default function POSLayout() {
                             onConfirm={processPayment}
                         />
                     )}
-                    
+
                     {/* Confirm Modals */}
                     {showCartConfirm && (
                         <ConfirmModal
@@ -1353,7 +1359,7 @@ export default function POSLayout() {
                             icon={ShoppingCart}
                         />
                     )}
-                    
+
                     {showSavedConfirm && (
                         <ConfirmModal
                             isOpen={showSavedConfirm}
