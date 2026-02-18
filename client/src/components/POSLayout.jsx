@@ -241,6 +241,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
 const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const [cash, setCash] = useState('');
     const [notes, setNotes] = useState('');
+    const [requestWagePayment, setRequestWagePayment] = useState(false);
+    const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
     const isSeller = role === 'seller';
 
     // Calcular diferencia si hay resumen
@@ -251,6 +253,17 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const finalCash = summary?.final?.cash || cashSales - cashExpenses;
     const finalTransfer = summary?.final?.transfer || transferSales - transferExpenses;
     const totalExpenses = summary?.expenses?.total || 0;
+    
+    // Calcular salario: 5% de la ganancia (ventas - costos)
+    const totalSales = summary?.sales?.total || 0;
+    const totalCost = summary?.cost?.total || 0;
+    const profit = Math.max(0, totalSales - totalCost);
+    const wageAmount = profit * 0.05; // 5% de ganancia
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(cash, notes, requestWagePayment, wagePaymentMethod);
+    };
 
     return (
         <ModalOverlay onClose={onClose}>
@@ -334,14 +347,70 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                         </div>
                     </div>
 
-                    {/* Comisión */}
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-violet-500/5 border border-violet-500/10">
-                        <div className="text-sm text-slate-400">Tu comisión (5%)</div>
-                        <div className="text-lg font-bold text-violet-400 font-mono">${((summary?.sales?.total || metrics?.currentSales || 0) * 0.05).toFixed(2)}</div>
+                    {/* Comisión - 5% de ganancia real */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-xs text-amber-400 uppercase tracking-wider font-semibold">Tu Salario (5% de ganancia)</div>
+                            <div className="text-lg font-bold text-amber-400 font-mono">${wageAmount.toFixed(2)}</div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4 text-xs">
+                            <div className="text-slate-400">Ventas: <span className="text-white">${totalSales.toFixed(2)}</span></div>
+                            <div className="text-slate-400">Costos: <span className="text-rose-400">-${totalCost.toFixed(2)}</span></div>
+                            <div className="text-slate-400 col-span-2">Ganancia: <span className="text-emerald-400">${profit.toFixed(2)}</span></div>
+                        </div>
                     </div>
                 </div>
 
-                <form onSubmit={(e) => { e.preventDefault(); onSave(cash, notes); }} className="space-y-5">
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    {/* Opción de solicitar pago - Solo para vendedores */}
+                    {isSeller && wageAmount > 0 && (
+                        <div className="space-y-3 p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                            <label className="flex items-center gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={requestWagePayment}
+                                    onChange={(e) => setRequestWagePayment(e.target.checked)}
+                                    className="w-5 h-5 rounded border-emerald-500/50 bg-white/5 text-emerald-500 focus:ring-emerald-500/50"
+                                />
+                                <span className="text-sm font-medium text-emerald-400">
+                                    Solicitar pago de mi salario (${wageAmount.toFixed(2)})
+                                </span>
+                            </label>
+                            
+                            {requestWagePayment && (
+                                <div className="pl-8 space-y-2">
+                                    <label className="text-xs text-slate-400">Método de pago preferido</label>
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setWagePaymentMethod('cash')}
+                                            className={cn(
+                                                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                                                wagePaymentMethod === 'cash'
+                                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                                                    : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                                            )}
+                                        >
+                                            Efectivo
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setWagePaymentMethod('transfer')}
+                                            className={cn(
+                                                "flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all",
+                                                wagePaymentMethod === 'transfer'
+                                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
+                                                    : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                                            )}
+                                        >
+                                            Transferencia
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Efectivo en Caja</label>
                         <div className="relative">
@@ -759,12 +828,26 @@ export default function POSLayout() {
 
     const [closeSummary, setCloseSummary] = useState(null);
 
-    const handleCloseSession = async (cash, notes) => {
+    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash') => {
         try {
             // Usar endpoint diferente según el rol
             const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
             const res = await api.post(endpoint, { declared_cash: cash, notes });
             setCloseSummary(res.data.summary);
+            
+            // Si es vendedor y solicitó pago de salario, crear solicitud
+            if (isSeller && requestWagePayment && res.data.wage > 0) {
+                try {
+                    await api.post('/wages/request', {
+                        session_id: res.data.session_id,
+                        amount: res.data.wage,
+                        payment_method: wagePaymentMethod
+                    });
+                } catch (wageError) {
+                    console.error('Error requesting wage payment:', wageError);
+                    // No bloquear el cierre por error en solicitud de salario
+                }
+            }
             
             if (isSeller) {
                 // Mensaje para vendedor que envía sesión
@@ -784,7 +867,10 @@ export default function POSLayout() {
                                 <div className="text-slate-400">Transferencia:</div>
                                 <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
                             </div>
-                            <p className="pt-2 border-t border-white/10">Tu comisión estimada (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                            <p className="pt-2 border-t border-white/10">
+                                Tu salario (5% de ganancia): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span>
+                                {requestWagePayment && <span className="text-emerald-400 text-xs ml-2">✓ Solicitado</span>}
+                            </p>
                             <p className="text-xs text-muted-foreground mt-2">Recibirás una notificación cuando sea aprobada.</p>
                         </div>
                     ),
@@ -809,7 +895,7 @@ export default function POSLayout() {
                                 <div className="text-slate-400">Transferencia:</div>
                                 <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
                             </div>
-                            <p className="pt-2 border-t border-white/10">Comisión del vendedor (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                            <p className="pt-2 border-t border-white/10">Salario del vendedor (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
                         </div>
                     ),
                     type: 'success',

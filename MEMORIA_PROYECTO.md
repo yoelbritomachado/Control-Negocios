@@ -626,12 +626,45 @@ vende y registra               revisa y cierra
 
 ---
 
-**⚠️ NOTA PARA AGENTES:** Este flujo es CRÍTICO y debe implementarse exactamente como se describe. Cualquier desviación debe ser consultada con el usuario antes de implementar.
+## 📋 REGISTRO DE CAMBIOS RECIENTES
 
+### 2026-02-18 - Selector de Roles Implementado
+**Autor:** Kimi Claw  
+**Archivos:** `client/src/hooks/useRole.js`, `client/src/components/Header.jsx`
+
+Se implemento selector de roles (Dueno/Admin/Vendedor) en el Header con persistencia en localStorage.
 
 ---
 
-## 🕸️ SISTEMA NEXUSNODE - GESTIÓN EMPRESARIAL NODAL
+### 2026-02-18 - Sistema de Notificaciones Implementado
+**Autor:** Kimi Claw  
+**Archivos:** `server/index.js`, `client/src/hooks/useNotifications.js`, `client/src/components/Header.jsx`
+
+Notificaciones reales del backend. Vendedor envia sesion -> Admin recibe notificacion.
+
+---
+
+### 2026-02-18 - Sistema de Salarios Implementado (5% de Ganancia)
+**Autor:** Kimi Claw  
+**Archivos:** `server/index.js`, `client/src/hooks/useWages.js`, `client/src/components/POSLayout.jsx`
+
+**Calculo:** 5% de (Ventas - Costos) = Salario  
+**Tabla:** wage_payments con status pending/paid  
+**Flujo:** Vendedor solicita pago en modal -> Admin procesa pago
+
+Endpoints:
+- GET /api/wages/my-summary
+- POST /api/wages/request
+- POST /api/wages/:id/pay
+- GET /api/wages/pending
+
+---
+
+**⚠️ NOTA PARA AGENTES:** Este flujo es CRÍTICO y debe implementarse exactamente como se describe. Cualquier desviación debe ser consultada con el usuario antes de implementar.
+
+---
+
+## SISTEMA NEXUSNODE - GESTIÓN EMPRESARIAL NODAL
 
 ### Descripción General
 Sistema visual de gestión empresarial basado en nodos interconectados que representan la estructura jerárquica del negocio. Inspirado en herramientas de diagramación de flujos pero adaptado específicamente para la administración de empresas.

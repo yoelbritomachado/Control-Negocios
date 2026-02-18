@@ -106,21 +106,21 @@ export const NexusNode = React.memo(({
             : `0 4px 15px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05)`
       }}
       className={`
-        relative w-[260px] rounded-xl overflow-hidden cursor-grab active:cursor-grabbing
+        relative w-[260px] rounded-xl cursor-grab active:cursor-grabbing
         border-2 transition-all duration-200
         ${isSelected ? 'ring-2 ring-offset-2 ring-offset-slate-900' : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
       `}
     >
-      {/* Connection Point - INPUT (top center) - EN EL BORDE - TAMAÑO 12x12px */}
+      {/* Connection Point - INPUT (top center) */}
       <div 
-        className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-slate-500 border-2 border-slate-800 z-30"
+        className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full bg-slate-500 border-2 border-slate-800 z-30"
         title="Punto de entrada"
       />
       
-      {/* Connection Point - OUTPUT (bottom center) - EN EL BORDE - TAMAÑO IGUAL 12x12px */}
+      {/* Connection Point - OUTPUT (bottom center) */}
       <div 
-        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-slate-800 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg"
+        className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-slate-800 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg"
         style={{ backgroundColor: typeConfig.color }}
         onMouseDown={(e) => onConnectionStart?.(e, node)}
         title="Arrastra para conectar a otro nodo"

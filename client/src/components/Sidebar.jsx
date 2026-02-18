@@ -320,10 +320,11 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Gestión
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'management').map((item) => (
+                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin)).map((item) => (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
+                                onClick={() => isMobile && setIsMobileOpen(false)}
                                 className={({ isActive }) => cn(
                                     'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
                                     isActive

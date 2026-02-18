@@ -539,12 +539,16 @@ app.post('/api/sessions/close', (req, res) => {
 
         res.json({ 
             success: true, 
+            session_id: session.id,
             wage: wage,
             summary: {
                 sales: {
                     total: salesData.total_sales,
                     cash: cashSales,
                     transfer: transferSales
+                },
+                cost: {
+                    total: salesData.total_cost
                 },
                 expenses: {
                     total: expensesData.total_expenses,
@@ -674,12 +678,16 @@ app.post('/api/sessions/send-for-review', (req, res) => {
         res.json({ 
             success: true, 
             message: 'Sesión enviada para revisión',
+            session_id: session.id,
             wage: wage,
             summary: {
                 sales: {
                     total: salesData.total_sales,
                     cash: cashSales,
                     transfer: transferSales
+                },
+                cost: {
+                    total: salesData.total_cost
                 },
                 expenses: {
                     total: expensesData.total_expenses,
@@ -730,6 +738,190 @@ app.post('/api/sessions/:id/approve', checkAdmin, (req, res) => {
 
     } catch (e) {
         logError("Approve Session", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- WAGE/SALARY ENDPOINTS ---
+
+// Get seller's wage summary (current accumulated)
+app.get('/api/wages/my-summary', (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        // Get all sessions with pending or paid wages for this seller
+        const sessions = db.prepare(`
+            SELECT 
+                id,
+                start_time,
+                end_time,
+                total_sales,
+                total_cost,
+                total_profit,
+                wage_amount,
+                status,
+                wage_payment_id
+            FROM sales_sessions 
+            WHERE user_id = ? AND wage_amount > 0
+            ORDER BY start_time DESC
+        `).all(userId);
+
+        // Calculate totals
+        const totalEarned = sessions.reduce((sum, s) => sum + (s.wage_amount || 0), 0);
+        const totalPaid = sessions.filter(s => s.wage_payment_id).reduce((sum, s) => sum + (s.wage_amount || 0), 0);
+        const pendingAmount = totalEarned - totalPaid;
+
+        // Get pending payment requests
+        const pendingRequests = db.prepare(`
+            SELECT * FROM wage_payments 
+            WHERE user_id = ? AND status = 'pending'
+            ORDER BY requested_at DESC
+        `).all(userId);
+
+        res.json({
+            sessions: sessions,
+            summary: {
+                total_earned: totalEarned,
+                total_paid: totalPaid,
+                pending_amount: pendingAmount,
+                pending_requests: pendingRequests.length
+            }
+        });
+
+    } catch (e) {
+        logError("Get Wage Summary", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Request wage payment (Seller)
+app.post('/api/wages/request', (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { session_id, amount, payment_method } = req.body;
+
+        // Verify the session belongs to this user and has wage
+        const session = db.prepare(`
+            SELECT * FROM sales_sessions 
+            WHERE id = ? AND user_id = ? AND wage_amount > 0
+        `).get(session_id, userId);
+
+        if (!session) {
+            return res.status(400).json({ error: "Sesión no válida o sin salario pendiente." });
+        }
+
+        // Check if already requested
+        if (session.wage_payment_id) {
+            return res.status(400).json({ error: "El salario de esta sesión ya fue solicitado." });
+        }
+
+        // Create payment request
+        const result = db.prepare(`
+            INSERT INTO wage_payments (user_id, session_id, amount, payment_method, status)
+            VALUES (?, ?, ?, ?, 'pending')
+        `).run(userId, session_id, amount || session.wage_amount, payment_method || 'cash');
+
+        // Link payment to session
+        db.prepare(`
+            UPDATE sales_sessions SET wage_payment_id = ? WHERE id = ?
+        `).run(result.lastInsertRowid, session_id);
+
+        // Create notification for admins
+        const user = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+        
+        const insertNotification = db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'wage_request', ?, ?, ?)
+        `);
+
+        for (const admin of admins) {
+            insertNotification.run(
+                admin.id,
+                'Solicitud de pago de salario',
+                `${user?.username || 'Vendedor'} solicita pago de $${(amount || session.wage_amount).toFixed(2)}`,
+                JSON.stringify({ 
+                    wage_payment_id: result.lastInsertRowid,
+                    session_id: session_id,
+                    seller_id: userId,
+                    amount: amount || session.wage_amount
+                })
+            );
+        }
+
+        res.json({ 
+            success: true, 
+            message: 'Solicitud de pago enviada',
+            wage_payment_id: result.lastInsertRowid
+        });
+
+    } catch (e) {
+        logError("Request Wage Payment", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Process wage payment (Admin/Owner)
+app.post('/api/wages/:id/pay', checkAdmin, (req, res) => {
+    try {
+        const paymentId = req.params.id;
+        const adminId = req.user.id;
+        const adminName = req.user.username || 'Administrador';
+        const { notes } = req.body;
+
+        const payment = db.prepare('SELECT * FROM wage_payments WHERE id = ?').get(paymentId);
+        if (!payment) return res.status(404).json({ error: "Solicitud de pago no encontrada." });
+        if (payment.status !== 'pending') return res.status(400).json({ error: "Esta solicitud ya fue procesada." });
+
+        // Update payment status
+        db.prepare(`
+            UPDATE wage_payments 
+            SET status = 'paid', paid_at = ?, paid_by = ?, notes = ?
+            WHERE id = ?
+        `).run(new Date().toISOString(), adminId, notes || '', paymentId);
+
+        // Create notification for seller
+        db.prepare(`
+            INSERT INTO notifications (user_id, type, title, message, data)
+            VALUES (?, 'wage_paid', ?, ?, ?)
+        `).run(
+            payment.user_id,
+            'Pago de salario realizado',
+            `Se te ha pagado $${payment.amount.toFixed(2)} - ${payment.payment_method === 'cash' ? 'Efectivo' : 'Transferencia'}`,
+            JSON.stringify({ 
+                wage_payment_id: paymentId,
+                amount: payment.amount,
+                paid_by: adminId
+            })
+        );
+
+        res.json({ success: true, message: 'Pago procesado correctamente' });
+
+    } catch (e) {
+        logError("Process Wage Payment", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get all pending wage payments (Admin/Owner)
+app.get('/api/wages/pending', checkAdmin, (req, res) => {
+    try {
+        const payments = db.prepare(`
+            SELECT 
+                wp.*,
+                u.username as seller_name,
+                ss.start_time as session_date
+            FROM wage_payments wp
+            JOIN users u ON wp.user_id = u.id
+            LEFT JOIN sales_sessions ss ON wp.session_id = ss.id
+            WHERE wp.status = 'pending'
+            ORDER BY wp.requested_at DESC
+        `).all();
+
+        res.json({ payments });
+
+    } catch (e) {
+        logError("Get Pending Wages", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -1325,6 +1517,36 @@ try {
         db.exec("ALTER TABLE sales_sessions ADD COLUMN approved_by INTEGER REFERENCES users(id)");
     }
 } catch (e) { console.log("Migration check (sales_sessions approved_by):", e.message); }
+
+// Wage payments table (for tracking salary payments to sellers)
+console.log("Creating wage_payments table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wage_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    session_id INTEGER,
+    amount REAL NOT NULL,
+    payment_method TEXT DEFAULT 'cash',
+    status TEXT DEFAULT 'pending',
+    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    paid_by INTEGER,
+    notes TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(session_id) REFERENCES sales_sessions(id),
+    FOREIGN KEY(paid_by) REFERENCES users(id)
+  )
+`);
+
+// Migration: Add wage_payment_id to sales_sessions
+try {
+    const sessionCols = db.prepare("PRAGMA table_info(sales_sessions)").all();
+    const hasWagePaymentId = sessionCols.some(c => c.name === 'wage_payment_id');
+    if (!hasWagePaymentId) {
+        console.log("Migrating: Adding wage_payment_id to sales_sessions...");
+        db.exec("ALTER TABLE sales_sessions ADD COLUMN wage_payment_id INTEGER REFERENCES wage_payments(id)");
+    }
+} catch (e) { console.log("Migration check (sales_sessions wage_payment_id):", e.message); }
 
 // Helper to get system config safely
 const getSystemConfig = (key) => {
