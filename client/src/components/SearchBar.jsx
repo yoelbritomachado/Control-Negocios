@@ -241,7 +241,7 @@ export const SearchBar = forwardRef(({
                         exit={{ opacity: 0, y: -10, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
                         className={cn(
-                            'absolute top-full left-0 right-0 mt-2 z-50',
+                            'absolute top-full left-0 right-0 mt-2 z-[100]',
                             'bg-[#0B1120] border border-cyan-500/30 rounded-xl shadow-2xl',
                             'max-h-80 overflow-y-auto',
                             dropdownClassName

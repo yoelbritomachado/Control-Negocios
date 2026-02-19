@@ -1071,7 +1071,7 @@ export default function POSLayout() {
 
                         {/* Search Bar Premium - Componente Modular */}
                         <div className="h-14 sm:h-16 flex-none px-3 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
-                            <div className="relative flex-1 min-w-0">
+                            <div className="relative flex-1 min-w-0 z-[60]">
                                 <SearchBar
                                     ref={inputRef}
                                     value={search}
