@@ -3,10 +3,6 @@
  * Usa SQLite WASM (wa-sqlite) para tener una base SQL completa en el navegador
  */
 
-import * as SQLite from 'wa-sqlite';
-import SQLiteESMFactory from 'wa-sqlite/dist/wa-sqlite.mjs';
-import { IDBMinimalVFS } from 'wa-sqlite/src/examples/IDBMinimalVFS.js';
-
 const DB_NAME = 'miss_chulerias_local';
 
 class OfflineDatabase {
@@ -15,6 +11,7 @@ class OfflineDatabase {
     this.db = null;
     this.isInitialized = false;
     this.vfs = null;
+    this.SQLite = null;
   }
 
   /**
@@ -26,11 +23,23 @@ class OfflineDatabase {
     try {
       console.log('[OfflineDB] Inicializando SQLite WASM...');
       
+      // Import dinámico de wa-sqlite (para que el build no falle si no está instalado)
+      let SQLiteESMFactory, IDBMinimalVFS;
+      try {
+        const waSqlite = await import('wa-sqlite');
+        this.SQLite = waSqlite;
+        SQLiteESMFactory = (await import('wa-sqlite/dist/wa-sqlite.mjs')).default;
+        IDBMinimalVFS = (await import('wa-sqlite/src/examples/IDBMinimalVFS.js')).IDBMinimalVFS;
+      } catch (importError) {
+        console.warn('[OfflineDB] wa-sqlite no disponible:', importError.message);
+        throw new Error('wa-sqlite no está instalado');
+      }
+      
       // Cargar el módulo WASM de SQLite
       const module = await SQLiteESMFactory();
       
       // Crear la API de sqlite3
-      this.sqlite = SQLite.Factory(module);
+      this.sqlite = this.SQLite.Factory(module);
       
       // Configurar VFS (Virtual File System) para persistencia
       // IDBMinimalVFS usa IndexedDB que funciona en el hilo principal
@@ -40,7 +49,7 @@ class OfflineDatabase {
       // Abrir la base de datos
       this.db = await this.sqlite.open_v2(
         `${DB_NAME}.db`,
-        SQLite.SQLITE_OPEN_CREATE | SQLite.SQLITE_OPEN_READWRITE,
+        this.SQLite.SQLITE_OPEN_CREATE | this.SQLite.SQLITE_OPEN_READWRITE,
         'miss_chulerias_vfs'
       );
 
