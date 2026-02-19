@@ -29,7 +29,9 @@ export const NexusNode = React.memo(({
   node,
   isSelected = false,
   isConnectingFrom = false,
+  isConnectingMode = false,
   onConnectionStart,
+  onConnectionEnd,
   onDelete,
   onTouchStart,
   onTouchMove,
@@ -120,31 +122,44 @@ export const NexusNode = React.memo(({
       }}
       className={`
         relative w-[260px] min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
-        border-2 transition-all duration-200 touch-none
+        border-2 transition-all duration-200 touch-none select-none
         ${isSelected ? (isDark ? 'ring-2 ring-offset-2 ring-offset-slate-900' : 'ring-2 ring-offset-2 ring-offset-white') : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
+        ${isConnectingMode && !isConnectingFrom ? 'cursor-pointer hover:scale-[1.02]' : ''}
       `}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      {/* Connection Point - INPUT (top center) */}
+      {/* Connection Point - INPUT (top center) - ZONA TÁCTIL AMPLIADA */}
       <div 
-        className={`absolute -top-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 z-30 transition-colors duration-300 ${isDark ? 'bg-slate-500 border-slate-800' : 'bg-slate-400 border-white'}`}
+        className={`absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center z-30 ${isConnectingMode ? 'cursor-pointer' : ''}`}
+        onTouchStart={(e) => {
+          if (isConnectingMode && onConnectionEnd) {
+            e.stopPropagation();
+            onConnectionEnd(node);
+          }
+        }}
         title="Punto de entrada"
-      />
+      >
+        <div className={`w-3 h-3 rounded-full border-2 transition-colors duration-300 ${isDark ? 'bg-slate-500 border-slate-800' : 'bg-slate-400 border-white'}`} />
+      </div>
       
-      {/* Connection Point - OUTPUT (bottom center) */}
+      {/* Connection Point - OUTPUT (bottom center) - ZONA TÁCTIL AMPLIADA */}
       <div 
-        className={`absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg touch-none ${isDark ? 'border-slate-800' : 'border-white'}`}
-        style={{ backgroundColor: typeConfig.color }}
+        className={`absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center z-30 cursor-crosshair touch-none`}
         onMouseDown={(e) => onConnectionStart?.(e, node)}
         onTouchStart={(e) => {
           e.stopPropagation();
           onConnectionStart?.(e, node);
         }}
         title="Arrastra para conectar a otro nodo"
-      />
+      >
+        <div 
+          className={`w-3 h-3 rounded-full border-2 hover:scale-125 transition-transform shadow-lg ${isDark ? 'border-slate-800' : 'border-white'}`}
+          style={{ backgroundColor: typeConfig.color }}
+        />
+      </div>
 
       {/* Header */}
       <div 
@@ -244,6 +259,15 @@ export const NexusNode = React.memo(({
         <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center pointer-events-none rounded-xl">
           <span className={`text-xs font-medium text-blue-500 px-3 py-1.5 rounded-full shadow-lg transition-colors duration-300 ${isDark ? 'bg-slate-900/90' : 'bg-white/90'}`}>
             Suelta sobre otro nodo
+          </span>
+        </div>
+      )}
+      
+      {/* Mobile Connect Mode Indicator */}
+      {isConnectingMode && !isConnectingFrom && (
+        <div className="absolute inset-0 bg-emerald-500/5 flex items-center justify-center pointer-events-none rounded-xl">
+          <span className={`text-[10px] font-medium text-emerald-500 px-2 py-1 rounded-full shadow-lg transition-colors duration-300 ${isDark ? 'bg-slate-900/90' : 'bg-white/90'}`}>
+            Toca para conectar
           </span>
         </div>
       )}

@@ -136,10 +136,12 @@ const Toolbar = ({
   showGrid, setShowGrid,
   lineStyle, setLineStyle,
   isFullscreen, toggleFullscreen,
-  isDark
+  isDark,
+  isConnectingMode,
+  setIsConnectingMode
 }) => (
-  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
-    <div className={`backdrop-blur-sm rounded-xl border p-1.5 shadow-2xl flex items-center gap-1 transition-colors duration-300 ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
+  <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4">
+    <div className={`backdrop-blur-sm rounded-xl border p-1.5 shadow-2xl flex items-center gap-1 transition-colors duration-300 max-w-[95vw] overflow-x-auto ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
       {/* Line Style Toggle */}
       <button
         onClick={() => setLineStyle(lineStyle === 'curved' ? 'orthogonal' : 'curved')}
@@ -191,13 +193,23 @@ const Toolbar = ({
       >
         {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
       </button>
+      
+      {/* Mobile Connect Mode Toggle */}
+      <div className={`w-px h-5 mx-1 transition-colors duration-300 sm:hidden ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+      <button
+        onClick={() => setIsConnectingMode?.(!isConnectingMode)}
+        className={`p-2 rounded-lg transition-colors sm:hidden ${isConnectingMode ? (isDark ? 'text-blue-400 bg-blue-500/20' : 'text-blue-600 bg-blue-500/10') : (isDark ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100')}`}
+        title={isConnectingMode ? 'Cancelar conexión' : 'Modo conectar (móvil)'}
+      >
+        {isConnectingMode ? <X size={18} /> : <GitBranch size={18} />}
+      </button>
     </div>
   </div>
 );
 
 // Header con estadísticas
 const NexusHeader = ({ stats, lineStyle, isDark }) => (
-  <div className={`absolute top-4 left-4 z-40 backdrop-blur-sm rounded-xl border p-4 shadow-xl transition-colors duration-300 ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
+  <div className={`fixed top-4 left-4 z-40 backdrop-blur-sm rounded-xl border p-3 sm:p-4 shadow-xl transition-colors duration-300 max-w-[calc(100vw-2rem)] ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
     <div className="flex items-center gap-3 mb-3">
       <div className={`p-2 rounded-lg border transition-colors duration-300 ${isDark ? 'bg-gradient-to-br from-blue-500/20 to-purple-500/10 border-blue-500/30' : 'bg-gradient-to-br from-blue-500/10 to-purple-500/5 border-blue-500/20'}`}>
         <Grid3X3 className={`w-5 h-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
@@ -259,6 +271,7 @@ export const NexusManager = () => {
   const [addPanelPosition, setAddPanelPosition] = useState({ x: 20, y: 20 });
   const [lineStyle, setLineStyle] = useState('curved'); // 'curved' | 'orthogonal'
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isConnectingMode, setIsConnectingMode] = useState(false); // Modo conexión para móvil
   
   // Estados de interacción
   const [draggingNode, setDraggingNode] = useState(null);
@@ -772,10 +785,33 @@ export const NexusManager = () => {
                 node={node}
                 isSelected={selectedNodeId === node.id}
                 isConnectingFrom={connectingFrom?.id === node.id}
+                isConnectingMode={isConnectingMode}
                 onConnectionStart={handleConnectionStart}
+                onConnectionEnd={(targetNode) => {
+                  // Modo conexión táctil: conectar desde connectingFrom a targetNode
+                  if (connectingFrom && targetNode && connectingFrom.id !== targetNode.id) {
+                    moveNode(targetNode.id, connectingFrom.id);
+                    setConnectingFrom(null);
+                    setIsConnectingMode(false);
+                  }
+                }}
                 onDelete={() => deleteNode(node.id)}
-                onTouchStart={(e) => handleNodeTouchStart(e, node)}
-                onTouchMove={handleNodeTouchMove}
+                onTouchStart={(e) => {
+                  if (isConnectingMode) {
+                    e.stopPropagation();
+                    // En modo conexión: primer toque = inicio, segundo toque = fin
+                    if (!connectingFrom) {
+                      setConnectingFrom(node);
+                    } else if (connectingFrom.id !== node.id) {
+                      moveNode(node.id, connectingFrom.id);
+                      setConnectingFrom(null);
+                      setIsConnectingMode(false);
+                    }
+                  } else {
+                    handleNodeTouchStart(e, node);
+                  }
+                }}
+                onTouchMove={isConnectingMode ? undefined : handleNodeTouchMove}
                 onTouchEnd={handleTouchEnd}
                 isDark={isDark}
               />
@@ -797,10 +833,13 @@ export const NexusManager = () => {
         isFullscreen={isFullscreen}
         toggleFullscreen={toggleFullscreen}
         isDark={isDark}
+        isConnectingMode={isConnectingMode}
+        setIsConnectingMode={setIsConnectingMode}
       />
 
-      {/* Mini-map */}
-      <NexusMinimap
+      {/* Mini-map - Oculto en móvil muy pequeño */}
+      <div className="hidden sm:block">
+        <NexusMinimap
         nodes={nodes}
         viewport={{
           x: -pan.x / zoom,
@@ -816,6 +855,7 @@ export const NexusManager = () => {
         }}
         isDark={isDark}
       />
+      </div>
 
       {/* Add Node Panel */}
       <AnimatePresence>
