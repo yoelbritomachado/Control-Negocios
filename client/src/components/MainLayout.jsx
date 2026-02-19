@@ -187,13 +187,13 @@ export default function MainLayout() {
 
             {/* Main Content */}
             <main className={cn(
-                'transition-all duration-500 min-h-screen flex-1',
+                'transition-all duration-500 min-h-screen flex-1 overflow-x-hidden',
                 // En móvil: padding-top para el botón de menú, sin margin-left
                 // En desktop: margin-left para el sidebar (72 = 18rem = w-72)
                 'pt-16 lg:pt-0',
                 'lg:ml-72'
             )}>
-                <div className="p-3 sm:p-4 lg:p-8">
+                <div className="p-3 sm:p-4 lg:p-8 max-w-full">
                     <Header />
 
                     <motion.div

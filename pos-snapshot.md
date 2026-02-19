@@ -1,0 +1,163 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e9]
+        - generic [ref=e13]:
+          - heading "BizControl" [level=1] [ref=e14]
+          - paragraph [ref=e15]: Premium System
+      - button [ref=e16]:
+        - img [ref=e17]
+    - generic [ref=e20]:
+      - button "Inventario Activo Almacén" [ref=e21]:
+        - img [ref=e23]
+        - generic [ref=e27]:
+          - paragraph [ref=e28]: Inventario Activo
+          - paragraph [ref=e29]: Almacén
+        - img [ref=e30]
+      - generic [ref=e32]:
+        - button "MCH1" [ref=e33]:
+          - generic [ref=e34]: MCH1
+        - button "MCH2" [ref=e35]:
+          - generic [ref=e36]: MCH2
+        - button "Almacén" [ref=e37]:
+          - generic [ref=e38]: Almacén
+          - img [ref=e39]
+    - navigation [ref=e41]:
+      - generic [ref=e42]:
+        - paragraph [ref=e43]: General
+        - link "Dashboard" [ref=e44] [cursor=pointer]:
+          - /url: /
+          - img [ref=e45]
+          - generic [ref=e50]: Dashboard
+      - generic [ref=e51]:
+        - paragraph [ref=e52]: Operaciones
+        - link "Punto de Venta" [ref=e53] [cursor=pointer]:
+          - /url: /pos
+          - img [ref=e54]
+          - generic [ref=e58]: Punto de Venta
+      - generic [ref=e59]:
+        - paragraph [ref=e60]: Gestión
+        - link "Inventario" [ref=e61] [cursor=pointer]:
+          - /url: /entradas
+          - img [ref=e62]
+          - generic [ref=e66]: Inventario
+        - link "Compras" [ref=e67] [cursor=pointer]:
+          - /url: /compras
+          - img [ref=e68]
+          - generic [ref=e71]: Compras
+        - link "Traslados" [ref=e72] [cursor=pointer]:
+          - /url: /traslados
+          - img [ref=e73]
+          - generic [ref=e78]: Traslados
+        - link "Mermas" [ref=e79] [cursor=pointer]:
+          - /url: /mermas
+          - img [ref=e80]
+          - generic [ref=e82]: Mermas
+        - link "Usuarios" [ref=e83] [cursor=pointer]:
+          - /url: /usuarios
+          - img [ref=e84]
+          - generic [ref=e89]: Usuarios
+        - link "NexusNode" [ref=e90] [cursor=pointer]:
+          - /url: /nexus
+          - img [ref=e91]
+          - generic [ref=e93]: NexusNode
+      - generic [ref=e94]:
+        - paragraph [ref=e95]: Historiales
+        - link "Historial de Ventas" [ref=e96] [cursor=pointer]:
+          - /url: /historial/ventas
+          - img [ref=e97]
+          - generic [ref=e100]: Historial de Ventas
+        - link "Historial de Compras" [ref=e101] [cursor=pointer]:
+          - /url: /historial/compras
+          - img [ref=e102]
+          - generic [ref=e105]: Historial de Compras
+        - link "Historial de Mermas" [ref=e106] [cursor=pointer]:
+          - /url: /historial/mermas
+          - img [ref=e107]
+          - generic [ref=e110]: Historial de Mermas
+      - generic [ref=e111]:
+        - paragraph [ref=e112]: Administración
+        - link "Migración" [ref=e113] [cursor=pointer]:
+          - /url: /admin/migracion
+          - img [ref=e114]
+          - generic [ref=e118]: Migración
+    - generic [ref=e119]:
+      - button "Modo Oscuro" [ref=e120]:
+        - generic [ref=e121]:
+          - img [ref=e123]
+          - img [ref=e126]
+        - generic [ref=e136]: Modo Oscuro
+      - link "Configuración" [ref=e137] [cursor=pointer]:
+        - /url: /configuracion
+        - img [ref=e138]
+        - generic [ref=e141]: Configuración
+  - main [ref=e142]:
+    - generic [ref=e143]:
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - paragraph [ref=e147]: Sistema de cobro y gestion de ventas
+          - 'heading "Punto de Venta: Almacen" [level=1] [ref=e148]':
+            - img [ref=e149]
+            - generic [ref=e153]: "Punto de Venta:"
+            - generic [ref=e154]: Almacen
+        - generic [ref=e155]:
+          - generic [ref=e157]:
+            - img [ref=e192]
+            - generic [ref=e163]: Conectado
+          - button "Sincronizar" [ref=e165]:
+            - img [ref=e166]
+            - generic [ref=e171]: Sincronizar
+          - button "Notificaciones" [ref=e173]:
+            - img [ref=e174]
+          - button "Usuario Administrador" [ref=e178]:
+            - img [ref=e180]
+            - generic [ref=e182]:
+              - paragraph [ref=e183]: Usuario
+              - paragraph [ref=e184]: Administrador
+            - img [ref=e185]
+      - generic [ref=e195]:
+        - generic [ref=e196]:
+          - generic [ref=e200]:
+            - img
+            - textbox "Buscar producto..." [active] [ref=e201]
+          - generic [ref=e203]:
+            - img [ref=e205]
+            - paragraph [ref=e209]: Carrito vacío
+            - paragraph [ref=e210]: Escanea un producto para comenzar
+          - generic [ref=e211]:
+            - generic [ref=e212]:
+              - generic [ref=e213]: Total
+              - generic [ref=e214]:
+                - generic [ref=e215]: $
+                - generic [ref=e216]: "0.00"
+            - generic [ref=e217]:
+              - button "Guardar" [disabled] [ref=e218]:
+                - img [ref=e219]
+                - generic [ref=e223]: Guardar
+              - button "Cobrar" [disabled] [ref=e224]:
+                - img [ref=e225]
+                - generic [ref=e228]: Cobrar
+                - img [ref=e229]
+        - generic [ref=e231]:
+          - generic [ref=e232]:
+            - generic [ref=e233]:
+              - img [ref=e234]
+              - generic [ref=e238]: Tickets Recientes
+            - button "Cerrar Sesión" [ref=e239]:
+              - img [ref=e240]
+              - text: Cerrar Sesión
+          - generic [ref=e244]:
+            - img [ref=e245]
+            - paragraph [ref=e249]: Sin ventas en este turno
+          - generic [ref=e251]:
+            - button "Gastos Registrar" [ref=e252]:
+              - img [ref=e254]
+              - generic [ref=e257]:
+                - generic [ref=e258]: Gastos
+                - generic [ref=e259]: Registrar
+            - button "Devolución Procesar" [ref=e260]:
+              - img [ref=e262]
+              - generic [ref=e265]:
+                - generic [ref=e266]: Devolución
+                - generic [ref=e267]: Procesar

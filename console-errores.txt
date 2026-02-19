@@ -1,0 +1,9 @@
+Total messages: 9 (Errors: 2, Warnings: 2)
+Returning 2 messages for level "error"
+
+[ERROR] [OfflineDB] Error al inicializar: TypeError: this.sqlite.vfs_register is not a function
+    at OfflineDatabase.initialize (http://localhost:5173/src/offline/database.js?t=1771482272144:35:19)
+    at async init (http://localhost:5173/src/offline/provider.jsx?t=1771482272144:25:9) @ http://localhost:5173/src/offline/database.js?t=1771482272144:51
+[ERROR] [OfflineProvider] Error de inicialización: TypeError: this.sqlite.vfs_register is not a function
+    at OfflineDatabase.initialize (http://localhost:5173/src/offline/database.js?t=1771482272144:35:19)
+    at async init (http://localhost:5173/src/offline/provider.jsx?t=1771482272144:25:9) @ http://localhost:5173/src/offline/provider.jsx?t=1771482272144:50

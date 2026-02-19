@@ -17,6 +17,7 @@ import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
 import HistoryMermasPage from './pages/HistoryMermasPage';
 import TrasladosPage from './pages/TrasladosPage';
 import './index.css';
+import { PWAInstallPrompt } from './offline';
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
           </Route>
         </Routes>
       </CartProvider>
+      <PWAInstallPrompt />
     </BrowserRouter>
   );
 }

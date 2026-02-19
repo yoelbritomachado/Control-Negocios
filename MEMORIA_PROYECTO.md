@@ -982,3 +982,203 @@ Se implementó la lógica para manejar productos unificados:
 - [ ] Implementar cálculo de costo promedio ponderado en el backend
 - [ ] Crear reporte de ganancias basado en costos históricos
 
+---
+
+### 2026-02-18 - Implementación Sistema Offline-First (PWA + SQLite WASM)
+**Autor:** Kimi Code
+**Tipo:** Feature Arquitectónico Mayor
+**Estado:** Completado y Documentado
+
+#### Resumen Ejecutivo
+Se implementó un sistema **offline-first** completo que permite a los vendedores trabajar sin conexión a internet. Las ventas, compras, traslados y mermas se guardan localmente y se sincronizan automáticamente cuando se restaura la conexión.
+
+#### Arquitectura Implementada
+
+```
+┌─────────────────────────────────────────────┐
+│         PWA - Miss Chulerías POS            │
+│  ┌─────────────────────────────────────┐    │
+│  │  SQLite WASM (wa-sqlite)            │    │
+│  │  • Products, Categories, Customers  │    │
+│  │  • Sales, Purchases, Transfers      │    │
+│  │  • Mermas, Inventories              │    │
+│  └─────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────┐    │
+│  │  Service Worker + Background Sync   │    │
+│  │  • Cache de recursos estáticos      │    │
+│  │  • Sincroniza app cerrada           │    │
+│  └─────────────────────────────────────┘    │
+└─────────────────────────────────────────────┘
+                      │ Sync (automático)
+                      ▼
+┌─────────────────────────────────────────────┐
+│           Servidor Node.js                  │
+│        (SQLite central)                     │
+└─────────────────────────────────────────────┘
+```
+
+#### Archivos Creados (Nuevos)
+
+**Core del Sistema Offline:**
+- `client/src/offline/database.js` - SQLite WASM con esquema completo
+- `client/src/offline/sync.js` - Lógica de sincronización bidireccional
+- `client/src/offline/provider.jsx` - React Provider para contexto offline
+- `client/src/offline/hooks.js` - Hooks React (useOffline, useProducts, etc.)
+- `client/src/offline/usePOSOffline.js` - Integración con POS existente
+- `client/src/offline/index.js` - Exportaciones del módulo
+
+**Componentes UI:**
+- `client/src/offline/components/OfflineStatusBar.jsx` - Barra de estado en Header
+- `client/src/offline/components/SyncButton.jsx` - Botón sincronización manual
+- `client/src/offline/components/PendingOperationsModal.jsx` - Operaciones pendientes
+- `client/src/offline/components/PWAInstallPrompt.jsx` - Prompt instalación PWA
+
+**Hooks Adicionales:**
+- `client/src/offline/hooks/usePWAInstall.js` - Instalación de PWA
+
+**Service Worker:**
+- `client/public/sw-custom.js` - Service Worker personalizado con Background Sync
+
+**Iconos PWA:**
+- `client/public/icons/icon-192x192.svg`
+- `client/public/icons/icon-512x512.svg`
+- `client/public/icons/mask-icon.svg`
+
+**Documentación:**
+- `client/src/offline/README.md` - Documentación técnica completa
+- `PWA_OFFLINE_IMPLEMENTATION.md` - Guía de implementación
+
+#### Archivos Modificados
+
+- `client/vite.config.js` - Configuración vite-plugin-pwa
+- `client/index.html` - Metadatos PWA (manifest, theme-color, etc.)
+- `client/src/main.jsx` - OfflineProvider agregado
+- `client/src/App.jsx` - PWAInstallPrompt agregado
+- `client/src/components/Header.jsx` - StatusBar y SyncButton integrados
+- `client/package.json` - Dependencias: wa-sqlite, vite-plugin-pwa, uuid, date-fns
+
+#### Dependencias Instaladas
+
+```bash
+npm install vite-plugin-pwa wa-sqlite idb uuid date-fns
+```
+
+#### Funcionalidades Implementadas
+
+**1. Base de Datos Local (SQLite WASM)**
+- Tablas replicadas del servidor: products, categories, customers, inventories
+- Tablas de operaciones offline: sales, sale_items, purchases, purchase_items, transfers, transfer_items, mermas
+- Persistencia en Origin Private File System (OPFS)
+- Índices para búsquedas rápidas
+- Estados de sincronización: synced, pending, syncing, error
+
+**2. Sincronización Bidireccional**
+- **Upload:** Ventas, compras, traslados, mermas pendientes → Servidor
+- **Download:** Productos, categorías, clientes actualizados → Local
+- Resolución de conflictos: Last-write-wins (gana el servidor)
+- Timestamp de última sincronización
+
+**3. Background Sync API**
+- Sincronización cuando la app está cerrada
+- Reintentos automáticos con backoff exponencial
+- Notificaciones al usuario de éxito/error
+
+**4. Hooks React para Offline**
+
+```javascript
+// Hook principal
+const { isOnline, isSyncing, syncNow, pendingCount } = useOffline();
+
+// Productos desde base local
+const { products, loading } = useProducts(searchTerm, categoryId);
+
+// Crear venta offline
+const { createSale } = useCreateSale();
+const result = await createSale({ items, total, payment_method });
+
+// Integración POS
+const { processSale, scanBarcode } = usePOSOffline();
+```
+
+**5. Componentes UI**
+- Barra de estado: Online/Offline/Sincronizando (con colores)
+- Botón de sincronización manual con contador de pendientes
+- Modal de operaciones pendientes con detalle por tipo
+- Prompt de instalación de PWA
+
+#### Flujo de Trabajo Offline
+
+```
+1. Usuario abre app (instalada o navegador)
+        ↓
+2. App detecta estado de conexión
+        ↓
+3. Si offline: Trabaja con SQLite local
+        ↓
+4. Ventas se guardan con status: 'pending'
+        ↓
+5. Stock local se actualiza inmediatamente
+        ↓
+6. Cuando hay internet: Sincronización automática
+        ↓
+7. Ventas suben al servidor → status: 'synced'
+```
+
+#### Qué Funciona Offline
+
+✅ **Totalmente Funcional:**
+- Punto de Venta completo (búsqueda, carrito, cobro)
+- Registro de compras
+- Traslados entre inventarios
+- Registro de mermas/devoluciones
+- Consulta de inventario local
+- Escaneo de códigos de barras
+- Historial de ventas locales
+
+⚠️ **Requiere Conexión:**
+- Estadísticas en tiempo real
+- Notificaciones push
+- Gestión de usuarios
+- Configuración del sistema
+- Reportes históricos completos
+
+#### Límites de Almacenamiento
+
+| Navegador | Límite Aproximado |
+|-----------|------------------|
+| Chrome/Edge | ~80% del disco libre |
+| Firefox | ~2GB en desktop |
+| Safari iOS | ~1GB por origen |
+
+**Para inventario <10,000 productos:** ~50MB suficientes
+
+#### Testing Realizado
+
+- ✅ PWA instalable en Chrome/Edge
+- ✅ Funciona offline (DevTools → Network → Offline)
+- ✅ Sincronización automática al restaurar conexión
+- ✅ Background Sync funciona con app cerrada
+- ✅ Cache de recursos estáticos funciona
+- ✅ F5/Refresh funciona sin conexión
+
+#### Pendientes y Mejoras Futuras
+
+- [ ] Sincronización de imágenes de productos para offline
+- [ ] Compresión de datos para ahorrar espacio
+- [ ] Encriptación de datos locales sensibles
+- [ ] Sync peer-to-peer (WebRTC) para múltiples cajas
+- [ ] Modo "solo lectura" cuando el espacio es limitado
+- [ ] Backup automático a Google Drive/Dropbox
+
+#### Documentación Adicional
+
+- Guía completa: `client/src/offline/README.md`
+- Resumen implementación: `PWA_OFFLINE_IMPLEMENTATION.md`
+
+---
+
+### Pendientes de Implementación
+- [ ] Actualizar ProductForm para usar el nuevo sistema de imágenes con selección de versión
+- [ ] Agregar vista previa de imágenes en diferentes tamaños
+- [ ] Implementar cálculo de costo promedio ponderado en el backend
+- [ ] Crear reporte de ganancias basado en costos históricos

@@ -123,7 +123,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={() => setIsMobileOpen(false)}
-                        className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+                        className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[90]"
                     />
                 )}
             </AnimatePresence>
@@ -483,7 +483,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         animate={{ x: 0 }}
                         exit={{ x: '-100%' }}
                         transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                        className="lg:hidden fixed left-0 top-0 h-screen w-[85vw] max-w-[320px] z-50 flex flex-col shadow-2xl"
+                        className="lg:hidden fixed left-0 top-0 h-screen w-[85vw] max-w-[320px] z-[100] flex flex-col shadow-2xl"
                         style={{
                             background: isDark
                                 ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%)'

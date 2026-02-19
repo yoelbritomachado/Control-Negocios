@@ -355,19 +355,31 @@ export const NexusManager = () => {
     }
   };
 
-  // PINCH TO ZOOM
+  // TOUCH EVENTS - PAN Y PINCH ZOOM
+  const touchStartPos = useRef({ x: 0, y: 0 });
+  const touchStartPan = useRef({ x: 0, y: 0 });
+  const isTouchPanning = useRef(false);
+  
   const handleTouchStart = (e) => {
     if (e.touches.length === 2) {
+      // Pinch zoom
       const distance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
         e.touches[0].clientY - e.touches[1].clientY
       );
       lastTouchDistance.current = distance;
+    } else if (e.touches.length === 1) {
+      // Pan con un dedo
+      const touch = e.touches[0];
+      touchStartPos.current = { x: touch.clientX, y: touch.clientY };
+      touchStartPan.current = { ...pan };
+      isTouchPanning.current = true;
     }
   };
 
   const handleTouchMove = (e) => {
     if (e.touches.length === 2) {
+      // Pinch zoom
       e.preventDefault();
       const distance = Math.hypot(
         e.touches[0].clientX - e.touches[1].clientX,
@@ -386,7 +398,23 @@ export const NexusManager = () => {
       });
       setZoom(newZoom);
       lastTouchDistance.current = distance;
+    } else if (e.touches.length === 1 && isTouchPanning.current && !draggingNode) {
+      // Pan con un dedo
+      e.preventDefault();
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchStartPos.current.x;
+      const dy = touch.clientY - touchStartPos.current.y;
+      
+      setPan({
+        x: touchStartPan.current.x + dx,
+        y: touchStartPan.current.y + dy
+      });
     }
+  };
+
+  const handleTouchEnd = () => {
+    isTouchPanning.current = false;
+    setDraggingNode(null);
   };
 
   const handleAddNode = (type, name, position) => {
@@ -522,14 +550,41 @@ export const NexusManager = () => {
 
   const handleNodeDragStart = (e, node) => {
     e.stopPropagation();
+    e.preventDefault();
+    
+    const clientX = e.clientX || e.touches?.[0]?.clientX;
+    const clientY = e.clientY || e.touches?.[0]?.clientY;
+    
     const rect = containerRef.current?.getBoundingClientRect();
-    const canvasPos = screenToCanvas(e.clientX - rect.left, e.clientY - rect.top);
+    const canvasPos = screenToCanvas(clientX - rect.left, clientY - rect.top);
     
     setDragOffset({
       x: canvasPos.x - node.position.x,
       y: canvasPos.y - node.position.y
     });
     setDraggingNode(node);
+  };
+
+  // Touch handlers específicos para nodos
+  const handleNodeTouchStart = (e, node) => {
+    e.stopPropagation();
+    handleNodeDragStart(e, node);
+  };
+
+  const handleNodeTouchMove = (e) => {
+    if (!draggingNode) return;
+    e.preventDefault();
+    
+    const touch = e.touches[0];
+    const rect = containerRef.current?.getBoundingClientRect();
+    const canvasPos = screenToCanvas(touch.clientX - rect.left, touch.clientY - rect.top);
+    
+    updateNode(draggingNode.id, {
+      position: {
+        x: canvasPos.x - dragOffset.x,
+        y: canvasPos.y - dragOffset.y
+      }
+    });
   };
 
   const handleConnectionStart = (e, node) => {
@@ -639,7 +694,7 @@ export const NexusManager = () => {
   return (
     <div 
       ref={containerRef}
-      className={`relative w-full h-[calc(100vh-140px)] overflow-hidden rounded-xl border select-none transition-colors duration-300 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+      className={`relative w-full h-[calc(100vh-140px)] overflow-hidden rounded-xl border select-none touch-none transition-colors duration-300 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -647,6 +702,7 @@ export const NexusManager = () => {
       onDoubleClick={handleDoubleClick}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {/* Grid Background - Grid procedural infinito tipo Figma/Miro/Unity */}
       {showGrid && (
@@ -704,13 +760,16 @@ export const NexusManager = () => {
             <motion.div
               key={node.id}
               ref={(el) => registerNodeRef(node.id, el)}
-              className="absolute"
+              className="absolute touch-none"
               style={{
                 left: node.position.x,
                 top: node.position.y,
                 zIndex: draggingNode?.id === node.id ? 100 : 10
               }}
               onMouseDown={(e) => handleNodeDragStart(e, node)}
+              onTouchStart={(e) => handleNodeTouchStart(e, node)}
+              onTouchMove={handleNodeTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               <NexusNode
                 node={node}
