@@ -3091,31 +3091,18 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve static files from client/dist (for Railway deployment)
-const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
-console.log('Checking for client build at:', clientDistPath);
-console.log('Exists:', fs.existsSync(clientDistPath));
+// Backend API only - Frontend runs separately on port 5173
+// Static file serving disabled to prevent confusion between dev and production
 
-if (fs.existsSync(clientDistPath)) {
-    console.log('Serving static files from:', clientDistPath);
-    app.use(express.static(clientDistPath));
-    
-    // Serve index.html for all non-API routes (SPA support)
-    app.use((req, res, next) => {
-        if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
-            return next();
-        }
-        const indexPath = path.join(clientDistPath, 'index.html');
-        if (fs.existsSync(indexPath)) {
-            res.sendFile(indexPath);
-        } else {
-            next();
-        }
+// Root route - API info
+app.get('/', (req, res) => {
+    res.json({
+        message: 'Miss Chulerías API Server',
+        status: 'running',
+        frontend: 'http://localhost:5173',
+        documentation: '/api/health'
     });
-} else {
-    console.log('Client dist not found. Running in API-only mode.');
-    console.log('To enable full app, run: cd client && npm run build');
-}
+});
 
 // Start Server
 app.listen(port, () => {
