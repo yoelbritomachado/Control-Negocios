@@ -1145,12 +1145,11 @@ export default function POSLayout() {
                                         {cart.map((item, index) => (
                                             <motion.div
                                                 key={generateSafeKey('cart-item', item, index)}
-                                                layout
                                                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                                 exit={{ opacity: 0, x: -100, scale: 0.9 }}
                                                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                                                className="group relative p-3 rounded-xl bg-card/50 border border-border/50 hover:border-cyan-500/30 hover:bg-card/80 transition-all"
+                                                className="group relative p-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-cyan-500/30 hover:bg-slate-700 transition-all"
                                             >
                                                 <div className="flex items-center gap-3">
                                                     {/* Quantity Controls */}
