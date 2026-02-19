@@ -86,9 +86,25 @@ echo    ✅ Backend iniciado
 echo.
 
 :: ============================================
-:: PASO 3: Iniciar Frontend
+:: PASO 3: Iniciar Browser Tools Server (MCP)
 echo ════════════════════════════════════════════════════════════
-echo 🎨 PASO 3: Iniciando Frontend (Puerto 5173)...
+echo 🔧 PASO 3: Iniciando Browser Tools Server (MCP)...
+echo ════════════════════════════════════════════════════════════
+echo.
+echo    ℹ️  Esto permite que Kimi acceda al navegador
+echo.
+
+start "🔧 Browser Tools Server" cmd /k "npx @agentdeskai/browser-tools-server@latest"
+
+echo    ⏳ Esperando 3 segundos para iniciar servidor MCP...
+timeout /t 3 /nobreak >nul
+echo    ✅ Browser Tools Server iniciado
+echo.
+
+:: ============================================
+:: PASO 4: Iniciar Frontend
+echo ════════════════════════════════════════════════════════════
+echo 🎨 PASO 4: Iniciando Frontend (Puerto 5173)...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -100,9 +116,9 @@ echo    ✅ Frontend iniciado
 echo.
 
 :: ============================================
-:: PASO 4: Abrir navegador
+:: PASO 5: Abrir navegador
 echo ════════════════════════════════════════════════════════════
-echo 🌐 PASO 4: Abriendo navegador...
+echo 🌐 PASO 5: Abriendo navegador...
 echo ════════════════════════════════════════════════════════════
 echo.
 
@@ -119,8 +135,9 @@ echo ═════════════════════════
 echo.
 echo 📱 Accede a: http://localhost:5173
 echo.
-echo 🖥️  Se abrieron 2 ventanas de comandos:
+echo 🖥️  Se abrieron 3 ventanas de comandos:
 echo    - Backend (Puerto 3001)
+echo    - Browser Tools Server (MCP)
 echo    - Frontend (Puerto 5173)
 echo.
 echo ⚠️  NO CIERRES esas ventanas mientras uses el sistema!
