@@ -23,9 +23,9 @@ import { cn } from '../lib/utils';
 // Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
 // NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
 const generateSafeKey = (prefix, item, index) => {
-    const itemId = item?.id || item?.code || item?.product_id || item?.sale_id;
-    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
-    return `${prefix}-${safeId || 'no-id'}-${index}`;
+    const itemId = item?.id || item?.code || item?.product_id || item?.sale_id || item?.name;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : `idx-${index}`;
+    return `${prefix}-${safeId}`;
 };
 
 // Helper para verificar si un ID es temporal
