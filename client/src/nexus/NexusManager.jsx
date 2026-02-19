@@ -760,16 +760,13 @@ export const NexusManager = () => {
             <motion.div
               key={node.id}
               ref={(el) => registerNodeRef(node.id, el)}
-              className="absolute touch-none"
+              className="absolute"
               style={{
                 left: node.position.x,
                 top: node.position.y,
                 zIndex: draggingNode?.id === node.id ? 100 : 10
               }}
               onMouseDown={(e) => handleNodeDragStart(e, node)}
-              onTouchStart={(e) => handleNodeTouchStart(e, node)}
-              onTouchMove={handleNodeTouchMove}
-              onTouchEnd={handleTouchEnd}
             >
               <NexusNode
                 node={node}
