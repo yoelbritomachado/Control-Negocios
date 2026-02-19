@@ -240,9 +240,10 @@ export const SearchBar = forwardRef(({
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -10, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
+                        style={{ backgroundColor: '#0f172a' }}
                         className={cn(
                             'absolute top-full left-0 right-0 mt-2 z-[9999]',
-                            'bg-[#0B1120] border border-cyan-500/30 rounded-xl shadow-2xl',
+                            'border border-cyan-500/30 rounded-xl shadow-2xl',
                             'max-h-80 overflow-y-auto',
                             dropdownClassName
                         )}
@@ -292,7 +293,8 @@ function DefaultResultItem({ item, index, onClick }) {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.03 }}
             onClick={onClick}
-            className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/80 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/40 transition-all text-left group"
+            style={{ backgroundColor: '#1e293b' }}
+            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-slate-600 border border-slate-500 hover:border-cyan-500/40 transition-all text-left group"
         >
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/30 shrink-0">
                 <Package2 className="w-5 h-5 text-cyan-400" />
