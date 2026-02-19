@@ -777,6 +777,9 @@ export const NexusManager = () => {
                 isConnectingFrom={connectingFrom?.id === node.id}
                 onConnectionStart={handleConnectionStart}
                 onDelete={() => deleteNode(node.id)}
+                onTouchStart={(e) => handleNodeTouchStart(e, node)}
+                onTouchMove={handleNodeTouchMove}
+                onTouchEnd={handleTouchEnd}
                 isDark={isDark}
               />
             </motion.div>

@@ -31,6 +31,9 @@ export const NexusNode = React.memo(({
   isConnectingFrom = false,
   onConnectionStart,
   onDelete,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
   isDark = true
 }) => {
   const [showMenu, setShowMenu] = useState(false);
@@ -117,10 +120,13 @@ export const NexusNode = React.memo(({
       }}
       className={`
         relative w-[260px] min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
-        border-2 transition-all duration-200
+        border-2 transition-all duration-200 touch-none
         ${isSelected ? (isDark ? 'ring-2 ring-offset-2 ring-offset-slate-900' : 'ring-2 ring-offset-2 ring-offset-white') : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
       `}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       {/* Connection Point - INPUT (top center) */}
       <div 
@@ -130,9 +136,13 @@ export const NexusNode = React.memo(({
       
       {/* Connection Point - OUTPUT (bottom center) */}
       <div 
-        className={`absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg ${isDark ? 'border-slate-800' : 'border-white'}`}
+        className={`absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 z-30 cursor-crosshair hover:scale-125 transition-transform shadow-lg touch-none ${isDark ? 'border-slate-800' : 'border-white'}`}
         style={{ backgroundColor: typeConfig.color }}
         onMouseDown={(e) => onConnectionStart?.(e, node)}
+        onTouchStart={(e) => {
+          e.stopPropagation();
+          onConnectionStart?.(e, node);
+        }}
         title="Arrastra para conectar a otro nodo"
       />
 
@@ -174,7 +184,8 @@ export const NexusNode = React.memo(({
               e.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className={`p-1 rounded transition-colors duration-300 ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+            onTouchStart={(e) => e.stopPropagation()}
+            className={`p-1 rounded transition-colors duration-300 touch-manipulation ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
           >
             <MoreVertical size={14} className={`transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-500'}`} />
           </button>
