@@ -18,7 +18,7 @@ echo.
 echo 🚀 Iniciando Browser Tools Server...
 echo.
 
-npx @agentdeskai/browser-tools-server@latest
+npx -y @agentdeskai/browser-tools-server@latest
 
 echo.
 echo Servidor detenido.

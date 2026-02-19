@@ -38,7 +38,7 @@ Este sistema tiene **3 componentes** que deben estar ejecutándose:
 
 **Opción B - Manual:**
 ```bash
-npx @agentdeskai/browser-tools-server@latest
+npx -y @agentdeskai/browser-tools-server@latest
 ```
 
 Dejar esta terminal abierta mientras uses el MCP.

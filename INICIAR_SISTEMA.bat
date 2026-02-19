@@ -94,7 +94,7 @@ echo.
 echo    ℹ️  Esto permite que Kimi acceda al navegador
 echo.
 
-start "🔧 Browser Tools Server" cmd /k "npx @agentdeskai/browser-tools-server@latest"
+start "🔧 Browser Tools Server" cmd /k "npx -y @agentdeskai/browser-tools-server@latest"
 
 echo    ⏳ Esperando 3 segundos para iniciar servidor MCP...
 timeout /t 3 /nobreak >nul
