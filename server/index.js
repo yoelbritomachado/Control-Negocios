@@ -3098,10 +3098,17 @@ if (fs.existsSync(clientDistPath)) {
     app.use(express.static(clientDistPath));
     
     // SPA fallback - serve index.html for all non-API routes
-    app.get('*', (req, res) => {
-        if (!req.path.startsWith('/api')) {
-            res.sendFile(path.join(clientDistPath, 'index.html'));
+    app.use((req, res, next) => {
+        if (req.path.startsWith('/api')) {
+            return next();
         }
+        // Check if file exists in dist, serve it directly
+        const filePath = path.join(clientDistPath, req.path);
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+            return res.sendFile(filePath);
+        }
+        // Otherwise serve index.html for SPA routing
+        res.sendFile(path.join(clientDistPath, 'index.html'));
     });
 } else {
     // Development mode - API only
