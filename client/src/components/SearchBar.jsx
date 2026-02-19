@@ -51,7 +51,7 @@ export const SearchBar = forwardRef(({
     const [internalQuery, setInternalQuery] = useState('');
     const query = isControlled ? value : internalQuery;
     const setQuery = isControlled ? onChange : setInternalQuery;
-    
+
     const [isOpen, setIsOpen] = useState(false);
     const [debouncedQuery, setDebouncedQuery] = useState('');
     const inputRef = useRef(null);
@@ -85,14 +85,20 @@ export const SearchBar = forwardRef(({
         if (debouncedQuery.length >= 1) {
             const isNumber = /^\d+$/.test(debouncedQuery);
             onSearch?.(debouncedQuery, isNumber);
-            if (showDropdown && results.length > 0) {
-                setIsOpen(true);
-            }
         } else {
             onSearch?.('', false);
             setIsOpen(false);
         }
-    }, [debouncedQuery, onSearch, showDropdown, results.length]);
+    }, [debouncedQuery, onSearch]);
+
+    // Controlar visibilidad del dropdown basado en results
+    useEffect(() => {
+        if (showDropdown && results.length > 0 && debouncedQuery.length >= 1) {
+            setIsOpen(true);
+        } else if (results.length === 0) {
+            setIsOpen(false);
+        }
+    }, [results.length, showDropdown, debouncedQuery.length]);
 
     // Cerrar dropdown al hacer click fuera
     useEffect(() => {
@@ -234,9 +240,10 @@ export const SearchBar = forwardRef(({
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -10, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
+                        style={{ backgroundColor: '#0f172a', zIndex: 100000 }}
                         className={cn(
-                            'absolute top-full left-0 right-0 mt-2 z-50',
-                            'bg-[#0B1120] border border-cyan-500/30 rounded-xl shadow-2xl',
+                            'absolute top-full left-0 right-0 mt-2',
+                            'border border-cyan-500/30 rounded-xl shadow-2xl',
                             'max-h-80 overflow-y-auto',
                             dropdownClassName
                         )}
@@ -255,20 +262,21 @@ export const SearchBar = forwardRef(({
 
                         {/* Lista de resultados */}
                         <div className="p-2 space-y-1">
-                            {results.map((item, index) => (
-                                renderResult ? (
-                                    <div key={item.id || index} onClick={() => handleSelect(item)}>
+                            {results.map((item, index) => {
+                                const safeKey = `search-item-${item.id || 'no-id'}-${index}`;
+                                return renderResult ? (
+                                    <div key={safeKey} onClick={() => handleSelect(item)}>
                                         {renderResult(item, index)}
                                     </div>
                                 ) : (
                                     <DefaultResultItem
-                                        key={item.id || index}
+                                        key={safeKey}
                                         item={item}
                                         index={index}
                                         onClick={() => handleSelect(item)}
                                     />
-                                )
-                            ))}
+                                );
+                            })}
                         </div>
                     </motion.div>
                 )}
@@ -285,7 +293,8 @@ function DefaultResultItem({ item, index, onClick }) {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: index * 0.03 }}
             onClick={onClick}
-            className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/80 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/40 transition-all text-left group"
+            style={{ backgroundColor: '#1e293b' }}
+            className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-slate-600 border border-slate-500 hover:border-cyan-500/40 transition-all text-left group"
         >
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/30 shrink-0">
                 <Package2 className="w-5 h-5 text-cyan-400" />

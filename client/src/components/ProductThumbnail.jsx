@@ -1,16 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Package2, Loader2 } from 'lucide-react';
 
-// ProductThumbnail Component
-const ProductThumbnail = ({ product, onClick }) => {
+// ProductThumbnail Component - Memoized for performance
+const ProductThumbnail = React.memo(({ product, onClick }) => {
   const [index, setIndex] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
-  const images = product.images && product.images.length > 0 
-    ? product.images 
-    : (product.image ? [product.image] : []);
+  // Memoize images array to prevent unnecessary recalculations
+  const images = useMemo(() => 
+    product.images && product.images.length > 0 
+      ? product.images 
+      : (product.image ? [product.image] : []),
+    [product.images, product.image]
+  );
 
+  // Image rotation effect - only run when necessary
   useEffect(() => {
     if (images.length <= 1) return;
     const interval = setInterval(() => {
@@ -19,25 +24,29 @@ const ProductThumbnail = ({ product, onClick }) => {
     return () => clearInterval(interval);
   }, [images.length]);
 
-  // Verificar si la URL de la imagen es válida
-  const isValidImageUrl = (url) => {
-    if (!url) return false;
-    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/')) {
-      return true;
-    }
-    return false;
-  };
+  // Memoize valid images filter
+  const validImages = useMemo(() => {
+    const isValidImageUrl = (url) => {
+      if (!url) return false;
+      return url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/');
+    };
+    return images.filter(isValidImageUrl);
+  }, [images]);
+  
+  // Memoized click handler
+  const handleClick = useCallback((e) => {
+    e.stopPropagation();
+    if (!hasError && onClick) onClick(validImages, index);
+  }, [hasError, onClick, validImages, index]);
 
-  const validImages = images.filter(isValidImageUrl);
-
-  const handleImageError = () => {
+  const handleImageError = useCallback(() => {
     setHasError(true);
     setIsLoading(false);
-  };
+  }, []);
 
-  const handleImageLoad = () => {
+  const handleImageLoad = useCallback(() => {
     setIsLoading(false);
-  };
+  }, []);
 
   // Si no hay imágenes válidas o hubo error, mostrar icono genérico
   if (validImages.length === 0 || hasError) {
@@ -52,10 +61,7 @@ const ProductThumbnail = ({ product, onClick }) => {
 
   return (
     <div
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!hasError && onClick) onClick(validImages, index);
-      }}
+      onClick={handleClick}
       className="w-12 h-12 cursor-pointer relative overflow-hidden rounded-lg bg-slate-800 border border-slate-600 hover:border-cyan-500/50 transition-colors"
     >
       {isLoading && (
@@ -78,6 +84,8 @@ const ProductThumbnail = ({ product, onClick }) => {
       )}
     </div>
   );
-};
+});
+
+ProductThumbnail.displayName = 'ProductThumbnail';
 
 export default ProductThumbnail;

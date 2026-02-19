@@ -6,6 +6,19 @@ import { Header } from './Header';
 import { cn } from '../lib/utils';
 import { Sparkles } from 'lucide-react';
 
+// Hook para detectar si es móvil
+function useIsMobile() {
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+    
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+    
+    return isMobile;
+}
+
 // Background Animation Component
 function AnimatedBackground() {
     return (
@@ -83,15 +96,15 @@ function WelcomeAnimation({ onComplete }) {
                 background: 'linear-gradient(135deg, hsl(222 47% 6%) 0%, hsl(222 47% 8%) 100%)',
             }}
         >
-            <div className="text-center">
+            <div className="text-center px-4">
                 <motion.div
                     initial={{ scale: 0, rotate: -180 }}
                     animate={{ scale: 1, rotate: 0 }}
                     transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1] }}
                     className="relative inline-block mb-6"
                 >
-                    <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-2xl shadow-cyan-500/50">
-                        <Sparkles className="w-12 h-12 text-white" />
+                    <div className="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-2xl shadow-cyan-500/50">
+                        <Sparkles className="w-10 h-10 md:w-12 md:h-12 text-white" />
                     </div>
                     <motion.div
                         animate={{ rotate: 360 }}
@@ -105,7 +118,7 @@ function WelcomeAnimation({ onComplete }) {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.4, duration: 0.6 }}
-                    className="text-4xl font-bold mb-2"
+                    className="text-3xl md:text-4xl font-bold mb-2"
                 >
                     <span className="gradient-text">BizControl</span>
                 </motion.h1>
@@ -114,7 +127,7 @@ function WelcomeAnimation({ onComplete }) {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.6, duration: 0.6 }}
-                    className="text-muted-foreground text-lg"
+                    className="text-muted-foreground text-base md:text-lg"
                 >
                     Sistema Premium de Gestión Económica
                 </motion.p>
@@ -136,29 +149,9 @@ export default function MainLayout() {
         // Solo mostrar welcome animation una vez por sesión
         return !sessionStorage.getItem('welcomeShown');
     });
+    const isMobile = useIsMobile();
 
-    // Get user info from localStorage if available
-    const [userInfo, setUserInfo] = useState({
-        businessName: 'MCH 1',
-        userName: 'Administrador',
-        userRole: 'Acceso Maestro'
-    });
 
-    useEffect(() => {
-        const savedUser = localStorage.getItem('currentUser');
-        if (savedUser) {
-            try {
-                const user = JSON.parse(savedUser);
-                setUserInfo(prev => ({
-                    ...prev,
-                    userName: user.username || 'Usuario',
-                    userRole: user.role === 'admin' ? 'Administrador' : 'Vendedor'
-                }));
-            } catch (e) {
-                console.error("Error parsing user info", e);
-            }
-        }
-    }, []);
 
     // Toggle theme
     const toggleTheme = () => {
@@ -195,13 +188,13 @@ export default function MainLayout() {
             {/* Main Content */}
             <main className={cn(
                 'transition-all duration-500 min-h-screen flex-1',
-                'ml-0 lg:ml-72' // Sidebar spacing
+                // En móvil: padding-top para el botón de menú, sin margin-left
+                // En desktop: margin-left para el sidebar (72 = 18rem = w-72)
+                'pt-16 lg:pt-0',
+                'lg:ml-72'
             )}>
-                <div className="p-6 lg:p-8">
-                    <Header
-                        userName={userInfo.userName}
-                        userRole={userInfo.userRole}
-                    />
+                <div className="p-3 sm:p-4 lg:p-8">
+                    <Header />
 
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}

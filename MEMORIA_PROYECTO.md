@@ -373,3 +373,612 @@
 - **Funcionalidad**: Permite buscar productos por nombre o código en tiempo real.
 - **UI**: Barra de búsqueda posicionada junto al botón "Nuevo Producto".
 - **Estado**: Funcionalidad desplegada y documentada.
+
+
+---
+
+## 🆕 FLUJO DE TRABAJO DEL PUNTO DE VENTA (POS) - VENDEDOR
+
+> **Documentado**: 2026-02-18
+> **Importancia**: CRÍTICO - Define el comportamiento completo del POS para vendedores
+
+### 📋 RESUMEN EJECUTIVO
+
+El Punto de Venta (POS) es el módulo principal donde los **vendedores** realizan sus operaciones diarias. Este flujo define cómo se gestionan las sesiones de trabajo, el cierre de sesiones, el historial y el pago de salarios.
+
+---
+
+### 🎯 ROLES Y RESPONSABILIDADES
+
+| Rol | Responsabilidad en POS |
+|-----|------------------------|
+| **Vendedor** | Abrir sesión, registrar ventas/gastos/devoluciones, enviar sesión a revisión, solicitar pago de salario |
+| **Administrador** | Revisar sesiones enviadas, cerrar sesiones, aprobar/rechazar pagos de salario |
+| **Dueño** | Mismo rol que Administrador, acceso total |
+
+---
+
+### 🔄 FLUJO DE SESIÓN DE VENDEDOR
+
+#### 1. APERTURA DE SESIÓN
+
+```
+Vendedor abre POS → Pantalla "Abrir Sesión" → Ingresa efectivo inicial → ABRIR SESIÓN
+```
+
+**Comportamiento:**
+- Al abrir nueva sesión, se **limpia automáticamente** cualquier `editing_session` previa
+- El vendedor ve el POS normal con botón **"Cerrar Sesión"** (NO "Terminar edición")
+- La sesión queda abierta hasta que el vendedor decida cerrarla o enviarla a revisión
+
+#### 2. DURANTE LA SESIÓN
+
+El vendedor puede:
+- Registrar **ventas** (tickets)
+- Registrar **gastos** (con tipo de gasto configurable)
+- Registrar **devoluciones** (3 tipos según LEY 4)
+- Guardar ventas como **pendientes** (tickets guardados)
+
+**Visualización en tiempo real:**
+- Total de ventas del día
+- **Salario acumulado** (5% de ganancias por venta)
+- Lista de movimientos (ventas, gastos, devoluciones)
+
+#### 3. CIERRE/ENVÍO DE SESIÓN
+
+**Para Vendedor:**
+```
+Botón: "ENVIAR SESIÓN A REVISIÓN" (NO "Cerrar Sesión")
+```
+
+Al enviar:
+- La sesión pasa a estado **"Pendiente de Revisión"**
+- Se envía **notificación** a Administrador y Dueño
+- El vendedor NO puede seguir vendiendo en esa sesión
+- El vendedor puede abrir una **nueva sesión** si desea continuar
+
+**Checkbox opcional al enviar:**
+- [ ] "Solicitar pago de salario acumulado"
+
+#### 4. REVISIÓN POR ADMINISTRADOR/DUEÑO
+
+**En Historial de Sesiones (antes Historial de Ventas):**
+- Sesiones marcadas como **"Pendiente Revisión"**
+- Admin/Dueño puede revisar todos los movimientos
+- Admin/Dueño puede editar/ajustar si es necesario
+
+**Al cerrar la sesión:**
+```
+Botón: "CERRAR SESIÓN" (solo Admin/Dueño)
+```
+
+**Popup de cierre:**
+- Monto total de ventas
+- Efectivo esperado
+- **Si el vendedor solicitó pago:**
+  - Monto calculado (5% de ganancias)
+  - Opción de redondeo (ej: $33.50 → $35)
+  - Checkbox: [ ] "Pagar en efectivo" o "Pagar en transferencia"
+  - Campo: Monto final a pagar
+
+**Notificación al vendedor:**
+- "Su sesión ha sido cerrada y revisada"
+- "Pago de salario: $[monto] - [Pendiente/Aceptado]"
+
+---
+
+### 💰 CÁLCULO DE SALARIO DE VENDEDOR
+
+#### FÓRMULA
+
+```
+Ganancia por Venta = Precio de Venta - Costo del Producto
+Salario = 5% de la Ganancia Total del Vendedor
+```
+
+#### EJEMPLO
+
+| Producto | Precio Venta | Costo | Ganancia | 5% Salario |
+|----------|-------------|-------|----------|------------|
+| Collar | $300 | $100 | $200 | $10 |
+| Anillo | $500 | $200 | $300 | $15 |
+| **TOTAL** | $800 | $300 | $500 | **$25** |
+
+#### VISUALIZACIÓN EN POS
+
+En la interfaz del vendedor debe mostrarse:
+```
+💰 Salario Acumulado Hoy: $25.00
+📊 Ganancias Totales: $500.00
+```
+
+Actualizado **en tiempo real** por cada venta realizada.
+
+#### PAGO DE SALARIO
+
+**Proceso:**
+1. Vendedor marca checkbox "Solicitar pago" al enviar sesión
+2. Admin/Dueño ve el monto calculado al cerrar sesión
+3. Admin/Dueño puede:
+   - Pagar monto exacto
+   - Redondear (ej: $25 → $30)
+   - Seleccionar método: Efectivo / Transferencia
+4. El pago se resta del **Control de Efectivo** como gasto
+5. Vendedor recibe notificación de pago realizado
+
+---
+
+### 🔄 ESTADOS DE SESIÓN
+
+```
+[ABIERTA] → [PENDIENTE REVISIÓN] → [CERRADA]
+   ↑                              ↑
+Vendedor                       Admin/Dueño
+vende y registra               revisa y cierra
+```
+
+| Estado | Visible para | Acciones posibles |
+|--------|--------------|-------------------|
+| **ABIERTA** | Vendedor | Vender, gastos, devoluciones, cerrar/enviar |
+| **PENDIENTE REVISIÓN** | Admin/Dueño | Revisar, editar, cerrar |
+| **CERRADA** | Todos | Solo ver historial |
+
+---
+
+### 🖥️ INTERFAZ DEL POS
+
+#### PANTALLA PRINCIPAL (Vendedor vendiendo)
+
+```
+┌─────────────────────────────────────────────────────┐
+│  SESIÓN ABIERTA - MCH1                              │
+│  Vendedor: Juan Pérez                               │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  [Buscador de Productos]                            │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────┐                │
+│  │  Producto 1  │  │  Producto 2  │                │
+│  │  $300        │  │  $500        │                │
+│  └──────────────┘  └──────────────┘                │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  CARRITO:                              $900.00      │
+│  • Collar x1 - $300                                 │
+│  • Anillo x2 - $600                                 │
+├─────────────────────────────────────────────────────┤
+│  💰 Salario Acumulado: $25.00                       │
+├─────────────────────────────────────────────────────┤
+│  [💾 Guardar]  [💰 Cobrar]  [➕ Gasto]  [↩️ Devol]  │
+│                                                     │
+│           [📤 ENVIAR SESIÓN A REVISIÓN]             │
+└─────────────────────────────────────────────────────┘
+```
+
+#### PANTALLA DE EDICIÓN (Revisando sesión enviada)
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🔄 EDITANDO SESIÓN #1234 - MCH1                    │
+│  Vendedor: Juan Pérez | Enviada: 18/02/2026 15:30   │
+│  [Terminar Edición]                                 │
+├─────────────────────────────────────────────────────┤
+│  (Mismo contenido que pantalla principal)           │
+│                                                     │
+│  ⚠️ Solo Admin/Dueño puede ver:                     │
+│  [✅ CERRAR SESIÓN Y PROCESAR PAGO]                 │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### 🔔 SISTEMA DE NOTIFICACIONES
+
+#### Tipos de Notificación
+
+| Tipo | Destinatario | Contenido |
+|------|--------------|-----------|
+| **Sesión Enviada** | Admin, Dueño | "Juan Pérez ha enviado la sesión #1234 para revisión" |
+| **Pago Solicitado** | Admin, Dueño | "Juan Pérez solicita pago de salario: $25.00" |
+| **Sesión Cerrada** | Vendedor | "Tu sesión #1234 ha sido revisada y cerrada" |
+| **Pago Realizado** | Vendedor | "Se te ha pagado $30.00 de salario - Efectivo" |
+
+#### Badge de Notificaciones
+
+```
+🔔 3  (icono con número de notificaciones pendientes)
+```
+
+---
+
+### 📊 HISTORIAL DE SESIONES (Antes Historial de Ventas)
+
+**Renombrar:** El menú "Historial de Ventas" pasa a llamarse **"Historial de Sesiones"**
+
+**Contenido por sesión:**
+- ID de sesión
+- Vendedor
+- Fecha/Hora inicio
+- Fecha/Hora cierre
+- Inventario (sede)
+- **Lista completa de movimientos:**
+  - Ventas (tickets)
+  - Gastos
+  - Devoluciones
+- Totales por método de pago
+- Estado: Abierta / Pendiente / Cerrada
+- Salario del vendedor (si aplica)
+
+---
+
+### ✅ CHECKLIST DE IMPLEMENTACIÓN
+
+- [x] Renombrar "Historial de Ventas" → "Historial de Sesiones"
+- [x] Implementar badge de notificaciones funcional
+- [x] Cambiar botón "Cerrar Sesión" → "Enviar Sesión a Revisión" (para vendedor)
+- [ ] Mostrar "Terminar Edición" solo cuando `editingSession` exista
+- [x] Implementar cálculo de salario en tiempo real (5% de ganancias)
+- [x] Agregar checkbox "Solicitar pago de salario" al enviar sesión
+- [x] Crear popup de cierre de sesión con opciones de pago (Admin/Dueño)
+- [ ] Integrar pago de salario con Control de Efectivo
+- [x] Implementar sistema de notificaciones
+- [x] Limpiar `editing_session` al abrir nueva sesión
+
+---
+
+## 📋 REGISTRO DE CAMBIOS RECIENTES
+
+### 2026-02-18 - Selector de Roles Implementado
+**Autor:** Kimi Claw  
+**Archivos:** `client/src/hooks/useRole.js`, `client/src/components/Header.jsx`
+
+Se implemento selector de roles (Dueno/Admin/Vendedor) en el Header con persistencia en localStorage.
+
+---
+
+### 2026-02-18 - Sistema de Notificaciones Implementado
+**Autor:** Kimi Claw  
+**Archivos:** `server/index.js`, `client/src/hooks/useNotifications.js`, `client/src/components/Header.jsx`
+
+Notificaciones reales del backend. Vendedor envia sesion -> Admin recibe notificacion.
+
+---
+
+### 2026-02-18 - Sistema de Salarios Implementado (5% de Ganancia)
+**Autor:** Kimi Claw  
+**Archivos:** `server/index.js`, `client/src/hooks/useWages.js`, `client/src/components/POSLayout.jsx`
+
+**Calculo del Salario:**
+- Formula: 5% de (Ventas Totales - Costos Totales) = Salario de la sesion
+- Ejemplo: Venta $300 - Costo $100 = Ganancia $200 → Salario $10
+
+**Salario Acumulado (IMPORTANTE):**
+- El salario se acumula desde la ultima vez que el vendedor cobró
+- Incluye TODAS las sesiones cerradas/pendientes que no tengan pago registrado
+- Si nunca ha cobrado, incluye todas las sesiones desde el inicio
+- El vendedor ve en el modal: "Tu Salario Acumulado (X sesiones)"
+
+**Nuevo Endpoint:**
+- GET /api/sessions/metrics - Devuelve datos completos del turno incluyendo salario acumulado
+
+**Estructura de datos en modal:**
+- Ventas del Turno: Efectivo + Transferencia vendido en esta sesion
+- Gastos Registrados: Efectivo + Transferencia gastado en esta sesion  
+- Total a Entregar: (Efectivo vendido - Gastos efectivo) + (Transferencia vendida - Gastos transferencia)
+- Tu Salario Acumulado: Suma de 5% de ganancia de todas las sesiones sin cobrar
+
+**Flujo:**
+1. Vendedor hace clic en "Enviar Sesion"
+2. Sistema calcula ventas, costos, gastos de la sesion actual
+3. Sistema busca sesiones anteriores sin pago y suma sus salarios
+4. Modal muestra salario de esta sesion + salario de sesiones anteriores = Total acumulado
+5. Vendedor puede solicitar pago del total acumulado
+
+Endpoints:
+- GET /api/sessions/metrics (NUEVO) - Datos completos para cerrar sesion
+- GET /api/wages/my-summary - Resumen de salarios
+- POST /api/wages/request - Solicitar pago
+- POST /api/wages/:id/pay - Procesar pago (admin)
+- GET /api/wages/pending - Listar pagos pendientes
+
+---
+
+**⚠️ NOTA PARA AGENTES:** Este flujo es CRÍTICO y debe implementarse exactamente como se describe. Cualquier desviación debe ser consultada con el usuario antes de implementar.
+
+---
+
+## SISTEMA NEXUSNODE - GESTIÓN EMPRESARIAL NODAL
+
+### Descripción General
+Sistema visual de gestión empresarial basado en nodos interconectados que representan la estructura jerárquica del negocio. Inspirado en herramientas de diagramación de flujos pero adaptado específicamente para la administración de empresas.
+
+### Jerarquía de Nodos (de mayor a menor importancia)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  NIVEL 0: DUEÑO (Máxima autoridad)                          │
+│  └── Puede tener múltiples empresas                         │
+└──────────────────┬──────────────────────────────────────────┘
+                   │
+         ┌─────────▼──────────┐
+         │ NIVEL 1: EMPRESA   │  ← Nodo central del sistema
+         │ (Entidad principal)│
+         └─────────┬──────────┘
+                   │
+    ┌──────────────┼──────────────┐
+    │              │              │
+┌───▼────┐   ┌────▼─────┐   ┌────▼────────┐
+│Admin   │   │Almacén   │   │Dueño (otro) │
+│Nivel 2 │   │Nivel 2   │   │Nivel 0      │
+└───┬────┘   └────┬─────┘   └─────────────┘
+                │
+       ┌────────┼────────┐
+       │        │        │
+   ┌───▼───┐ ┌──▼───┐ ┌──▼───┐
+   │Punto  │ │Punto │ │Punto │  ← Nivel 3
+   │Venta 1│ │Venta 2│ │Venta 3│
+   └───┬───┘ └──┬───┘ └──┬───┘
+       │        │        │
+   ┌───▼───┐ ┌──▼───┐ ┌──▼───┐
+   │Vended │ │Vended│ │Vended│  ← Nivel 4
+   │or A   │ │or B  │ │or C  │
+   └───────┘ └──┬───┘ └──────┘
+                │
+           ┌────▼────┐
+           │Cubre-   │  ← Vendedor en múltiples puntos
+           │franco   │
+           └─────────┘
+```
+
+### Tipos de Nodos y Características
+
+| Tipo | Nivel | Color | Icono | Puede tener hijos | Métricas principales |
+|------|-------|-------|-------|-------------------|---------------------|
+| **Dueño** | 0 | Ámbar/Dorado | Corona | Sí (Empresas) | empresas, ingresosTotales, patrimonio |
+| **Empresa** | 1 | Azul | Edificio | Sí (Admin, Almacén) | sucursales, empleados, ingresos |
+| **Administrador** | 2 | Rojo | Escudo | No | acceso, nivel, salario |
+| **Almacén** | 2 | Morado | Paquete | Sí (Puntos de Venta) | productos, stockBajo, capacidad, pedidos |
+| **Punto de Venta** | 3 | Naranja | Tienda | Sí (Vendedores) | ventasHoy, vendedoresActivos, cajasAbiertas |
+| **Vendedor** | 4 | Verde | Usuarios | No | activos, ventasHoy, clientes, comisiones |
+
+### Reglas de Conexión
+
+1. **Dueño → Empresa**: Un dueño puede poseer múltiples empresas
+2. **Empresa → Administrador**: Una empresa puede tener varios administradores (o ninguno temporalmente)
+3. **Empresa → Almacén**: Una empresa puede tener múltiples almacenes
+4. **Almacén → Punto de Venta**: Un almacén provee a múltiples puntos de venta
+5. **Punto de Venta → Vendedor**: Un punto de venta puede tener múltiples vendedores
+6. **Vendedor → Punto de Venta**: Un vendedor puede trabajar en múltiples puntos (modo "cubrefranco")
+
+### Funcionalidades del Sistema
+
+#### Interacciones Básicas
+- **Arrastrar nodo**: Mover nodos libremente por el canvas
+- **Arrastrar desde punto inferior (output)**: Crear conexión a otro nodo
+- **Doble click en fondo**: Crear nuevo nodo
+- **Click en línea**: Desconectar nodos
+- **Scroll del mouse**: Zoom in/out hacia el cursor
+- **Pinch (móvil)**: Zoom con dos dedos
+- **Arrastrar fondo**: Pan/mover vista
+
+#### Opciones de Visualización
+- **Líneas curvas**: Conexiones Bezier suaves con animación de flujo
+- **Líneas ortogonales (90°)**: Conectores tipo "circuito" con ángulos rectos
+- **Toggle**: Botón en toolbar para cambiar entre estilos
+
+#### Métricas y Estados
+- **Estados**: Online (verde), Offline (rojo), Warning (amarillo), Maintenance (gris)
+- **Métricas por tipo**: Cada nodo muestra métricas específicas de su rol
+- **Animación**: Líneas discontinuas animadas indican flujo de datos
+
+### Casos de Uso Especiales
+
+#### Vendedor Cubrefranco
+Cuando un vendedor se conecta a múltiples puntos de venta:
+- Visualmente cambia de color (indicador visual de estado especial)
+- Se considera "cubrefranco" - trabaja temporalmente en ambos puntos
+- Útil para turnos rotativos o emergencias de personal
+
+#### Múltiples Almacenes → Un Punto de Venta
+Un punto de venta puede recibir mercancía de varios almacenes:
+- Permite transferencias entre almacenes a través del punto de venta
+- Flexibilidad en la cadena de suministro
+- Visualizado con múltiples líneas de entrada al punto de venta
+
+### Archivos del Módulo
+
+```
+client/src/nexus/
+├── nexus.types.js      # Definición de tipos, jerarquía y reglas
+├── NexusNode.jsx       # Componente visual de cada nodo
+├── NexusManager.jsx    # Gestión del canvas y estado global
+├── NexusGraph.jsx      # Renderizado de conexiones SVG
+├── useNexus.js         # Hook de estado y lógica de negocio
+└── index.js            # Exportaciones públicas
+```
+
+### Integración Futura
+Este sistema visual es actualmente independiente pero está diseñado para integrarse con:
+- **Control de Inventario**: Los almacenes y puntos de venta sincronizarán stock en tiempo real
+- **Gestión de Personal**: Vendedores y administradores vinculados a sesiones reales
+- **Reportes Financieros**: Métricas de nodos conectadas a datos reales del sistema
+- **Jerarquía de Permisos**: Roles del sistema (Dueño/Admin/Vendedor) reflejados en la estructura nodal
+
+---
+
+## ?? REGISTRO DE CAMBIOS RECIENTES
+
+### 2026-02-18 - Selector de Roles Implementado
+**Autor:** Kimi Claw
+**Archivos Modificados:**
+- client/src/hooks/useRole.js (NUEVO)
+- client/src/components/Header.jsx 
+- client/src/components/MainLayout.jsx
+
+**Descripcion:**
+Se implemento un selector de roles en el Header para permitir cambiar rapidamente entre:
+- **Dueno** (Crown icon, color ambar)
+- **Administrador** (Shield icon, color violeta) 
+- **Vendedor** (ShoppingBag icon, color esmeralda)
+
+**Caracteristicas:**
+- Dropdown accesible desde el perfil de usuario en el Header
+- Estado persistido en localStorage (mch_current_role, mch_current_user_name)
+- Recarga automatica de pagina al cambiar de rol
+- Notificaciones solo visibles para Admin/Dueno (badge con contador)
+- Hook useRole() exporta: currentRole, userName, changeRole, isOwner, isAdmin, isSeller
+
+**Pendiente:**
+- [ ] Integrar notificaciones reales del backend
+- [ ] Implementar comportamiento diferente del boton Cerrar Sesion segun rol
+- [ ] Calcular salario del vendedor (5% de ganancias)
+
+
+
+### 2026-02-18 - Sistema de Notificaciones Implementado
+**Autor:** Kimi Claw
+**Archivos Modificados:**
+- server/index.js - Endpoints de notificaciones y send-for-review
+- client/src/hooks/useNotifications.js (NUEVO)
+- client/src/components/Header.jsx - Notificaciones reales del backend
+- client/src/components/POSLayout.jsx - Endpoint segun rol
+
+**Endpoints Creados:**
+- POST /api/sessions/send-for-review - Vendedor envia sesion (crea notificaciones)
+- POST /api/sessions/:id/approve - Admin aprueba sesion
+- GET /api/notifications - Obtener notificaciones del usuario
+- PUT /api/notifications/:id/read - Marcar como leida
+- PUT /api/notifications/read-all - Marcar todas como leidas
+
+**Flujo:**
+1. Vendedor hace clic en Enviar Sesion -> POST /send-for-review
+2. Backend cambia estado a pending_review y crea notificaciones para admins
+3. Header (como admin) muestra badge con conteo de notificaciones sin leer
+4. Admin hace clic en campana -> ve notificaciones en tiempo real
+5. Admin puede marcar como leidas individualmente o todas
+
+**Tabla notifications:**
+- id, user_id, type, title, message, data (JSON), is_read, created_at
+
+
+
+---
+
+## 📋 REGISTRO DE CAMBIOS - 2026-02-18
+
+### Sistema de Imágenes Mejorado - Compresión Multi-Versión
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Endpoint de productos con Sharp, tabla product_images actualizada
+- `client/src/components/ProductForm.jsx` - Límite aumentado a 20MB
+
+**Descripción:**
+Se implementó un sistema de procesamiento de imágenes que genera 4 versiones de cada foto:
+- **Original:** Calidad 90% (hasta 20MB)
+- **Medium (1000x1000):** Calidad 85% - Para visualización normal
+- **Small (512x512):** Calidad 80% - Para conexiones lentas
+- **Thumbnail (100x100):** Calidad 75% - Para iconos en inventario
+
+**Cambios en Base de Datos:**
+- Tabla `product_images` ahora incluye `size_type` y `created_at`
+- Las imágenes se almacenan con nombres únicos: `prod_{timestamp}_{name}_{version}.jpg`
+
+---
+
+### Corrección de Gastos en Configuración
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Mejor manejo de errores en POST /api/expense-types
+
+**Descripción:**
+Se agregó logging detallado al endpoint de creación de tipos de gasto para diagnosticar problemas de "failed to fetch".
+
+---
+
+### Eliminación de Botón "Nueva Venta" Global
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/components/Header.jsx` - Removido botón de Nueva Venta
+
+**Descripción:**
+Se eliminó el botón azul de "Nueva Venta" del Header que aparecía en todos los módulos. Ahora solo se accede al POS desde el menú lateral.
+
+---
+
+### Nuevo Módulo de Compras/Entradas
+**Autor:** Kimi Code
+**Archivos Creados:**
+- `client/src/pages/PurchasesPage.jsx` (NUEVO)
+
+**Archivos Modificados:**
+- `server/index.js` - Endpoints CRUD para compras
+- `client/src/App.jsx` - Ruta /compras actualizada
+
+**Endpoints Creados:**
+- `GET /api/purchases` - Listar compras con items
+- `GET /api/purchases/:id` - Obtener una compra
+- `POST /api/purchases` - Crear nueva compra
+- `DELETE /api/purchases/:id` - Eliminar compra (revertir inventario)
+
+**Características:**
+- Barra de búsqueda de productos existentes
+- Botón para agregar nuevo producto (mismo formulario que inventario)
+- Carrito/lista de productos con cantidad y precio de costo
+- Selector de moneda (MN, USD, MXN, EUR)
+- Selector de método de pago (Efectivo/Transferencia)
+- Campo para proveedor y notas
+- Actualización automática de inventario al guardar
+
+**Cambios en Base de Datos:**
+- Tabla `purchases` ahora incluye `currency`, `exchange_rate`, `payment_method`
+- Tabla `purchase_items` ahora incluye `cost_price_currency`
+
+---
+
+### Configuración de Divisas
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `server/index.js` - Endpoint PUT /api/settings
+- `client/src/pages/SettingsPage.jsx` - Sección de tasas de cambio
+
+**Descripción:**
+Se agregó una nueva sección en Configuración para gestionar las tasas de cambio:
+- USD a MN
+- MXN a USD
+- EUR a MN
+- MXN a MN
+- Multiplicador de Margen
+
+---
+
+### Costos Variables por Compra
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/pages/PurchasesPage.jsx`
+
+**Descripción:**
+El sistema ahora permite registrar el mismo producto con diferentes precios de costo en compras separadas:
+- Cada item en la compra guarda su propio `cost_price` y `cost_price_currency`
+- El historial mantiene el costo original de cada compra
+- El inventario se actualiza sumando las cantidades
+
+---
+
+### Unificación de Productos
+**Autor:** Kimi Code
+**Archivos Modificados:**
+- `client/src/pages/PurchasesPage.jsx`
+
+**Descripción:**
+Se implementó la lógica para manejar productos unificados:
+- Al agregar un producto existente al carrito de compras, se pueden especificar diferentes costos
+- El sistema calcula automáticamente el costo promedio ponderado cuando un producto tiene múltiples entradas con diferentes precios
+
+---
+
+### Pendientes de Implementación
+- [ ] Actualizar ProductForm para usar el nuevo sistema de imágenes con selección de versión
+- [ ] Agregar vista previa de imágenes en diferentes tamaños
+- [ ] Implementar cálculo de costo promedio ponderado en el backend
+- [ ] Crear reporte de ganancias basado en costos históricos
+

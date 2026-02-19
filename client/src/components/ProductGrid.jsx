@@ -2,6 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { fetchProducts } from '../api';
 import { useCart } from './CartProvider';
 import { FaBoxOpen, FaSearch, FaExclamationCircle } from 'react-icons/fa';
+import { SafeImage } from './SafeImage';
+
+// Helper para generar keys únicas y seguras
+// NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
+const generateSafeKey = (prefix, item, index) => {
+    const itemId = item?.id || item?.code || item?.product_id;
+    const safeId = itemId && String(itemId).trim() !== '' ? String(itemId) : null;
+    return `${prefix}-${safeId || 'no-id'}-${index}`;
+};
 
 export default function ProductGrid() {
     const [products, setProducts] = useState([]);
@@ -59,19 +68,7 @@ export default function ProductGrid() {
                 </div>
             ) : (
                 <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 pb-20">
-                    {products.map(p => {
-                        // Logic to determine stock based on current inventory context
-                        // If currentInventory is a string ID 'mch1', look it up.
-                        // If not found, default to 0. 
-                        // The API returns p.inventory which is a map { 'mch1': 10, ... }
-                        // It also returns p.quantity which might be mapped already by backend.
-                        // Let's use p.inventory[currentInventory] if available, else p.quantity
-
-                        // We need to know what 'currentInventory' ID we are targeting.
-                        // Ideally passed via props or context.
-                        // For now assuming the backend 'quantity' is what we want if we filtered?
-                        // Actually the backend endpoint /api/products returns everything.
-
+                    {products.map((p, index) => {
                         const invId = localStorage.getItem('currentInventory') || 'mch1';
                         const stock = p.inventory && p.inventory[invId] !== undefined ? p.inventory[invId] : (p.quantity || 0);
                         const hasStock = stock > 0;
@@ -82,7 +79,7 @@ export default function ProductGrid() {
 
                         return (
                             <div
-                                key={p.id}
+                                key={generateSafeKey('prod-grid', p, index)}
                                 onClick={() => hasStock && addToCart(p)}
                                 className={`
                                     bg-[#1A1D21] border border-gray-800 rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 group relative
@@ -95,11 +92,17 @@ export default function ProductGrid() {
                                 {/* Image Aspect Ratio Frame */}
                                 <div className="aspect-[4/3] bg-gray-800 relative overflow-hidden">
                                     {imageUrl ? (
-                                        <img
+                                        <SafeImage
                                             src={imageUrl}
                                             alt={p.name}
+                                            containerClassName="w-full h-full"
                                             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                            loading="lazy"
+                                            placeholder={
+                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-800/50">
+                                                    <FaBoxOpen className="text-2xl mb-1 opacity-50" />
+                                                    <span className="text-[10px] font-medium uppercase tracking-wider">Sin Imagen</span>
+                                                </div>
+                                            }
                                         />
                                     ) : (
                                         <div className="w-full h-full flex flex-col items-center justify-center text-gray-600 bg-gray-800/50">
