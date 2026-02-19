@@ -36,17 +36,17 @@ export function FundsDistribution() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4, ease: [0.23, 1, 0.32, 1] }}
-            className="glass-card rounded-2xl p-6 bg-secondary/30 backdrop-blur-md border border-white/5"
+            className="glass-card rounded-xl md:rounded-2xl p-4 md:p-6 bg-secondary/30 backdrop-blur-md border border-white/5"
         >
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-500/10 border border-violet-500/30">
-                        <PieChart className="w-5 h-5 text-violet-400" />
+            <div className="flex items-center justify-between mb-4 md:mb-6">
+                <div className="flex items-center gap-2 md:gap-3">
+                    <div className="p-2 md:p-3 rounded-lg md:rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-500/10 border border-violet-500/30">
+                        <PieChart className="w-4 h-4 md:w-5 md:h-5 text-violet-400" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-semibold">Distribución de Fondos</h3>
-                        <p className="text-sm text-muted-foreground">
+                        <h3 className="text-base md:text-lg font-semibold">Distribución de Fondos</h3>
+                        <p className="text-xs md:text-sm text-muted-foreground">
                             {fundSources[0].percentage}% CUP
                         </p>
                     </div>
@@ -98,7 +98,7 @@ export function FundsDistribution() {
                         onMouseEnter={() => setIsHovered(true)}
                         onMouseLeave={() => setIsHovered(false)}
                         className={cn(
-                            'flex items-center justify-between p-4 rounded-xl',
+                            'flex items-center justify-between p-3 md:p-4 rounded-lg md:rounded-xl',
                             'bg-secondary/30 hover:bg-secondary/50',
                             'transition-all duration-300',
                             'group cursor-pointer'

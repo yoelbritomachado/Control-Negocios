@@ -116,7 +116,7 @@ export function StatCard({
             }}
             whileHover={{ y: -4, transition: { duration: 0.2 } }}
             className={cn(
-                'relative overflow-hidden rounded-2xl p-6',
+                'relative overflow-hidden rounded-xl md:rounded-2xl p-3 md:p-4 lg:p-6',
                 'bg-gradient-to-br',
                 styles.gradient,
                 'border',
@@ -136,10 +136,10 @@ export function StatCard({
                 {/* Header */}
                 <div className="flex items-start justify-between mb-4">
                     <div className={cn(
-                        'p-3 rounded-xl',
+                        'p-2 md:p-2.5 lg:p-3 rounded-lg md:rounded-xl',
                         styles.iconBg
                     )}>
-                        <Icon className={cn('w-5 h-5', styles.iconColor)} />
+                        <Icon className={cn('w-4 h-4 md:w-5 md:h-5', styles.iconColor)} />
                     </div>
 
                     {trend !== undefined && (
@@ -164,13 +164,13 @@ export function StatCard({
                 </div>
 
                 {/* Title */}
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                <p className="text-[10px] md:text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1 md:mb-2 truncate">
                     {title}
                 </p>
 
                 {/* Value */}
                 <h3 className={cn(
-                    'text-3xl font-bold tracking-tight mb-1',
+                    'text-lg md:text-2xl lg:text-3xl font-bold tracking-tight mb-0.5 md:mb-1',
                     variant === 'success' && 'text-emerald-400',
                     variant === 'danger' && 'text-rose-400',
                     variant === 'info' && 'text-cyan-400',
@@ -188,7 +188,7 @@ export function StatCard({
 
                 {/* Trend Label */}
                 {trendLabel && (
-                    <p className="text-xs text-muted-foreground mt-2">
+                    <p className="text-[10px] md:text-xs text-muted-foreground mt-1 md:mt-2 truncate">
                         {trendLabel}
                     </p>
                 )}

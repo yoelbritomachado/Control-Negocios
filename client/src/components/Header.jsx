@@ -24,6 +24,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from './CartProvider';
 import { useRole, ROLES } from '../hooks/useRole';
 import { useNotifications } from '../hooks/useNotifications';
+import { OfflineStatusBar, SyncButton } from '../offline';
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Monitoreo activo de flujos de caja', icon: LayoutDashboard },
@@ -147,6 +148,17 @@ export function Header() {
 
       {/* Right Side - Actions */}
       <div className="flex items-center gap-2 lg:gap-3">
+        {/* Offline Status Bar */}
+        <div className="hidden sm:block">
+          <OfflineStatusBar />
+        </div>
+        
+        {/* Sync Button (solo en móvil o para admin) */}
+        {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
+          <div className="hidden md:block">
+            <SyncButton className="text-sm py-1.5 px-3" />
+          </div>
+        )}
         {/* Notifications - Solo para Admin/Dueno */}
         {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
           <div className="relative">

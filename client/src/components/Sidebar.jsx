@@ -97,16 +97,17 @@ export function Sidebar({ isDark, toggleTheme }) {
     // Botón de hamburguesa para móvil
     const MobileMenuButton = () => (
         <button
-            onClick={() => setIsMobileOpen(!isMobileOpen)}
+            onClick={() => setIsMobileOpen(true)}
             className={cn(
                 'lg:hidden fixed top-4 left-4 z-[60] p-3 rounded-xl transition-all duration-300',
+                isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100',
                 isDark 
                     ? 'bg-slate-800/90 border border-white/10 text-white' 
                     : 'bg-white/90 border border-black/10 text-slate-900',
                 'backdrop-blur-md shadow-lg'
             )}
         >
-            {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            <Menu className="w-5 h-5" />
         </button>
     );
 
@@ -482,7 +483,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         animate={{ x: 0 }}
                         exit={{ x: '-100%' }}
                         transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                        className="lg:hidden fixed left-0 top-0 h-screen w-72 z-50 flex flex-col shadow-2xl"
+                        className="lg:hidden fixed left-0 top-0 h-screen w-[85vw] max-w-[320px] z-50 flex flex-col shadow-2xl"
                         style={{
                             background: isDark
                                 ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%)'
@@ -512,7 +513,13 @@ export function Sidebar({ isDark, toggleTheme }) {
 
                             <button
                                 onClick={() => setIsMobileOpen(false)}
-                                className="p-2 rounded-lg hover:bg-secondary transition-colors"
+                                className={cn(
+                                    "p-2.5 rounded-xl transition-all duration-200",
+                                    isDark 
+                                        ? "hover:bg-white/10 bg-white/5" 
+                                        : "hover:bg-black/10 bg-black/5"
+                                )}
+                                aria-label="Cerrar menú"
                             >
                                 <X className="w-5 h-5" />
                             </button>

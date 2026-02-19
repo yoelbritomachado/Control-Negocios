@@ -37,10 +37,10 @@ export default function DashboardPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5 }}
-            className="space-y-6"
+            className="space-y-4 md:space-y-6 px-3 md:px-4 lg:px-0"
         >
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                 <StatCard
                     title="Ventas Totales (CUP)"
                     value={dashboardData.stats.totalSales}

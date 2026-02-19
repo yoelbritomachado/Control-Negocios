@@ -30,6 +30,20 @@ const ProductTable = ({ products, currentInventory, onProductUpdated, onEdit, se
     }
   };
 
+  // Helper for card border color
+  const getCardBorderColor = (color) => {
+    if (!color || color === 'none') return 'border-gray-200 dark:border-gray-700';
+    
+    switch (color) {
+      case 'red': return 'border-red-400 dark:border-red-500';
+      case 'blue': return 'border-blue-400 dark:border-blue-500';
+      case 'green': return 'border-emerald-400 dark:border-emerald-500';
+      case 'yellow': return 'border-amber-400 dark:border-amber-500';
+      case 'purple': return 'border-purple-400 dark:border-purple-500';
+      default: return 'border-gray-200 dark:border-gray-700';
+    }
+  };
+
   // Helper to format currency value dynamically
   const getDynamicCost = (product) => {
     switch (primaryCurrency) {
@@ -65,7 +79,103 @@ const ProductTable = ({ products, currentInventory, onProductUpdated, onEdit, se
 
   return (
     <div className="bg-white dark:bg-gray-800 shadow-sm rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-      <div className="overflow-x-auto">
+      {/* Vista Móvil: Cards */}
+      <div className="md:hidden">
+        <div className="divide-y divide-gray-200 dark:divide-gray-700">
+          {products.map((product, index) => {
+            const stock = getStock(product);
+            const cost = getDynamicCost(product);
+            
+            return (
+              <div
+                key={`product-card-${product.id}-${index}`}
+                className={`p-4 bg-slate-800/30 hover:bg-slate-800/50 transition-colors border-l-4 ${getCardBorderColor(product.label_color)}`}
+              >
+                {/* Fila superior: Imagen + Info */}
+                <div className="flex items-start gap-3 mb-3">
+                  <ProductThumbnail
+                    product={product}
+                    className="w-14 h-14 flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-2">
+                      <h3 className="font-bold text-gray-900 dark:text-white text-sm leading-tight line-clamp-2">
+                        {product.name}
+                      </h3>
+                      {product.label_color && product.label_color !== 'none' && (
+                        <FaTag className={`text-xs flex-shrink-0 mt-0.5 ${
+                          product.label_color === 'red' ? 'text-red-500' :
+                          product.label_color === 'blue' ? 'text-blue-500' :
+                          product.label_color === 'green' ? 'text-emerald-500' :
+                          product.label_color === 'yellow' ? 'text-amber-500' :
+                          product.label_color === 'purple' ? 'text-purple-500' : ''
+                        }`} />
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">
+                      {product.code || 'Sin código'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Fila del medio: Stock y Precio */}
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Stock:</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stock > 5
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                      : stock > 0
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    }`}>
+                      {stock}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Precio:</span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                      ${(product.sale_price_manual || 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Fila inferior: Costo (opcional) y Botones */}
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-gray-500 dark:text-gray-500">
+                    <span className="text-gray-400">Costo:</span>{' '}
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                      ${(cost || 0).toFixed(2)}
+                    </span>
+                    <span className="text-gray-500 ml-1">{primaryCurrency}</span>
+                  </div>
+                  
+                  {canEdit && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => onEdit(product)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+                        title="Editar"
+                      >
+                        <FaEdit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(product.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        title="Eliminar"
+                      >
+                        <FaTrash size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Vista Desktop: Tabla */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
@@ -118,7 +228,7 @@ const ProductTable = ({ products, currentInventory, onProductUpdated, onEdit, se
                       : stock > 0
                         ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                      }`}>
+                    }`}>
                       {stock}
                     </span>
                   </td>

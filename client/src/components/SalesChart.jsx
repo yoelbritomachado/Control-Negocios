@@ -86,25 +86,25 @@ export function SalesChart() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="glass-card rounded-2xl p-6 bg-secondary/30 backdrop-blur-md border border-white/5"
+            className="glass-card rounded-xl md:rounded-2xl p-4 md:p-6 bg-secondary/30 backdrop-blur-md border border-white/5"
         >
             {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30">
-                        <TrendingUp className="w-5 h-5 text-cyan-400" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-4 mb-4 md:mb-6">
+                <div className="flex items-center gap-3 md:gap-4">
+                    <div className="p-2 md:p-3 rounded-lg md:rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30">
+                        <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
                     </div>
                     <div>
-                        <h3 className="text-lg font-semibold">Evolución de Ventas</h3>
-                        <p className="text-sm text-muted-foreground">
+                        <h3 className="text-base md:text-lg font-semibold">Evolución de Ventas</h3>
+                        <p className="text-xs md:text-sm text-muted-foreground">
                             Ventas diarias - Septiembre 2025
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 md:gap-2">
                     {/* Month Selector */}
-                    <div className="flex bg-secondary/50 rounded-lg p-1">
+                    <div className="flex bg-secondary/50 rounded-lg p-0.5 md:p-1">
                         {[
                             { id: 'current', label: 'Mes Actual' },
                             { id: 'history', label: 'Histórico' },
@@ -113,7 +113,7 @@ export function SalesChart() {
                                 key={month.id}
                                 onClick={() => setSelectedMonth(month.id)}
                                 className={cn(
-                                    'px-4 py-2 rounded-md text-sm font-medium transition-all duration-300',
+                                    'px-2 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-all duration-300',
                                     selectedMonth === month.id
                                         ? 'bg-primary text-primary-foreground shadow-sm bg-cyan-600/20 text-cyan-400'
                                         : 'text-muted-foreground hover:text-foreground'
@@ -135,35 +135,35 @@ export function SalesChart() {
             </div>
 
             {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="p-4 rounded-xl bg-secondary/30">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+            <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
+                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
                         Total del Mes
                     </p>
-                    <p className="text-xl font-bold text-cyan-400">
+                    <p className="text-sm md:text-xl font-bold text-cyan-400">
                         ${totalSales.toLocaleString('es-CU')}
                     </p>
                 </div>
-                <div className="p-4 rounded-xl bg-secondary/30">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
                         Promedio Diario
                     </p>
-                    <p className="text-xl font-bold text-emerald-400">
+                    <p className="text-sm md:text-xl font-bold text-emerald-400">
                         ${Math.round(avgSales).toLocaleString('es-CU')}
                     </p>
                 </div>
-                <div className="p-4 rounded-xl bg-secondary/30">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
                         Mejor Día
                     </p>
-                    <p className="text-xl font-bold text-violet-400">
+                    <p className="text-sm md:text-xl font-bold text-violet-400">
                         ${maxSales.toLocaleString('es-CU')}
                     </p>
                 </div>
             </div>
 
             {/* Chart */}
-            <div className="h-80 min-h-[300px] relative">
+            <div className="h-64 md:h-80 min-h-[250px] md:min-h-[300px] relative">
                 {!isMounted ? (
                     <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
                         <div className="animate-pulse">Cargando gráfico...</div>

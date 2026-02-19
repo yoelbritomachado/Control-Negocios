@@ -1070,7 +1070,7 @@ export default function POSLayout() {
                     <div className="w-full lg:w-[60%] flex flex-col h-full border-b lg:border-b-0 lg:border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
 
                         {/* Search Bar Premium - Componente Modular */}
-                        <div className="h-14 sm:h-16 flex-none px-3 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm relative" style={{ zIndex: 100000 }}>
+                        <div className="h-12 sm:h-16 flex-none px-2 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm relative" style={{ zIndex: 100000 }}>
                             <div className="relative flex-1 min-w-0">
                                 <SearchBar
                                     ref={inputRef}
@@ -1136,7 +1136,7 @@ export default function POSLayout() {
 
                         {/* Cart List Premium - Hidden on mobile when viewing tickets */}
                         <div className={cn(
-                            "flex-1 overflow-y-auto p-3 scrollbar-thin relative z-0",
+                            "flex-1 overflow-y-auto p-2 sm:p-3 scrollbar-thin relative z-0 pb-24 lg:pb-0",
                             mobileView !== 'cart' && "hidden lg:block"
                         )}>
                             {cart.length > 0 ? (
@@ -1149,16 +1149,16 @@ export default function POSLayout() {
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                                 exit={{ opacity: 0, x: -100, scale: 0.9 }}
                                                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                                                className="group relative p-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-cyan-500/30 hover:bg-slate-700 transition-all"
+                                                className="group relative p-2 sm:p-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-cyan-500/30 hover:bg-slate-700 transition-all"
                                             >
-                                                <div className="flex items-center gap-3">
+                                                <div className="flex items-center gap-2 sm:gap-3">
                                                     {/* Quantity Controls */}
                                                     <div className="flex items-center gap-1 bg-secondary/50 rounded-lg p-1 border border-white/5">
                                                         <button
                                                             onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                                                            className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
+                                                            className="w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0"
                                                         >
-                                                            <Minus className="w-3.5 h-3.5" />
+                                                            <Minus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                                                         </button>
                                                         <input
                                                             type="number"
@@ -1172,21 +1172,21 @@ export default function POSLayout() {
                                                                 const val = parseInt(e.target.value);
                                                                 if (!val || val < 1) updateQuantity(item.id, 1);
                                                             }}
-                                                            className="w-10 text-center font-bold tabular-nums bg-transparent border-none outline-none text-foreground"
+                                                            className="w-10 text-center font-bold tabular-nums bg-transparent border-none outline-none text-foreground text-base sm:text-sm"
                                                         />
                                                         <button
                                                             onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                                                            className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all"
+                                                            className="w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-white hover:bg-white/10 transition-all min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0"
                                                         >
-                                                            <Plus className="w-3.5 h-3.5" />
+                                                            <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                                                         </button>
                                                     </div>
 
                                                     {/* Product Info */}
                                                     <div className="flex-1 min-w-0">
-                                                        <h4 className="font-semibold text-foreground truncate text-sm">{item.name}</h4>
+                                                        <h4 className="font-semibold text-foreground truncate text-sm leading-tight">{item.name}</h4>
                                                         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                                                            <Package2 className="w-3 h-3" />
+                                                            <Package2 className="w-3 h-3 hidden sm:block" />
                                                             <span className="font-mono">{item.code || 'SIN CÓDIGO'}</span>
                                                         </div>
                                                     </div>
@@ -1225,64 +1225,69 @@ export default function POSLayout() {
                         </div>
 
                         {/* Mobile View Tabs - Only visible on mobile */}
-                        <div className="lg:hidden h-12 flex-none bg-card/50 border-t border-border/50 flex">
+                        <div className="lg:hidden h-10 flex-none bg-card/50 border-t border-border/50 flex">
                             <button
                                 onClick={() => setMobileView('cart')}
                                 className={cn(
-                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    "flex-1 flex items-center justify-center gap-1.5 text-xs font-medium transition-all",
                                     mobileView === 'cart'
                                         ? "bg-cyan-500/10 text-cyan-400 border-b-2 border-cyan-500"
                                         : "text-muted-foreground hover:text-foreground"
                                 )}
                             >
-                                <ShoppingCart className="w-4 h-4" />
-                                Carrito {cart.length > 0 && <span className="bg-cyan-500 text-white text-xs px-1.5 py-0.5 rounded-full">{cart.length}</span>}
+                                <ShoppingCart className="w-3.5 h-3.5" />
+                                Carrito {cart.length > 0 && <span className="bg-cyan-500 text-white text-[10px] px-1.5 py-0 rounded-full">{cart.length}</span>}
                             </button>
                             <button
                                 onClick={() => setMobileView('tickets')}
                                 className={cn(
-                                    "flex-1 flex items-center justify-center gap-2 text-sm font-medium transition-all",
+                                    "flex-1 flex items-center justify-center gap-1.5 text-xs font-medium transition-all",
                                     mobileView === 'tickets'
                                         ? "bg-violet-500/10 text-violet-400 border-b-2 border-violet-500"
                                         : "text-muted-foreground hover:text-foreground"
                                 )}
                             >
-                                <History className="w-4 h-4" />
-                                Tickets {recentSales.length > 0 && <span className="bg-violet-500 text-white text-xs px-1.5 py-0.5 rounded-full">{recentSales.length}</span>}
+                                <History className="w-3.5 h-3.5" />
+                                Tickets {recentSales.length > 0 && <span className="bg-violet-500 text-white text-[10px] px-1.5 py-0 rounded-full">{recentSales.length}</span>}
                             </button>
                         </div>
 
-                        {/* Footer Premium */}
-                        <div className="h-16 sm:h-20 flex-none bg-card/80 backdrop-blur-xl border-t border-border/50 px-3 sm:px-4 flex items-center justify-between">
-                            <div>
-                                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total</div>
+                        {/* Footer Premium - Fixed Bottom Bar on Mobile */}
+                        <div className="fixed bottom-0 left-0 right-0 lg:static lg:h-16 lg:sm:h-20 min-h-[72px] lg:min-h-0 flex-none bg-card/95 lg:bg-card/80 backdrop-blur-xl border-t border-border/50 px-3 sm:px-4 flex items-center justify-between z-40 lg:z-auto pb-safe">
+                            {/* Total Display */}
+                            <div className="flex flex-col justify-center">
+                                <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Total</div>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-lg sm:text-xl text-emerald-500 font-medium">$</span>
-                                    <span className="text-2xl sm:text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
+                                    <span className="text-base sm:text-xl text-emerald-500 font-medium">$</span>
+                                    <span className="text-xl sm:text-4xl font-black text-foreground tracking-tight tabular-nums">{total.toFixed(2)}</span>
                                 </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            {/* Action Buttons */}
+                            <div className="flex items-center gap-2 sm:gap-3">
+                                {/* Save Button */}
                                 <button
                                     onClick={handleSaveSale}
                                     disabled={cart.length === 0}
-                                    className="h-10 sm:h-12 px-3 sm:px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center gap-1 sm:gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="h-12 sm:h-12 min-h-[48px] min-w-[48px] px-3 sm:px-4 rounded-xl bg-secondary/50 border border-white/5 text-muted-foreground hover:text-foreground hover:bg-secondary hover:border-white/10 transition-all flex items-center justify-center gap-1.5 sm:gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    aria-label="Guardar venta"
                                 >
-                                    <Save className="w-4 h-4" />
+                                    <Save className="w-5 h-5 sm:w-4 sm:h-4" />
                                     <span className="text-xs sm:text-sm font-semibold hidden sm:inline">Guardar</span>
                                 </button>
 
+                                {/* Checkout Button */}
                                 <button
                                     onClick={handleCheckoutClick}
                                     disabled={cart.length === 0 || checkoutProcessing}
-                                    className="h-10 sm:h-12 px-4 sm:px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2"
+                                    className="h-12 sm:h-12 min-h-[48px] min-w-[100px] sm:min-w-0 px-4 sm:px-6 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-semibold shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                 >
                                     {checkoutProcessing ? (
-                                        <Loader2 className="animate-spin w-4 h-4" />
+                                        <Loader2 className="animate-spin w-5 h-5 sm:w-4 sm:h-4" />
                                     ) : (
-                                        <Banknote className="w-4 h-4" />
+                                        <Banknote className="w-5 h-5 sm:w-4 sm:h-4" />
                                     )}
-                                    <span className="text-sm sm:text-base">Cobrar</span>
+                                    <span className="text-sm sm:text-base whitespace-nowrap">Cobrar</span>
                                     <ArrowRight className="w-4 h-4 hidden sm:block" />
                                 </button>
                             </div>
@@ -1316,7 +1321,7 @@ export default function POSLayout() {
                         </div>
 
                         {/* Recent Sales List */}
-                        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        <div className="flex-1 overflow-y-auto p-3 space-y-2 pb-24 lg:pb-3">
                             {/* Ventas Guardadas (Pendientes) */}
                             <AnimatePresence>
                                 {savedSales.map((sale, index) => (
