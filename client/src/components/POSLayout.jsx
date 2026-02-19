@@ -1071,7 +1071,7 @@ export default function POSLayout() {
 
                         {/* Search Bar Premium - Componente Modular */}
                         <div className="h-14 sm:h-16 flex-none px-3 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm">
-                            <div className="relative flex-1 min-w-0 z-[9990]">
+                            <div className="relative flex-1 min-w-0">
                                 <SearchBar
                                     ref={inputRef}
                                     value={search}
@@ -1136,7 +1136,7 @@ export default function POSLayout() {
 
                         {/* Cart List Premium - Hidden on mobile when viewing tickets */}
                         <div className={cn(
-                            "flex-1 overflow-y-auto p-3 scrollbar-thin",
+                            "flex-1 overflow-y-auto p-3 scrollbar-thin relative z-0",
                             mobileView !== 'cart' && "hidden lg:block"
                         )}>
                             {cart.length > 0 ? (
