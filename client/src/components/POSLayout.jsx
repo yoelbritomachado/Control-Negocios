@@ -1136,7 +1136,7 @@ export default function POSLayout() {
 
                         {/* Cart List Premium - Hidden on mobile when viewing tickets */}
                         <div className={cn(
-                            "flex-1 overflow-y-auto p-3 scrollbar-thin",
+                            "flex-1 overflow-y-auto p-3 scrollbar-thin z-0 relative",
                             mobileView !== 'cart' && "hidden lg:block"
                         )}>
                             {cart.length > 0 ? (
@@ -1150,7 +1150,7 @@ export default function POSLayout() {
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                                 exit={{ opacity: 0, x: -100, scale: 0.9 }}
                                                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                                                className="group relative p-3 rounded-xl bg-card/50 border border-border/50 hover:border-cyan-500/30 hover:bg-card/80 transition-all"
+                                                className="group relative p-3 rounded-xl bg-card/50 border border-border/50 hover:border-cyan-500/30 hover:bg-card/80 transition-all z-0"
                                             >
                                                 <div className="flex items-center gap-3">
                                                     {/* Quantity Controls */}
