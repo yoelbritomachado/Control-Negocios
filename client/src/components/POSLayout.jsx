@@ -1117,7 +1117,6 @@ export default function POSLayout() {
                                                     <div className="font-bold text-emerald-400 font-mono text-lg">
                                                         ${product.sale_price_manual}
                                                     </div>
-                                                    <div className="text-xs text-slate-500">{stock} en stock</div>
                                                 </div>
                                                 <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/40 shrink-0">
                                                     <Plus className="w-5 h-5 text-cyan-400" />
@@ -1180,16 +1179,14 @@ export default function POSLayout() {
                                                     {/* Product Info */}
                                                     <div className="flex-1 min-w-0">
                                                         <h4 className="font-semibold text-foreground truncate text-sm leading-tight">{item.name}</h4>
-                                                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                                                            <Package2 className="w-3 h-3 hidden sm:block" />
-                                                            <span className="font-mono">{item.quantity} unidad{item.quantity > 1 ? 'es' : ''}</span>
-                                                        </div>
                                                     </div>
 
                                                     {/* Prices */}
                                                     <div className="text-right">
                                                         <div className="font-bold text-emerald-400 font-mono">${(item.sale_price_manual * item.quantity).toFixed(2)}</div>
-                                                        <div className="text-xs text-muted-foreground">${item.sale_price_manual} c/u</div>
+                                                        <div className="text-xs text-slate-500">
+                                                            {(item.inventory?.[currentInventory] || 0) - item.quantity} en stock
+                                                        </div>
                                                     </div>
 
                                                     {/* Delete Button */}
