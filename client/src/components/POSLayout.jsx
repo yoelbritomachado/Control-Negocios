@@ -1093,12 +1093,11 @@ export default function POSLayout() {
                                     renderResult={(product, index) => {
                                         const stock = product.inventory?.[currentInventory] || 0;
                                         return (
-                                            <motion.button
+                                            <motion.div
                                                 key={generateSafeKey('prod-result', product, index)}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: index * 0.03 }}
-                                                onClick={() => handleSelectProduct(product)}
                                                 className="w-full flex items-center gap-3 p-3 rounded-lg bg-slate-800/80 hover:bg-cyan-950/50 border border-slate-700 hover:border-cyan-500/40 transition-all text-left group"
                                             >
                                                 <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-cyan-500/30 shrink-0">
@@ -1127,7 +1126,7 @@ export default function POSLayout() {
                                                 <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/40 shrink-0">
                                                     <Plus className="w-5 h-5 text-cyan-400" />
                                                 </div>
-                                            </motion.button>
+                                            </motion.div>
                                         );
                                     }}
                                 />
