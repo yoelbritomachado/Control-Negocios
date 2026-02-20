@@ -25,13 +25,21 @@
 
 ## 🔥 Cambios Recientes (Últimos 7 días)
 
+### 2026-02-20 - Fix: Problemas de z-index en POS
+**Tipo:** Bug Fix  
+**Estado:** ✅ Completado
+
+- **Problema:** La barra de búsqueda tenía `z-index: 100000` que la ponía por delante de modales y sidebar móvil
+- **Causa:** Z-index extremadamente alto (100000) en contenedor de búsqueda y dropdown
+- **Solución:** Contenedor `z-30`, Dropdown `z-40` (jerarquía: Sidebar z-100 > Modales z-50/60 > Dropdown z-40 > Contenedor z-30)
+
 ### 2026-02-20 - Fix: Productos se agregaban doble en POS
 **Tipo:** Bug Fix  
 **Estado:** ✅ Completado
 
 - **Problema:** Al seleccionar un producto del dropdown de búsqueda en el POS, se agregaba dos veces al carrito
-- **Causa:** El `renderResult` del `SearchBar` tenía un `onClick` que llamaba `handleSelectProduct`, pero el `SearchBar` ya llamaba a `onSelect` internamente
-- **Solución:** Cambiado `motion.button` a `motion.div` y eliminado el `onClick` duplicado en `POSLayout.jsx`
+- **Causa:** El `renderResult` del `SearchBar` tenía un `onClick` duplicado
+- **Solución:** Cambiado `motion.button` a `motion.div` y eliminado el `onClick` duplicado
 
 ### 2026-02-20 - Separación Backend/Frontend
 **Tipo:** Arquitectura  

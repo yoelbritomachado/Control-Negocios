@@ -1070,7 +1070,7 @@ export default function POSLayout() {
                     <div className="w-full lg:w-[60%] flex flex-col h-full border-b lg:border-b-0 lg:border-r border-border/50 bg-gradient-to-br from-background via-background to-card/30 relative">
 
                         {/* Search Bar Premium - Componente Modular */}
-                        <div className="h-12 sm:h-16 flex-none px-2 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm relative" style={{ zIndex: 100000 }}>
+                        <div className="h-12 sm:h-16 flex-none px-2 sm:px-4 flex items-center gap-2 sm:gap-4 border-b border-border/50 bg-card/30 backdrop-blur-sm relative z-30">
                             <div className="relative flex-1 min-w-0">
                                 <SearchBar
                                     ref={inputRef}
