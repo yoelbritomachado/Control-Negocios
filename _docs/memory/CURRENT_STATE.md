@@ -25,6 +25,17 @@
 
 ## 🔥 Cambios Recientes (Últimos 7 días)
 
+### 2026-02-20 - UI: Quitar 'SIN CÓDIGO' y mostrar stock en dropdown
+**Tipo:** Mejora UX  
+**Estado:** ✅ Completado
+
+- **Cambios:**
+  - Eliminado texto 'SIN CÓDIGO' de todos los productos (POSLayout, SearchBar, SearchDropdown, ReturnsModule)
+  - Dropdown de búsqueda ahora muestra el stock disponible:
+    - Línea del producto: "Stock: X unidades"
+    - Debajo del precio: "X en stock"
+  - Carrito muestra cantidad: "X unidad(es)" en lugar del código
+
 ### 2026-02-20 - Fix: Problemas de z-index en POS
 **Tipo:** Bug Fix  
 **Estado:** ✅ Completado

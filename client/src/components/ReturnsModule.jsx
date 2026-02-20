@@ -573,7 +573,7 @@ export default function ReturnsModule({ onClose, onSave }) {
                                         
                                         <div className="flex-1 min-w-0">
                                             <p className="font-semibold truncate">{item.name}</p>
-                                            <p className="text-xs text-slate-400 font-mono">{item.code || 'SIN CÓDIGO'}</p>
+                                            <p className="text-xs text-slate-400 font-mono">{item.quantity} unidad{item.quantity > 1 ? 'es' : ''}</p>
                                         </div>
 
                                         {/* Control de Cantidad */}

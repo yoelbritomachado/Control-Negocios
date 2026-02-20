@@ -304,7 +304,7 @@ function DefaultResultItem({ item, index, onClick }) {
                     {item.name}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                    {item.code || 'SIN CÓDIGO'}
+                    {item.inventory ? `Stock: ${Object.values(item.inventory)[0] || 0}` : ''}
                 </div>
             </div>
             <div className="text-right shrink-0">

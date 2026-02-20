@@ -3091,10 +3091,13 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve static frontend in production (Railway)
+// Serve static frontend ONLY in production (Railway/Production)
+// In local development, frontend runs separately on Vite (localhost:5173)
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production';
 const clientDistPath = path.join(__dirname, '../client/dist');
-if (fs.existsSync(clientDistPath)) {
-    console.log('[Server] Serving static frontend from:', clientDistPath);
+
+if (isProduction && fs.existsSync(clientDistPath)) {
+    console.log('[Server] Production mode - Serving static frontend from:', clientDistPath);
     app.use(express.static(clientDistPath));
     
     // SPA fallback - serve index.html for all non-API routes
@@ -3111,14 +3114,17 @@ if (fs.existsSync(clientDistPath)) {
         res.sendFile(path.join(clientDistPath, 'index.html'));
     });
 } else {
-    // Development mode - API only
-    console.log('[Server] Client dist not found, running in API-only mode');
+    // Development mode - API only, frontend runs separately on Vite
+    console.log('[Server] Development mode - Running in API-only mode');
+    console.log('[Server] Frontend should run on: http://localhost:5173');
     app.get('/', (req, res) => {
         res.json({
-            message: 'Miss Chulerías API Server',
+            message: 'Miss Chulerías API Server (Development Mode)',
             status: 'running',
+            mode: 'API-only',
             frontend: 'http://localhost:5173',
-            documentation: '/api/health'
+            documentation: '/api/health',
+            note: 'Frontend runs separately. Start with: npm run dev (in client folder)'
         });
     });
 }
