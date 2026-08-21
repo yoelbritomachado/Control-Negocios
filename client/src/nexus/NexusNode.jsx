@@ -31,7 +31,9 @@ export const NexusNode = React.memo(({
   isConnectingFrom = false,
   isConnectingMode = false,
   onConnectionStart,
+  onDisconnectStart,
   onConnectionEnd,
+  onDoubleClick,
   onDelete,
   onTouchStart,
   onTouchMove,
@@ -55,7 +57,24 @@ export const NexusNode = React.memo(({
     }
   }, [showMenu]);
   
-  const typeConfig = NODE_TYPES[node.type?.toUpperCase()] || NODE_TYPES.EMPRESA;
+  // Detectar si es un vendedor cubrefranco (conectado a 2 o más puntos de venta)
+  const isVendedor = (node.type || '').toLowerCase() === 'vendedor' || (node.type || '').toLowerCase() === 'seller';
+  const parentCount = (node.parentIds?.length || (node.parentId ? 1 : 0));
+  const isCubrefranco = isVendedor && parentCount >= 2;
+
+  // Si es cubrefranco, le damos un estilo visual púrpura/violeta distintivo
+  const baseTypeConfig = NODE_TYPES[node.type?.toUpperCase()] || NODE_TYPES.EMPRESA;
+  const typeConfig = isCubrefranco 
+    ? {
+        ...baseTypeConfig,
+        label: 'Vendedor Cubrefranco',
+        color: '#a855f7', // Púrpura vibrante
+        bgColor: 'rgba(168, 85, 247, 0.15)',
+        borderColor: 'rgba(168, 85, 247, 0.6)',
+        description: `Cubrefranco activo en ${parentCount} puntos de venta simultáneamente.`
+      }
+    : baseTypeConfig;
+
   const StatusIcon = STATUS_ICONS[node.status]?.icon || CheckCircle2;
   const statusColor = STATUS_ICONS[node.status]?.color || '#10b981';
   const IconComponent = ICON_MAP[typeConfig.icon] || Building2;
@@ -63,10 +82,17 @@ export const NexusNode = React.memo(({
   // Formatear valores de métricas
   const formatMetric = (key, value) => {
     if (typeof value === 'number') {
-      if (key.toLowerCase().includes('ventas') || key.toLowerCase().includes('efectivo')) {
-        return `$${value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value}`;
+      if (
+        key.toLowerCase().includes('ventas') || 
+        key.toLowerCase().includes('efectivo') ||
+        key.toLowerCase().includes('capital') ||
+        key.toLowerCase().includes('proyectada') ||
+        key.toLowerCase().includes('ingreso') ||
+        key.toLowerCase().includes('patrimonio')
+      ) {
+        return `$${value >= 1000 ? `${(value / 1000).toFixed(1)}K` : value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
       }
-      return value.toString();
+      return value.toLocaleString('en-US');
     }
     return value;
   };
@@ -75,17 +101,25 @@ export const NexusNode = React.memo(({
   const getMetricLabel = (key) => {
     const labels = {
       sucursales: 'SUCURSALES',
+      sedes: 'SEDES',
       empleados: 'EMPLEADOS',
       ingresos: 'INGRESOS',
+      empresas: 'EMPRESAS',
+      ingresosTotales: 'INGRESOS TOT.',
+      patrimonio: 'PATRIMONIO',
       acceso: 'ACCESO',
       nivel: 'NIVEL',
       productos: 'PRODUCTOS',
+      stockTotal: 'STOCK TOTAL',
       stockBajo: 'STOCK BAJO',
       capacidad: 'CAPACIDAD',
       pedidos: 'PEDIDOS',
+      capitalInvertido: 'CAP. INVERTIDO',
+      ventaProyectada: 'VENTA PROYECT.',
       activos: 'ACTIVOS',
       ventasHoy: 'VENTAS HOY',
       clientes: 'CLIENTES',
+      comisiones: 'COMISIONES',
       abiertas: 'ABIERTAS',
       ventas: 'VENTAS',
       efectivo: 'EFECTIVO',
@@ -121,7 +155,7 @@ export const NexusNode = React.memo(({
         boxShadow: shadowStyle
       }}
       className={`
-        relative w-[260px] min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
+        relative w-[250px] sm:w-[260px] min-h-[150px] sm:min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
         border-2 transition-all duration-200 touch-none select-none
         ${isSelected ? (isDark ? 'ring-2 ring-offset-2 ring-offset-slate-900' : 'ring-2 ring-offset-2 ring-offset-white') : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
@@ -130,33 +164,56 @@ export const NexusNode = React.memo(({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClick?.();
+      }}
     >
-      {/* Connection Point - INPUT (top center) - ZONA TÁCTIL AMPLIADA */}
+      {/* Connection Point - INPUT (top center) - ZONA TÁCTIL Y DROP TARGET AMPLIADO */}
       <div 
         className={`absolute -top-3 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center z-30 ${isConnectingMode ? 'cursor-pointer' : ''}`}
-        onTouchStart={(e) => {
-          if (isConnectingMode && onConnectionEnd) {
+        onMouseDown={(e) => {
+          const hasParents = (node.parentIds?.length > 0) || Boolean(node.parentId);
+          if (hasParents) {
             e.stopPropagation();
-            onConnectionEnd(node);
+            onDisconnectStart?.(e, node);
           }
         }}
-        title="Punto de entrada"
+        onTouchStart={(e) => {
+          const hasParents = (node.parentIds?.length > 0) || Boolean(node.parentId);
+          if (hasParents) {
+            e.stopPropagation();
+            onDisconnectStart?.(e, node);
+          }
+        }}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+          onConnectionEnd?.(node);
+        }}
+        onTouchEnd={(e) => {
+          e.stopPropagation();
+          onConnectionEnd?.(node);
+        }}
+        title={(node.parentIds?.length > 0 || node.parentId) ? "Conectado. Arrastra esta bolita al vacío para desconectar" : "Punto de entrada (Arrastra desde otro nodo aquí)"}
       >
-        <div className={`w-3 h-3 rounded-full border-2 transition-colors duration-300 ${isDark ? 'bg-slate-500 border-slate-800' : 'bg-slate-400 border-white'}`} />
+        <div className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-300 hover:scale-125 ${(node.parentIds?.length > 0 || node.parentId) ? 'bg-blue-500 border-blue-200 ring-2 ring-blue-500/40' : (isDark ? 'bg-slate-500 border-slate-800' : 'bg-slate-400 border-white')}`} />
       </div>
       
       {/* Connection Point - OUTPUT (bottom center) - ZONA TÁCTIL AMPLIADA */}
       <div 
         className={`absolute -bottom-3 left-1/2 -translate-x-1/2 w-8 h-8 flex items-center justify-center z-30 cursor-crosshair touch-none`}
-        onMouseDown={(e) => onConnectionStart?.(e, node)}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onConnectionStart?.(e, node);
+        }}
         onTouchStart={(e) => {
           e.stopPropagation();
           onConnectionStart?.(e, node);
         }}
-        title="Arrastra para conectar a otro nodo"
+        title="Arrastra esta bolita hacia otro nodo para conectarlo"
       >
         <div 
-          className={`w-3 h-3 rounded-full border-2 hover:scale-125 transition-transform shadow-lg ${isDark ? 'border-slate-800' : 'border-white'}`}
+          className={`w-3.5 h-3.5 rounded-full border-2 hover:scale-125 transition-transform shadow-lg ${isDark ? 'border-slate-800' : 'border-white'}`}
           style={{ backgroundColor: typeConfig.color }}
         />
       </div>
@@ -217,10 +274,10 @@ export const NexusNode = React.memo(({
         >
           <button
             onClick={(e) => { e.stopPropagation(); onDelete?.(); setShowMenu(false); }}
-            className={`w-full px-3 py-1.5 text-left text-xs transition-colors flex items-center gap-2 ${isDark ? 'text-red-400 hover:bg-slate-700 hover:text-red-300' : 'text-red-500 hover:bg-slate-100 hover:text-red-600'}`}
+            className={`w-full px-3 py-1.5 text-left text-xs transition-colors flex items-center gap-2 ${isDark ? 'text-amber-400 hover:bg-slate-700 hover:text-amber-300' : 'text-amber-600 hover:bg-slate-100 hover:text-amber-700'}`}
           >
             <Trash2 size={12} />
-            Eliminar
+            Archivar Nodo
           </button>
         </motion.div>
       )}

@@ -12,6 +12,7 @@ class OfflineDatabase {
     this.isInitialized = false;
     this.vfs = null;
     this.SQLite = null;
+    this.initializationPromise = null;
   }
 
   /**
@@ -20,6 +21,23 @@ class OfflineDatabase {
   async initialize() {
     if (this.isInitialized) return this.db;
 
+    // React StrictMode/dev puede montar el provider dos veces y disparar
+    // initialize() en paralelo. Sin este lock, el segundo intento registra
+    // el mismo VFS otra vez y rompe con: "VFS 'miss_chulerias_vfs' already registered".
+    if (this.initializationPromise) return this.initializationPromise;
+
+    this.initializationPromise = this._initialize();
+
+    try {
+      return await this.initializationPromise;
+    } catch (error) {
+      // Permitir un nuevo intento futuro si esta inicialización falló.
+      this.initializationPromise = null;
+      throw error;
+    }
+  }
+
+  async _initialize() {
     try {
       console.log('[OfflineDB] Inicializando SQLite WASM...');
       
@@ -46,16 +64,34 @@ class OfflineDatabase {
       this.vfs = new IDBMinimalVFS('miss_chulerias_vfs');
       this.sqlite.vfs_register(this.vfs, true);
       
-      // Abrir la base de datos
-      this.db = await this.sqlite.open_v2(
-        `${DB_NAME}.db`,
-        this.SQLite.SQLITE_OPEN_CREATE | this.SQLite.SQLITE_OPEN_READWRITE,
-        'miss_chulerias_vfs'
-      );
+      // Abrir + crear esquema (con reintento si el IndexedDB está corrupto)
+      // El error "unable to open database file" (SQLITE_CANTOPEN) o el journal
+      // colgado pueden aparecer tanto en open_v2 como en createSchema (exec).
+      const tryOpenAndInit = async () => {
+        this.db = await this.sqlite.open_v2(
+          `${DB_NAME}.db`,
+          this.SQLite.SQLITE_OPEN_CREATE | this.SQLite.SQLITE_OPEN_READWRITE,
+          'miss_chulerias_vfs'
+        );
+        await this.createSchema();
+      };
 
-      // Crear tablas si no existen
-      await this.createSchema();
-      
+      try {
+        await tryOpenAndInit();
+      } catch (firstError) {
+        console.warn('[OfflineDB] Apertura/esquema falló, purgando IndexedDB y reintentando...', firstError.message);
+        // Cerrar lo que se haya abierto
+        try { if (this.db) await this.sqlite.close(this.db); } catch (e) {}
+        this.db = null;
+        try { await this.vfs.close?.(); } catch (e) {}
+        // Borrar el IndexedDB del navegador para que se regenere limpio
+        await this._purgeIndexedDB();
+        // Reintentar una sola vez usando el mismo VFS ya registrado.
+        // Re-registrarlo con el mismo nombre provoca: "VFS 'miss_chulerias_vfs' already registered".
+        await tryOpenAndInit();
+        console.log('[OfflineDB] Base de datos recreada tras limpieza');
+      }
+
       this.isInitialized = true;
       console.log('[OfflineDB] Base de datos inicializada correctamente');
       
@@ -64,6 +100,36 @@ class OfflineDatabase {
       console.error('[OfflineDB] Error al inicializar:', error);
       throw error;
     }
+  }
+
+  /**
+   * Borra todas las bases de datos IndexedDB del VFS de wa-sqlite.
+   * wa-sqlite guarda cada archivo como una Object Store dentro de una DB
+   * llamada igual que el VFS. Un journal colgado ("file not found: ...-journal")
+   * indica que el estado interno quedó inconsistente y hay que purgarlo.
+   */
+  async _purgeIndexedDB() {
+    return new Promise((resolve) => {
+      const DB_NAMES = ['miss_chulerias_vfs', DB_NAME, `${DB_NAME}.db`, 'IDBMinimalVFS'];
+      let remaining = DB_NAMES.length;
+      const done = () => {
+        remaining -= 1;
+        if (remaining <= 0) resolve();
+      };
+      DB_NAMES.forEach((name) => {
+        try {
+          const req = indexedDB.deleteDatabase(name);
+          req.onsuccess = () => { console.log(`[OfflineDB] IndexedDB "${name}" borrada`); done(); };
+          req.onerror = () => { console.warn(`[OfflineDB] No se pudo borrar "${name}"`); done(); };
+          req.onblocked = () => { console.warn(`[OfflineDB] "${name}" bloqueada, reintentando`); done(); };
+          req.onupgradeneeded = () => done(); // no-op, solo para algunos navegadores
+        } catch (e) {
+          done();
+        }
+      });
+      // Fallback: resolver después de 2s por si los eventos no disparan
+      setTimeout(resolve, 2000);
+    });
   }
 
   /**

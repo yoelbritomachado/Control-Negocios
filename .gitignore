@@ -3,20 +3,58 @@ client/node_modules/
 server/node_modules/
 dist/
 build/
+client/dist/
+client/dev-dist/
+
+# Env & secrets
 .env
 .env.local
+.env.*.local
+
+# Binaries & Archives
 ngrok.exe
 *.zip
+*.rar
+*.7z
+*.tar.gz
+
+# IDE & Editor
 .vscode/
+.idea/
+
+# Temp, Backups & Logs
 _trash/
+_backups/
 backups/
+temp_extract/
+*.log
+*.txt
+*.bak
+*.backup*
+audit_report.json
+migration_report.json
+server/logs/
+server/error_log.txt
+server/server_output.log
+server/error.log
+
+# Databases & User Data
 *.db
 *.db-journal
-backup.mnx
+*.sqlite
+*.sqlite3
+*.mnx
+server/*.db*
+server/inventory.db*
+server/mch_control.db*
+database.sqlite
+server/database.sqlite
+server/uploads/
+
+# Agent metadata
 .agent/
 .agents/
 _incoming_review/
-temp_extract/
 CLAW_PROJECT_MANIFEST.md
 MEMORIA_*.md
 RAILWAY_DEPLOY.md

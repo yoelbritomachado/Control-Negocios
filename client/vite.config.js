@@ -24,46 +24,22 @@ export default defineConfig(async () => {
           start_url: '/',
           icons: [
             {
-              src: '/icons/icon-72x72.png',
-              sizes: '72x72',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-96x96.png',
-              sizes: '96x96',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-128x128.png',
-              sizes: '128x128',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-144x144.png',
-              sizes: '144x144',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-152x152.png',
-              sizes: '152x152',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-192x192.png',
+              src: '/icons/icon-192x192.svg',
               sizes: '192x192',
-              type: 'image/png',
+              type: 'image/svg+xml',
               purpose: 'any maskable'
             },
             {
-              src: '/icons/icon-384x384.png',
-              sizes: '384x384',
-              type: 'image/png'
-            },
-            {
-              src: '/icons/icon-512x512.png',
+              src: '/icons/icon-512x512.svg',
               sizes: '512x512',
-              type: 'image/png',
+              type: 'image/svg+xml',
               purpose: 'any maskable'
+            },
+            {
+              src: '/icons/mask-icon.svg',
+              sizes: '512x512',
+              type: 'image/svg+xml',
+              purpose: 'maskable'
             }
           ]
         },
@@ -71,7 +47,7 @@ export default defineConfig(async () => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
             {
-              urlPattern: /^https:\/\/localhost:3001\/api\/.*/,
+              urlPattern: /^https?:\/\/localhost:(3002|5173)\/api\/.*/,
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'api-cache',
@@ -118,12 +94,12 @@ export default defineConfig(async () => {
       open: false,
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: 'http://localhost:3002',
           changeOrigin: true,
           secure: false,
         },
         '/uploads': {
-          target: 'http://localhost:3001',
+          target: 'http://localhost:3002',
           changeOrigin: true,
           secure: false,
         }

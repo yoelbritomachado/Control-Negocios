@@ -18,7 +18,7 @@ import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 import { SafeImage } from '../components/SafeImage';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Tipos de merma según SYSTEM_LOGIC_RULES.md
 const MERMA_TYPES = [
@@ -164,18 +164,14 @@ export default function MermasPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold gradient-text">Registro de Mermas</h1>
                     <p className="text-muted-foreground">
                         Registra roturas, devoluciones y pérdidas de inventario
                     </p>
                 </div>
-            </motion.div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Type Selection */}

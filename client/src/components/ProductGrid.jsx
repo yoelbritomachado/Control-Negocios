@@ -34,7 +34,7 @@ export default function ProductGrid() {
         }
     };
 
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const API_URL = import.meta.env.VITE_API_URL || '';
 
     if (loading) return (
         <div className="flex flex-col items-center justify-center h-64 text-gray-500 animate-pulse">

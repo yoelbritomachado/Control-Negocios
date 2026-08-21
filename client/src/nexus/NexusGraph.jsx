@@ -147,8 +147,8 @@ export const NexusMinimap = ({
   onNavigate,
   isDark = true
 }) => {
-  const scale = 0.15;
-  const padding = 10;
+  const scale = 0.12; // 20% más pequeño (antes 0.15)
+  const padding = 8;
 
   const bounds = useMemo(() => {
     if (nodes.length === 0) return { minX: 0, minY: 0, maxX: 1000, maxY: 800 };
@@ -168,8 +168,8 @@ export const NexusMinimap = ({
   const height = (bounds.maxY - bounds.minY) * scale + padding * 2;
 
   return (
-    <div className={`absolute bottom-4 right-4 backdrop-blur-sm rounded-lg border p-2 shadow-2xl transition-colors duration-300 ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
-      <div className={`text-[10px] mb-1 text-center transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Vista General</div>
+    <div className={`absolute bottom-4 left-4 z-40 backdrop-blur-sm rounded-lg border p-1.5 shadow-2xl transition-colors duration-300 ${isDark ? 'bg-slate-900/90 border-slate-700' : 'bg-white/90 border-slate-200'}`}>
+      <div className={`text-[9px] mb-0.5 text-center font-medium transition-colors duration-300 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Vista General</div>
       <svg 
         width={width} 
         height={height}

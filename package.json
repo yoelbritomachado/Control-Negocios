@@ -5,6 +5,7 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "test": "node --check server/index.js && cd client && npm run build",
     "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
     "build": "cd client && npm run build",
     "postinstall": "cd server && npm install && cd ../client && npm install"
@@ -12,7 +13,14 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["pos", "inventory", "retail"],
+  "keywords": [
+    "pos",
+    "inventory",
+    "retail"
+  ],
   "author": "Miss Chulerías",
-  "license": "Private"
+  "license": "Private",
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
 }

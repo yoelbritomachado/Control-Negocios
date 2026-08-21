@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Truck,
@@ -8,18 +9,18 @@ import {
     Building2,
     Send,
     RotateCcw,
-    CheckCircle2,
-    Clock,
-    AlertCircle,
     Plus,
     Minus,
     Trash2,
-    X
+    X,
+    Edit3,
+    Save
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
+import api from '../api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const INVENTORIES = [
     { id: 'mch1', label: 'MCH 1', type: 'pv' },
@@ -27,15 +28,12 @@ const INVENTORIES = [
     { id: 'alm', label: 'Almacén', type: 'alm' },
 ];
 
-const STATUS_CONFIG = {
-    pending: { label: 'Pendiente', color: 'amber', icon: Clock },
-    in_transit: { label: 'En Tránsito', color: 'blue', icon: Truck },
-    received: { label: 'Recibido', color: 'green', icon: CheckCircle2 },
-    rejected: { label: 'Rechazado', color: 'red', icon: X },
-};
-
 export default function TrasladosPage() {
     const { currentInventory } = useCart();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
+    const editIdParam = searchParams.get('edit');
+
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -46,10 +44,52 @@ export default function TrasladosPage() {
     const [targetInventory, setTargetInventory] = useState('');
     const [cart, setCart] = useState([]);
     const [notes, setNotes] = useState('');
-    
-    // Transfers list
-    const [transfers, setTransfers] = useState([]);
-    const [showHistory, setShowHistory] = useState(false);
+    const [editingTransfer, setEditingTransfer] = useState(null); // Objeto completo si estamos editando
+
+    // Si viene param ?edit=ID, cargar el traslado para edición
+    useEffect(() => {
+        if (editIdParam) {
+            loadTransferForEdit(editIdParam);
+        } else {
+            setEditingTransfer(null);
+        }
+    }, [editIdParam]);
+
+    const loadTransferForEdit = async (id) => {
+        try {
+            setLoading(true);
+            const res = await api.get(`/transfers/${id}`);
+            const t = res.data;
+            setEditingTransfer(t);
+            setSourceInventory(t.source_inventory);
+            setTargetInventory(t.target_inventory);
+            setNotes(t.notes || '');
+
+            // Reconstruir cart con items
+            const loadedCart = (t.items || []).map(item => ({
+                id: item.product_id,
+                name: item.product_name,
+                code: item.product_code || '',
+                quantity: item.quantity,
+                stock: (item.source_current_stock || 0) + item.quantity, // Stock disponible original
+                image: item.product_image
+            }));
+            setCart(loadedCart);
+        } catch (err) {
+            alert('Error al cargar traslado para edición: ' + (err.response?.data?.error || err.message));
+            cancelEditing();
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const cancelEditing = () => {
+        setEditingTransfer(null);
+        setCart([]);
+        setNotes('');
+        setTargetInventory('');
+        setSearchParams({});
+    };
 
     // Load products from source inventory
     useEffect(() => {
@@ -59,10 +99,8 @@ export default function TrasladosPage() {
     const fetchProducts = async () => {
         try {
             setLoading(true);
-            const response = await fetch(`${API_URL}/products?inventory=${sourceInventory}`);
-            if (!response.ok) throw new Error('Error al cargar productos');
-            const data = await response.json();
-            setProducts(data);
+            const response = await api.get(`/products?inventory=${sourceInventory}`);
+            setProducts(Array.isArray(response.data) ? response.data : []);
         } catch (err) {
             console.error('Error:', err);
         } finally {
@@ -125,8 +163,8 @@ export default function TrasladosPage() {
             if (item.id === productId) {
                 const newQuantity = item.quantity + delta;
                 if (newQuantity <= 0) return item;
-                if (newQuantity > item.stock) {
-                    alert(`Stock insuficiente. Solo hay ${item.stock} unidades.`);
+                if (item.stock !== undefined && newQuantity > item.stock) {
+                    alert(`Stock insuficiente en origen. Solo hay ${item.stock} unidades disponibles en total para este movimiento.`);
                     return item;
                 }
                 return { ...item, quantity: newQuantity };
@@ -154,10 +192,23 @@ export default function TrasladosPage() {
         }
 
         try {
-            const response = await fetch(`${API_URL}/transfers`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            if (editingTransfer) {
+                // Guardar cambios en traslado existente
+                await api.put(`/transfers/${editingTransfer.id}`, {
+                    target_inventory: targetInventory,
+                    notes,
+                    items: cart.map(item => ({
+                        product_id: item.id,
+                        quantity: Number(item.quantity)
+                    }))
+                });
+
+                alert(`Traslado #${editingTransfer.id} actualizado exitosamente.`);
+                cancelEditing();
+                navigate('/historial/traslados');
+            } else {
+                // Crear traslado nuevo
+                await api.post('/transfers', {
                     source_inventory: sourceInventory,
                     target_inventory: targetInventory,
                     items: cart.map(item => ({
@@ -165,52 +216,30 @@ export default function TrasladosPage() {
                         quantity: item.quantity
                     })),
                     notes
-                })
-            });
+                });
 
-            if (!response.ok) throw new Error('Error al crear traslado');
-
-            const result = await response.json();
+                // Reset form
+                setCart([]);
+                setNotes('');
+                setTargetInventory('');
+                
+                alert('Traslado creado exitosamente');
+                navigate('/historial/traslados');
+            }
             
-            // Reset form
-            setCart([]);
-            setNotes('');
-            setTargetInventory('');
-            
-            alert('Traslado creado exitosamente');
-            
-            // Refresh transfers list
-            fetchTransfers();
+            // Refresh products list
+            fetchProducts();
         } catch (err) {
-            alert('Error: ' + err.message);
+            alert('Error: ' + (err.response?.data?.error || err.message));
         }
     };
-
-    const fetchTransfers = async () => {
-        try {
-            const response = await fetch(`${API_URL}/transfers`);
-            if (!response.ok) throw new Error('Error al cargar traslados');
-            const data = await response.json();
-            setTransfers(data);
-        } catch (err) {
-            console.error('Error:', err);
-        }
-    };
-
-    useEffect(() => {
-        fetchTransfers();
-    }, []);
 
     const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
     if (loading) {
         return (
             <div className="flex items-center justify-center h-96">
-                <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full"
-                />
+                <div className="w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
             </div>
         );
     }
@@ -218,46 +247,58 @@ export default function TrasladosPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600">
-                        <Truck className="w-5 h-5 text-white" />
+                    <div className={cn(
+                        "p-2 rounded-xl text-white",
+                        editingTransfer
+                            ? "bg-gradient-to-br from-amber-500 to-orange-600 animate-pulse"
+                            : "bg-gradient-to-br from-violet-500 to-purple-600"
+                    )}>
+                        {editingTransfer ? <Edit3 className="w-5 h-5" /> : <Truck className="w-5 h-5" />}
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold gradient-text">Traslados</h1>
+                        <div className="flex items-center gap-2">
+                            <h1 className="text-2xl font-bold gradient-text">
+                                {editingTransfer ? `Editando Traslado #${editingTransfer.id}` : 'Traslados'}
+                            </h1>
+                            {editingTransfer && (
+                                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                    Modo Edición ({editingTransfer.status === 'received' ? 'Recibido' : 'Pendiente'})
+                                </span>
+                            )}
+                        </div>
                         <p className="text-muted-foreground">
-                            Transferir mercancía entre almacenes y puntos de venta
+                            {editingTransfer 
+                                ? 'Modifique cantidades, destino o notas. El inventario se recalculará automáticamente.' 
+                                : 'Transferir mercancía entre almacenes y puntos de venta'}
                         </p>
                     </div>
                 </div>
                 <div className="flex gap-2">
+                    {editingTransfer && (
+                        <button
+                            onClick={cancelEditing}
+                            className="px-4 py-2 rounded-xl font-medium bg-secondary hover:bg-secondary/80 text-muted-foreground transition-all flex items-center gap-1.5 text-sm"
+                        >
+                            <X className="w-4 h-4" />
+                            Cancelar Edición
+                        </button>
+                    )}
                     <button
-                        onClick={() => setShowHistory(!showHistory)}
-                        className={cn(
-                            "px-4 py-2 rounded-xl font-medium transition-all",
-                            showHistory 
-                                ? "bg-gradient-to-r from-cyan-500 to-blue-500 text-white" 
-                                : "bg-secondary hover:bg-secondary/80"
-                        )}
+                        onClick={() => navigate('/historial/traslados')}
+                        className="px-4 py-2 rounded-xl font-medium transition-all bg-secondary hover:bg-secondary/80 text-slate-200 flex items-center gap-2"
                     >
-                        {showHistory ? 'Nuevo Traslado' : 'Historial'}
+                        <RotateCcw className="w-4 h-4" />
+                        Ver Historial de Traslados
                     </button>
                 </div>
-            </motion.div>
+            </div>
 
-            {!showHistory ? (
-                <>
-                    {/* Inventory Selectors */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.1 }}
-                        className="glass rounded-2xl p-6"
-                    >
+            {/* Formulario Principal de Traslados / Edición */}
+            <>
+                {/* Inventory Selectors */}
+                    <div className="glass rounded-2xl p-6">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {/* Source */}
                             <div>
@@ -301,7 +342,7 @@ export default function TrasladosPage() {
                                 </select>
                             </div>
                         </div>
-                    </motion.div>
+                    </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Product Selection */}
@@ -487,76 +528,27 @@ export default function TrasladosPage() {
                                 className={cn(
                                     "w-full py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
                                     cart.length > 0 && targetInventory
-                                        ? "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
+                                        ? editingTransfer
+                                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-orange-500/25"
+                                            : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
                                         : "bg-secondary text-muted-foreground cursor-not-allowed"
                                 )}
                             >
-                                <Send className="w-5 h-5" />
-                                Enviar Traslado
+                                {editingTransfer ? (
+                                    <>
+                                        <Save className="w-5 h-5" />
+                                        Guardar Cambios del Traslado
+                                    </>
+                                ) : (
+                                    <>
+                                        <Send className="w-5 h-5" />
+                                        Enviar Traslado
+                                    </>
+                                )}
                             </button>
                         </motion.div>
                     </div>
                 </>
-            ) : (
-                /* Transfer History */
-                <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="glass rounded-2xl p-6"
-                >
-                    <h2 className="text-lg font-semibold mb-4">Historial de Traslados</h2>
-                    
-                    {transfers.length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground">
-                            <RotateCcw className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                            <p>No hay traslados registrados</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {transfers.map((transfer) => {
-                                const status = STATUS_CONFIG[transfer.status] || STATUS_CONFIG.pending;
-                                const StatusIcon = status.icon;
-                                
-                                return (
-                                    <div
-                                        key={transfer.id}
-                                        className="p-4 rounded-xl bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-4">
-                                                <div className={cn("p-2 rounded-lg", `bg-${status.color}-500/20`)}>
-                                                    <StatusIcon className={cn("w-5 h-5", `text-${status.color}-400`)} />
-                                                </div>
-                                                <div>
-                                                    <p className="font-medium">
-                                                        Traslado #{transfer.id}
-                                                    </p>
-                                                    <p className="text-sm text-muted-foreground">
-                                                        {INVENTORIES.find(i => i.id === transfer.source_inventory)?.label} 
-                                                        {' → '} 
-                                                        {INVENTORIES.find(i => i.id === transfer.target_inventory)?.label}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <div className="text-right">
-                                                <span className={cn(
-                                                    "inline-flex px-2 py-1 rounded-full text-xs font-medium",
-                                                    `bg-${status.color}-500/20 text-${status.color}-400`
-                                                )}>
-                                                    {status.label}
-                                                </span>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    {new Date(transfer.created_at).toLocaleDateString('es-ES')}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </motion.div>
-            )}
-        </div>
-    );
-}
+            </div>
+        );
+    }

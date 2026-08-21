@@ -22,7 +22,7 @@ import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartProvider';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Ventas de ejemplo para demostración
 const SAMPLE_SALES = [
@@ -165,7 +165,7 @@ const STATUS_CONFIG = {
 
 export default function HistorySalesPage() {
     const navigate = useNavigate();
-    const { cart, setCart, setSavedSales } = useCart();
+    const { currentInventory, cart, setCart, setSavedSales } = useCart();
     const [sales, setSales] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -174,24 +174,39 @@ export default function HistorySalesPage() {
     const [expandedSale, setExpandedSale] = useState(null);
     const [showEditConfirm, setShowEditConfirm] = useState(null);
 
-    useEffect(() => {
-        // Simular carga de datos
-        setTimeout(() => {
-            setSales(SAMPLE_SALES);
+    const fetchSales = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem('token');
+            const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+            const invParam = currentInventory ? `?inventory=${encodeURIComponent(currentInventory)}` : '';
+            const res = await fetch(`${API_URL}/history/sales${invParam}`, { headers });
+            if (!res.ok) throw new Error('Error al obtener ventas');
+            const data = await res.json();
+            setSales(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error('Error fetching sales:', err);
+            setSales([]);
+        } finally {
             setLoading(false);
-        }, 500);
-    }, []);
+        }
+    };
+
+    useEffect(() => {
+        fetchSales();
+    }, [currentInventory]);
 
     const filteredSales = sales.filter(sale => {
+        if (!sale) return false;
         const matchesSearch = !searchQuery || 
-            sale.id.toString().includes(searchQuery) ||
-            sale.seller.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            sale.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+            (sale.id && sale.id.toString().includes(searchQuery)) ||
+            (sale.seller && sale.seller.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (Array.isArray(sale.items) && sale.items.some(item => item?.name && item.name.toLowerCase().includes(searchQuery.toLowerCase())));
         
         const matchesDate = !dateFilter || 
-            new Date(sale.date).toISOString().split('T')[0] === dateFilter;
+            (sale.date && new Date(sale.date).toISOString().split('T')[0] === dateFilter);
         
-        const matchesStatus = !statusFilter || sale.status === statusFilter;
+        const matchesStatus = !statusFilter || (sale.status || 'closed') === statusFilter;
         
         return matchesSearch && matchesDate && matchesStatus;
     });
@@ -282,11 +297,7 @@ export default function HistorySalesPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600">
                         <Receipt className="w-5 h-5 text-white" />
@@ -298,24 +309,17 @@ export default function HistorySalesPage() {
                         </p>
                     </div>
                 </div>
-                <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                <button
                     onClick={() => navigate('/pos')}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-medium hover:shadow-lg hover:shadow-pink-500/25 transition-all"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-medium hover:shadow-lg hover:shadow-pink-500/25 transition-all active:scale-95"
                 >
                     <ShoppingBag className="w-4 h-4" />
                     Nueva Venta
-                </motion.button>
-            </motion.div>
+                </button>
+            </div>
 
             {/* Filters */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="glass rounded-2xl p-4 flex flex-col sm:flex-row gap-4"
-            >
+            <div className="glass rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
@@ -345,15 +349,10 @@ export default function HistorySalesPage() {
                     <option value="pending_review">En Revisión</option>
                     <option value="closed">Cerradas</option>
                 </select>
-            </motion.div>
+            </div>
 
             {/* Sales List */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="space-y-3"
-            >
+            <div className="space-y-3">
                 {filteredSales.length === 0 ? (
                     <div className="glass rounded-2xl p-12 text-center text-muted-foreground">
                         <Package className="w-16 h-16 mx-auto mb-4 opacity-20" />
@@ -362,8 +361,9 @@ export default function HistorySalesPage() {
                     </div>
                 ) : (
                     filteredSales.map((sale, index) => {
-                        const status = STATUS_CONFIG[sale.status];
-                        const StatusIcon = status.icon;
+                        const statusKey = sale?.status || 'closed';
+                        const status = STATUS_CONFIG[statusKey] || STATUS_CONFIG.closed;
+                        const StatusIcon = status?.icon || Eye;
                         const isExpanded = expandedSale === sale.id;
 
                         return (
@@ -373,8 +373,8 @@ export default function HistorySalesPage() {
                                 animate={{ opacity: 1, y: 0 }}
                                 className={cn(
                                     "glass rounded-2xl overflow-hidden transition-all",
-                                    sale.status === 'open' && "border-l-4 border-l-cyan-500",
-                                    sale.status === 'pending_review' && "border-l-4 border-l-amber-500"
+                                    statusKey === 'open' && "border-l-4 border-l-cyan-500",
+                                    statusKey === 'pending_review' && "border-l-4 border-l-amber-500"
                                 )}
                             >
                                 {/* Main Row */}
@@ -483,22 +483,22 @@ export default function HistorySalesPage() {
                                                 <div>
                                                     <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
                                                         <Package className="w-4 h-4 text-muted-foreground" />
-                                                        Productos ({sale.items.length})
+                                                        Productos ({Array.isArray(sale.items) ? sale.items.length : 0})
                                                     </h4>
                                                     <div className="space-y-2">
-                                                        {sale.items.map((item, idx) => (
+                                                        {(sale.items || []).map((item, idx) => (
                                                             <div 
-                                                                key={item.id || item.product_id || `item-${idx}-${item.name?.replace(/\s+/g, '-') || 'unknown'}`}
+                                                                key={item?.id || item?.product_id || `item-${idx}-${item?.name?.replace(/\s+/g, '-') || 'unknown'}`}
                                                                 className="flex items-center justify-between py-2 px-3 rounded-lg bg-background/50"
                                                             >
                                                                 <div className="flex items-center gap-3">
                                                                     <span className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-xs text-muted-foreground">
-                                                                        {item.quantity}
+                                                                        {item?.quantity || 1}
                                                                     </span>
-                                                                    <span className="text-sm">{item.name}</span>
+                                                                    <span className="text-sm">{item?.name || 'Producto'}</span>
                                                                 </div>
                                                                 <span className="text-sm font-medium">
-                                                                    ${parseFloat(item.price).toFixed(2)}
+                                                                    ${parseFloat(item?.price || 0).toFixed(2)}
                                                                 </span>
                                                             </div>
                                                         ))}
@@ -531,7 +531,7 @@ export default function HistorySalesPage() {
                         );
                     })
                 )}
-            </motion.div>
+            </div>
 
             {/* Confirm Modal */}
             <AnimatePresence>

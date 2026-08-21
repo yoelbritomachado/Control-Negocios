@@ -164,18 +164,14 @@ export default function MainLayout() {
         document.documentElement.classList.add('dark');
     }, []);
 
+    const isNexus = location.pathname.startsWith('/nexus');
+
     return (
         <div className={cn(
             'min-h-screen transition-colors duration-500 flex',
             isDark ? 'dark' : ''
         )}>
             {/* Welcome Animation */}
-            <AnimatePresence>
-                {showWelcome && (
-                    <WelcomeAnimation onComplete={() => setShowWelcome(false)} />
-                )}
-            </AnimatePresence>
-
             {/* Background */}
             <AnimatedBackground />
 
@@ -187,22 +183,22 @@ export default function MainLayout() {
 
             {/* Main Content */}
             <main className={cn(
-                'transition-all duration-500 min-h-screen flex-1 overflow-x-hidden',
+                'transition-all duration-500 flex-1',
+                isNexus ? 'h-dvh max-h-dvh overflow-hidden flex flex-col' : 'min-h-screen overflow-x-hidden',
                 // En móvil: padding-top para el botón de menú, sin margin-left
                 // En desktop: margin-left para el sidebar (72 = 18rem = w-72)
                 'pt-16 lg:pt-0',
                 'lg:ml-72'
             )}>
-                <div className="p-3 sm:p-4 lg:p-8 max-w-full">
+                <div className={cn(
+                    'w-full max-w-full',
+                    isNexus ? 'p-2 sm:p-3 lg:p-4 flex-1 flex flex-col min-h-0 overflow-hidden' : 'p-3 sm:p-4 lg:p-8'
+                )}>
                     <Header />
 
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, delay: 0.2 }}
-                    >
+                    <div className={isNexus ? 'flex-1 min-h-0 w-full flex flex-col relative overflow-hidden' : ''}>
                         <Outlet />
-                    </motion.div>
+                    </div>
                 </div>
             </main>
         </div>

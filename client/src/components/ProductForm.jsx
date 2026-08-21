@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom';
 import { FaTimes, FaUpload, FaClipboard, FaCalculator, FaCheckCircle, FaExclamationCircle, FaImage, FaCrop, FaPaste, FaCamera, FaTrash, FaTag } from 'react-icons/fa';
 import Cropper from 'react-easy-crop';
+import { getAdaptiveImageUrl } from '../lib/imageUtils';
 
 // Throttle utility
 const throttle = (fn, wait) => {
@@ -96,7 +97,7 @@ async function getCroppedImg(imageSrc, pixelCrop) {
   });
 }
 
-const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
+const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings, isUnifying = false }) => {
   const [formData, setFormData] = useState({
     name: '',
     quantity: 0,
@@ -637,21 +638,19 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     // If it's a blob (locally uploaded), return as is
     if (url.startsWith('blob:')) return url;
 
+    let normalized = url;
     // Aggressive fix for stored absolute paths or bad formats
     // If it contains "uploads", extract everything after "uploads"
     if (url.includes('uploads')) {
       const parts = url.split('uploads');
       // Take the last part, ensure it starts with /uploads
-      const relative = '/uploads' + parts[parts.length - 1];
+      normalized = '/uploads' + parts[parts.length - 1];
       // Clean double slashes just in case
-      return relative.replace('//', '/').replace(/\\/g, '/');
+      normalized = normalized.replace('//', '/').replace(/\\/g, '/');
+    } else if (!url.startsWith('http')) {
+      normalized = url.startsWith('/') ? url : `/${url}`;
     }
-
-    // If it's relative, ensure it starts with /
-    if (!url.startsWith('http')) {
-      return url.startsWith('/') ? url : `/${url}`;
-    }
-    return url;
+    return getAdaptiveImageUrl(normalized);
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -738,7 +737,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 sticky top-0 z-20">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {initialData ? 'Editar Producto' : 'Nuevo Producto'}
+            {isUnifying ? 'Unificar Producto' : (initialData ? 'Editar Producto' : 'Nuevo Producto')}
           </h2>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
             <FaTimes size={20} />
@@ -991,7 +990,7 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
               disabled={isSubmitting}
               className={`px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/30 transition transform active:scale-95 uppercase text-xs tracking-wider flex items-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
-              {isSubmitting ? 'Guardando...' : (initialData ? 'Actualizar' : 'Guardar Producto')}
+              {isSubmitting ? 'Guardando...' : (isUnifying ? 'Guardar Producto Unificado' : (initialData ? 'Actualizar' : 'Guardar Producto'))}
             </button>
           </div>
         </form>

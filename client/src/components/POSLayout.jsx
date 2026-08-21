@@ -15,7 +15,7 @@ import {
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
     Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
-    CreditCard
+    CreditCard, Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
@@ -516,6 +516,8 @@ export default function POSLayout() {
     const [showReturn, setShowReturn] = useState(false);
     const [showClose, setShowClose] = useState(false);
     const [showPayment, setShowPayment] = useState(false);
+    const [showSaveTicketModal, setShowSaveTicketModal] = useState(false);
+    const [ticketCustomName, setTicketCustomName] = useState('');
     const [sessionMetrics, setSessionMetrics] = useState(null);
 
     // Confirm Modals
@@ -532,6 +534,14 @@ export default function POSLayout() {
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
+    const [serverDate, setServerDate] = useState(null); // Fecha del servidor (no del dispositivo)
+
+    // Cargar fecha del servidor al montarse
+    useEffect(() => {
+        api.get('/sessions/status').then(res => {
+            if (res.data.serverDate) setServerDate(res.data.serverDate);
+        }).catch(() => {});
+    }, []);
 
     // Mobile view state
     const [mobileView, setMobileView] = useState('cart'); // 'cart' | 'tickets'
@@ -611,22 +621,34 @@ export default function POSLayout() {
 
     const handleSaveSale = () => {
         if (cart.length === 0) return;
+        setTicketCustomName('');
+        setShowSaveTicketModal(true);
+    };
+
+    const confirmSaveSale = (customName) => {
+        if (cart.length === 0) return;
+
+        const defaultLabel = `Ticket #${savedSales.length + 1}`;
+        const finalName = (customName && customName.trim() !== '') ? customName.trim() : defaultLabel;
 
         const savedSale = {
             id: `saved-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: finalName,
             items: [...cart],
             total: total,
-            time: new Date().toLocaleTimeString(),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             status: 'saved',
             inventoryId: currentInventory
         };
 
         setSavedSales(prev => [savedSale, ...prev]);
         clearCart();
+        setShowSaveTicketModal(false);
+        setTicketCustomName('');
         setAlertModal({
             isOpen: true,
-            title: 'Venta guardada',
-            message: 'Venta guardada. No se suma al total de la sesion hasta que se cobre.',
+            title: 'Ticket Guardado',
+            message: `Ticket "${finalName}" guardado con éxito. Puedes recuperarlo en cualquier momento desde la lista lateral.`,
             type: 'info'
         });
     };
@@ -644,47 +666,120 @@ export default function POSLayout() {
             return;
         }
 
-        // Si hay productos en el carrito, guardarlos primero como venta guardada
+        // Validación de stock en tiempo real antes de cargar
+        let availableItems = [];
+        let stockWarnings = [];
+
+        try {
+            const currentCatalog = await fetchProducts('');
+            const catalogMap = new Map(currentCatalog.map(p => [p.id, p]));
+
+            for (const item of (sale.items || [])) {
+                const prodId = item.product_id || item.id;
+                const freshProduct = catalogMap.get(prodId);
+                const currentStock = freshProduct?.inventory?.[currentInventory] ?? freshProduct?.total_quantity ?? 0;
+
+                if (!freshProduct || currentStock <= 0) {
+                    stockWarnings.push(`• ${item.name || 'Producto'}: Agotado en este momento (0 disponibles).`);
+                } else if (currentStock < item.quantity) {
+                    stockWarnings.push(`• ${item.name || 'Producto'}: Se ajustó de ${item.quantity} a ${currentStock} uds por disponibilidad.`);
+                    availableItems.push({
+                        ...item,
+                        id: prodId,
+                        quantity: currentStock
+                    });
+                } else {
+                    availableItems.push({
+                        ...item,
+                        id: prodId
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn('No se pudo verificar el stock fresco, cargando items guardados:', e);
+            availableItems = (sale.items || []).map(item => ({
+                ...item,
+                id: item.product_id || item.id
+            }));
+        }
+
+        if (availableItems.length === 0) {
+            setAlertModal({
+                isOpen: true,
+                title: 'Productos No Disponibles',
+                message: (
+                    <div className="space-y-2">
+                        <p className="text-rose-400 font-medium">Ninguno de los productos de este ticket tiene stock disponible actualmente en esta sede:</p>
+                        <div className="text-xs text-muted-foreground space-y-1 bg-secondary/30 p-2 rounded-lg">
+                            {stockWarnings.map((w, idx) => <div key={idx}>{w}</div>)}
+                        </div>
+                    </div>
+                ),
+                type: 'danger'
+            });
+            return;
+        }
+
+        const proceedLoadingCart = () => {
+            setCart(availableItems);
+            setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+            if (stockWarnings.length > 0) {
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Ajuste de Disponibilidad',
+                    message: (
+                        <div className="space-y-2">
+                            <p className="text-amber-400 font-medium">Algunos productos cambiaron de stock mientras el ticket estaba en espera:</p>
+                            <div className="text-xs text-muted-foreground space-y-1 bg-secondary/30 p-2 rounded-lg">
+                                {stockWarnings.map((w, idx) => <div key={idx}>{w}</div>)}
+                            </div>
+                        </div>
+                    ),
+                    type: 'warning'
+                });
+            }
+        };
+
+        // Si hay productos en el carrito actual, preguntar qué hacer
         if (cart.length > 0) {
             setConfirmModal({
                 isOpen: true,
                 title: 'Carrito con productos',
-                message: 'Tienes productos en el carrito. ¿Guardar el carrito actual como ticket pendiente y cargar esta venta?',
+                message: 'Tienes productos en el carrito actual. ¿Deseas guardar el carrito actual como ticket pendiente y cargar este ticket guardado?',
                 type: 'warning',
                 onConfirm: () => {
-                    // Guardar carrito actual como venta guardada
-                    const savedSale = {
+                    const savedCurrent = {
                         id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        name: `Ticket #${savedSales.length + 1}`,
                         items: [...cart],
                         total: total,
-                        time: new Date().toLocaleTimeString(),
-                        date: new Date().toISOString()
+                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        status: 'saved',
+                        inventoryId: currentInventory
                     };
-                    setSavedSales(prev => [savedSale, ...prev]);
-
-                    // Cargar items de la venta al carrito
-                    const newCartItems = sale.items.map((item) => ({
-                        ...item,
-                        id: item.product_id || item.id
-                    }));
-                    setCart(newCartItems);
-
-                    // Eliminar la venta guardada
-                    setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+                    setSavedSales(prev => [savedCurrent, ...prev.filter(s => s.id !== sale.id)]);
+                    setCart(availableItems);
+                    if (stockWarnings.length > 0) {
+                        setAlertModal({
+                            isOpen: true,
+                            title: 'Ajuste de Disponibilidad',
+                            message: (
+                                <div className="space-y-2">
+                                    <p className="text-amber-400 font-medium">Algunos productos cambiaron de stock mientras el ticket estaba en espera:</p>
+                                    <div className="text-xs text-muted-foreground space-y-1 bg-secondary/30 p-2 rounded-lg">
+                                        {stockWarnings.map((w, idx) => <div key={idx}>{w}</div>)}
+                                    </div>
+                                </div>
+                            ),
+                            type: 'warning'
+                        });
+                    }
                 }
             });
             return;
         }
 
-        // Cargar items de la venta al carrito
-        const newCartItems = sale.items.map((item) => ({
-            ...item,
-            id: item.product_id || item.id
-        }));
-        setCart(newCartItems);
-
-        // Eliminar la venta guardada
-        setSavedSales(prev => prev.filter(s => s.id !== sale.id));
+        proceedLoadingCart();
     };
 
     const handleDeleteSavedSale = (saleId) => {
@@ -1332,10 +1427,10 @@ export default function POSLayout() {
                                                 </div>
                                                 <div>
                                                     <div className="font-semibold text-foreground text-sm flex items-center gap-2">
-                                                        Venta #{sale.id}
-                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">GUARDADA</span>
+                                                        <span>{sale.name || `Ticket #${sale.id}`}</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">EN ESPERA</span>
                                                     </div>
-                                                    <div className="text-xs text-muted-foreground">{sale.time} • Pendiente de cobro</div>
+                                                    <div className="text-xs text-muted-foreground">{sale.time} • {sale.items?.length || 0} producto(s)</div>
                                                 </div>
                                             </div>
                                             <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
@@ -1484,6 +1579,7 @@ export default function POSLayout() {
                 <AnimatePresence>
                     {showExpense && (
                         <ExpenseModal
+                            key="expense-modal"
                             onClose={() => setShowExpense(false)}
                             onSave={async (data) => {
                                 try {
@@ -1513,6 +1609,7 @@ export default function POSLayout() {
                     )}
                     {showReturn && (
                         <ReturnsModule
+                            key="returns-module"
                             onClose={() => setShowReturn(false)}
                             onSave={async (returnData) => {
                                 try {
@@ -1554,6 +1651,7 @@ export default function POSLayout() {
                     )}
                     {showClose && (
                         <CloseSessionModal
+                            key="close-session-modal"
                             metrics={sessionMetrics}
                             summary={closeSummary}
                             onClose={() => setShowClose(false)}
@@ -1563,15 +1661,94 @@ export default function POSLayout() {
                     )}
                     {showPayment && (
                         <PaymentModal
+                            key="payment-modal"
                             total={total}
                             onClose={() => setShowPayment(false)}
                             onConfirm={processPayment}
                         />
                     )}
 
+                    {/* Modal Guardar Ticket con Nombre Personalizado */}
+                    {showSaveTicketModal && (
+                        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="bg-card border border-border/60 rounded-2xl p-6 w-full max-w-md shadow-2xl relative"
+                            >
+                                <div className="flex items-center justify-between pb-3 border-b border-border/40">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                                            <Save className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-foreground text-lg">Guardar Ticket</h3>
+                                            <p className="text-xs text-muted-foreground">Ponle un nombre o referencia para identificarlo</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowSaveTicketModal(false)}
+                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        confirmSaveSale(ticketCustomName);
+                                    }}
+                                    className="mt-4 space-y-4"
+                                >
+                                    <div>
+                                        <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
+                                            Nombre del Cliente o Referencia:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            autoFocus
+                                            value={ticketCustomName}
+                                            onChange={(e) => setTicketCustomName(e.target.value)}
+                                            placeholder={`Ej: Cliente Juan / Ticket #${savedSales.length + 1}`}
+                                            className="w-full px-4 py-2.5 rounded-xl bg-secondary/50 border border-border focus:border-amber-500/50 focus:ring-2 focus:ring-amber-500/20 text-foreground text-sm outline-none transition-all placeholder:text-muted-foreground/50"
+                                        />
+                                        <span className="text-[11px] text-muted-foreground mt-1 block">
+                                            Si lo dejas vacío, se guardará como <strong>Ticket #{savedSales.length + 1}</strong>.
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-secondary/30 rounded-xl p-3 border border-white/5 flex items-center justify-between text-xs">
+                                        <span className="text-muted-foreground">Productos en ticket: <strong>{cart.length}</strong></span>
+                                        <span className="text-amber-400 font-bold font-mono text-sm">${total.toFixed(2)} CUP</span>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2 pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowSaveTicketModal(false)}
+                                            className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-1.5"
+                                        >
+                                            <Save className="w-4 h-4" />
+                                            Guardar Ticket
+                                        </button>
+                                    </div>
+                                </form>
+                            </motion.div>
+                        </div>
+                    )}
+
                     {/* Confirm Modals */}
                     {showCartConfirm && (
                         <ConfirmModal
+                            key="cart-confirm"
                             isOpen={showCartConfirm}
                             onClose={() => setShowCartConfirm(false)}
                             onConfirm={() => handleCartConfirm(true)}
@@ -1592,6 +1769,7 @@ export default function POSLayout() {
 
                     {showSavedConfirm && (
                         <ConfirmModal
+                            key="saved-confirm"
                             isOpen={showSavedConfirm}
                             onClose={() => setShowSavedConfirm(false)}
                             onConfirm={() => handleSavedConfirm(true)}
@@ -1612,6 +1790,7 @@ export default function POSLayout() {
 
                     {/* Dynamic Alert Modal */}
                     <AlertModal
+                        key="alert-modal"
                         isOpen={alertModal.isOpen}
                         onClose={() => {
                             if (alertModal.onClose) {
@@ -1626,6 +1805,7 @@ export default function POSLayout() {
 
                     {/* Dynamic Confirm Modal */}
                     <ConfirmModal
+                        key="confirm-modal"
                         isOpen={confirmModal.isOpen}
                         onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
                         onConfirm={() => {

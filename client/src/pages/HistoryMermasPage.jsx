@@ -14,7 +14,7 @@ import {
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const MERMA_TYPE_CONFIG = {
     rotura_interna: {
@@ -113,11 +113,7 @@ export default function HistoryMermasPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-            >
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-xl bg-gradient-to-br from-red-500 to-orange-600">
                         <Trash2 className="w-5 h-5 text-white" />
@@ -133,15 +129,10 @@ export default function HistoryMermasPage() {
                     <Building2 className="w-4 h-4 text-muted-foreground" />
                     <span className="text-sm font-medium">{currentInventory.toUpperCase()}</span>
                 </div>
-            </motion.div>
+            </div>
 
             {/* Filters */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="glass rounded-2xl p-4 flex flex-col sm:flex-row gap-4"
-            >
+            <div className="glass rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <input
@@ -171,15 +162,10 @@ export default function HistoryMermasPage() {
                     <option value="devolucion_nuevo">Devolución Nuevo</option>
                     <option value="devolucion_danado">Devolución Dañado</option>
                 </select>
-            </motion.div>
+            </div>
 
             {/* Mermas Table */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="glass rounded-2xl overflow-hidden"
-            >
+            <div className="glass rounded-2xl overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead>
@@ -253,15 +239,10 @@ export default function HistoryMermasPage() {
                         </tbody>
                     </table>
                 </div>
-            </motion.div>
+            </div>
 
-            {/* Summary */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="grid grid-cols-1 sm:grid-cols-3 gap-4"
-            >
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="glass rounded-2xl p-4 flex items-center gap-4">
                     <div className="p-3 rounded-xl bg-red-500/20 text-red-400">
                         <Trash2 className="w-6 h-6" />
@@ -295,7 +276,7 @@ export default function HistoryMermasPage() {
                         <p className="text-sm text-muted-foreground">Devoluciones Dañadas</p>
                     </div>
                 </div>
-            </motion.div>
+            </div>
         </div>
     );
 }

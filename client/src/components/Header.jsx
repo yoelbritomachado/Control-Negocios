@@ -17,7 +17,15 @@ import {
   Clock,
   CheckCheck,
   AlertCircle,
-  Info
+  Info,
+  Grid3X3,
+  Truck,
+  AlertTriangle,
+  Receipt,
+  Trash2,
+  Database,
+  Settings,
+  UserCheck
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -25,14 +33,24 @@ import { useCart } from './CartProvider';
 import { useRole, ROLES } from '../hooks/useRole';
 import { useNotifications } from '../hooks/useNotifications';
 import { OfflineStatusBar, SyncButton } from '../offline';
+import ProfileModal from './ProfileModal';
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Monitoreo activo de flujos de caja', icon: LayoutDashboard },
   '/pos': { title: 'Punto de Venta', subtitle: 'Sistema de cobro y gestion de ventas', icon: ShoppingCart },
-  '/entradas': { title: 'Inventario', subtitle: 'Control de stock y productos', icon: Package },
-  '/compras': { title: 'Compras', subtitle: 'Gestion de entradas de mercancia', icon: ArrowLeftRight },
-  '/usuarios': { title: 'Usuarios', subtitle: 'Administracion de usuarios y permisos', icon: Users },
-  '/historial': { title: 'Historial', subtitle: 'Registro de operaciones del sistema', icon: History },
+  '/inventario': { title: 'Inventario', subtitle: 'Control de stock y productos', icon: Package },
+  '/entradas': { title: 'Entradas de Mercancía', subtitle: 'Recepción y registro de compras', icon: ArrowLeftRight },
+  '/compras': { title: 'Compras', subtitle: 'Gestión de órdenes y compras', icon: ArrowLeftRight },
+  '/traslados': { title: 'Traslados', subtitle: 'Movimiento de stock entre sedes', icon: Truck },
+  '/mermas': { title: 'Mermas y Ajustes', subtitle: 'Control de pérdidas y bajas de producto', icon: AlertTriangle },
+  '/usuarios': { title: 'Usuarios y Permisos', subtitle: 'Administración de personal y accesos', icon: Users },
+  '/nexus': { title: 'Nexus Node', subtitle: 'Arquitectura y topología nodal del negocio', icon: Grid3X3 },
+  '/historial': { title: 'Historial', subtitle: 'Registro general de operaciones', icon: History },
+  '/historial/ventas': { title: 'Historial de Ventas', subtitle: 'Auditoría de tickets y cobros', icon: Receipt },
+  '/historial/traslados': { title: 'Historial de Traslados y Entradas', subtitle: 'Registro de transferencias y recepciones', icon: ArrowLeftRight },
+  '/historial/mermas': { title: 'Historial de Mermas', subtitle: 'Auditoría de bajas y ajustes', icon: Trash2 },
+  '/configuracion': { title: 'Configuración', subtitle: 'Ajustes del sistema y preferencias', icon: Settings },
+  '/admin/migracion': { title: 'Migración y Backups', subtitle: 'Gestión de datos y bases legadas', icon: Database },
 };
 
 const inventoryLabels = {
@@ -83,6 +101,7 @@ export function Header() {
   const { notifications, unreadCount, markAsRead, markAllAsRead, isOnline } = useNotifications();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const currentPage = pageTitles[location.pathname] || pageTitles['/'];
   const PageIcon = currentPage.icon;
@@ -119,37 +138,40 @@ export function Header() {
     markAllAsRead();
   };
 
+  const isNexus = location.pathname.startsWith('/nexus');
+
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-      className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 lg:gap-4 mb-6 lg:mb-8"
-    >
-      {/* Left Side - Title */}
-      <div className="min-w-0 pl-12 lg:pl-0">
-        <div className="flex items-center gap-2 lg:gap-3 mb-1">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full bg-cyan-400 animate-pulse flex-shrink-0"
-          />
-          <p className="text-[10px] lg:text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
-            {currentPage.subtitle}
-          </p>
+    <header className={cn(
+      "flex flex-col lg:flex-row lg:items-center justify-between gap-3 lg:gap-4",
+      isNexus ? "mb-2 lg:mb-3" : "mb-6 lg:mb-8"
+    )}>
+      {/* Top Mobile Bar / Title Header */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 pl-12 lg:pl-0">
+          <div className="flex items-center gap-2 lg:gap-3 mb-1">
+            <div className="w-1.5 h-1.5 lg:w-2 lg:h-2 rounded-full bg-cyan-400 flex-shrink-0" />
+            <p className="text-[10px] lg:text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
+              {currentPage.subtitle}
+            </p>
+          </div>
+          <h1 className="text-lg sm:text-xl lg:text-3xl font-bold tracking-tight flex items-center gap-1.5 lg:gap-3">
+            <PageIcon className="w-5 h-5 lg:w-7 lg:h-7 text-cyan-400 flex-shrink-0" />
+            <span className="truncate">{currentPage.title}:</span>
+            <span className="gradient-text-cyan truncate">{inventoryLabel}</span>
+          </h1>
         </div>
-        <h1 className="text-lg sm:text-xl lg:text-3xl font-bold tracking-tight flex items-center gap-1.5 lg:gap-3">
-          <PageIcon className="w-5 h-5 lg:w-7 lg:h-7 text-cyan-400 flex-shrink-0" />
-          <span className="truncate">{currentPage.title}:</span>
-          <span className="gradient-text-cyan truncate">{inventoryLabel}</span>
-        </h1>
+
+        {/* Action icons en móvil alineados a la derecha del header */}
+        <div className="flex lg:hidden items-center gap-2">
+          {/* Offline Status */}
+          <OfflineStatusBar />
+        </div>
       </div>
 
-      {/* Right Side - Actions */}
-      <div className="flex items-center gap-2 lg:gap-3">
-        {/* Offline Status Bar */}
-        <div className="hidden sm:block">
+      {/* Right Side - Actions & Dropdowns */}
+      <div className="flex items-center justify-end gap-2 lg:gap-3">
+        {/* Offline Status Bar (Desktop) */}
+        <div className="hidden lg:block">
           <OfflineStatusBar />
         </div>
         
@@ -163,7 +185,10 @@ export function Header() {
         {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
           <div className="relative">
             <motion.button
-              onClick={() => setNotificationsOpen(!notificationsOpen)}
+              onClick={() => {
+                setNotificationsOpen(!notificationsOpen);
+                setRoleDropdownOpen(false);
+              }}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className={cn(
@@ -193,7 +218,7 @@ export function Header() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 10, scale: 0.95 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-full mt-2 w-96 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+                  className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full sm:mt-2 w-[calc(100vw-1rem)] sm:w-96 max-w-sm bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
                 >
                   <div className="p-3 border-b border-slate-800 flex items-center justify-between">
                     <h3 className="font-semibold text-sm">Notificaciones</h3>
@@ -208,7 +233,7 @@ export function Header() {
                     )}
                   </div>
                   
-                  <div className="max-h-80 overflow-y-auto">
+                  <div className="max-h-80 overflow-y-auto custom-scrollbar">
                     {!isOnline ? (
                       <div className="p-8 text-center">
                         <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center mx-auto mb-2">
@@ -275,7 +300,10 @@ export function Header() {
         {/* Role & User Profile Dropdown */}
         <div className="relative">
           <motion.button
-            onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
+            onClick={() => {
+              setRoleDropdownOpen(!roleDropdownOpen);
+              setNotificationsOpen(false);
+            }}
             whileHover={{ scale: 1.02 }}
             className={cn(
               'flex items-center gap-2 lg:gap-3 p-1.5 lg:p-2 pl-2 lg:pl-3 pr-2 lg:pr-3 rounded-xl',
@@ -308,10 +336,21 @@ export function Header() {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+                className="fixed sm:absolute right-2 sm:right-0 top-16 sm:top-full sm:mt-2 w-[calc(100vw-1rem)] sm:w-56 max-w-xs bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
               >
-                <div className="p-3 border-b border-slate-800">
+                <div className="p-3 border-b border-slate-800 flex items-center justify-between">
                   <p className="text-xs text-muted-foreground uppercase tracking-wider">Cambiar Rol</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoleDropdownOpen(false);
+                      setProfileOpen(true);
+                    }}
+                    className="text-[11px] text-cyan-400 hover:text-cyan-300 font-medium hover:underline flex items-center gap-1"
+                  >
+                    <User className="w-3 h-3" />
+                    <span>Mi Perfil</span>
+                  </button>
                 </div>
                 
                 {Object.values(RolesList).map((role) => {
@@ -371,6 +410,12 @@ export function Header() {
           }}
         />
       )}
-    </motion.header>
+
+      {/* Modal de Mi Perfil */}
+      <ProfileModal 
+        isOpen={profileOpen} 
+        onClose={() => setProfileOpen(false)} 
+      />
+    </header>
   );
 }

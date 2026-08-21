@@ -155,12 +155,12 @@ export const VISUAL_CONFIG = {
 
 // Plantillas de métricas por tipo
 export const DEFAULT_METRICS = {
-  dueño: { empresas: 0, ingresosTotales: 0, patrimonio: 0 },
-  empresa: { sucursales: 0, empleados: 0, ingresos: 0 },
+  dueño: { empresas: 1, ingresosTotales: 0, patrimonio: 0 },
+  empresa: { sedes: 3, empleados: 0, ingresos: 0 },
   administrador: { acceso: 'Total', nivel: 'Admin', salario: 0 },
-  almacén: { productos: 0, stockBajo: 0, capacidad: '0%', pedidos: 0 },
-  punto_de_venta: { ventasHoy: 0, vendedoresActivos: 0, cajasAbiertas: 0, inventarioLocal: 0 },
-  vendedor: { activos: 1, ventasHoy: 0, clientes: 0, comisiones: 0 }
+  almacén: { stockTotal: 0, capitalInvertido: 0, ventaProyectada: 0, productos: 0 },
+  punto_de_venta: { stockTotal: 0, capitalInvertido: 0, ventaProyectada: 0, ventasHoy: 0 },
+  vendedor: { ventasHoy: 0, comisiones: 0, transacciones: 0 }
 };
 
 // Iconos disponibles (SVG paths)

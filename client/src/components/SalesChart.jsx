@@ -1,248 +1,145 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-    BarChart,
-    Bar,
+    AreaChart,
+    Area,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Cell,
 } from 'recharts';
-import { TrendingUp, Download, Filter } from 'lucide-react';
+import { TrendingUp, BarChart3, Calendar } from 'lucide-react';
 import { cn } from '../lib/utils';
-
-// Generate data once - outside component to prevent regeneration on every render
-const generateSalesData = () => {
-    const data = [];
-    for (let i = 1; i <= 30; i++) {
-        const baseValue = 5000 + Math.random() * 3000;
-        const weekendFactor = (i % 7 === 0 || i % 7 === 6) ? 0.7 : 1;
-        data.push({
-            day: i,
-            sales: Math.round(baseValue * weekendFactor),
-            isToday: i === 30,
-        });
-    }
-    return data;
-};
-
-const salesData = generateSalesData();
 
 const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
-        // Simplified tooltip without heavy animations to reduce GPU usage
+        const data = payload[0].payload;
         return (
-            <div className="bg-popover/95 backdrop-blur-xl border border-border/50 rounded-xl p-4 shadow-xl bg-gray-900 border-gray-700 text-white animate-in fade-in duration-150">
-                <p className="text-sm font-medium text-gray-400 mb-1">
-                    Día {label}
+            <div className="bg-slate-900/95 backdrop-blur-xl border border-cyan-500/30 rounded-xl p-3 shadow-2xl text-white">
+                <p className="text-xs font-semibold text-slate-400 mb-1 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{label}</span>
                 </p>
-                <p className="text-lg font-bold text-cyan-400">
-                    ${payload[0].value.toLocaleString('es-CU')}
+                <p className="text-base font-bold text-cyan-400">
+                    ${Number(payload[0].value || 0).toLocaleString('es-CU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CUP
                 </p>
+                {data.count !== undefined && (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                        {data.count} venta(s) registrada(s)
+                    </p>
+                )}
             </div>
         );
     }
     return null;
 };
 
-export function SalesChart() {
-    const [selectedMonth, setSelectedMonth] = useState('current');
-    const [hoveredBar, setHoveredBar] = useState(null);
+export function SalesChart({ data = [], loading = false }) {
     const [isMounted, setIsMounted] = useState(false);
-    
-    // Delay chart render to avoid dimension errors
+
     useEffect(() => {
         const timer = setTimeout(() => setIsMounted(true), 100);
         return () => clearTimeout(timer);
     }, []);
 
-    // Memoize calculations to prevent recalculation on every render
+    const chartData = useMemo(() => {
+        if (!Array.isArray(data) || data.length === 0) return [];
+        return data.map(item => ({
+            day: item.day,
+            sales: Number(item.sales || 0),
+            count: item.count || 0
+        }));
+    }, [data]);
+
     const { totalSales, avgSales, maxSales } = useMemo(() => {
-        const total = salesData.reduce((acc, curr) => acc + curr.sales, 0);
+        if (chartData.length === 0) return { totalSales: 0, avgSales: 0, maxSales: 0 };
+        const total = chartData.reduce((acc, curr) => acc + curr.sales, 0);
         return {
             totalSales: total,
-            avgSales: total / salesData.length,
-            maxSales: Math.max(...salesData.map(d => d.sales))
+            avgSales: total / chartData.length,
+            maxSales: Math.max(...chartData.map(d => d.sales), 0)
         };
-    }, []);
-
-    // Memoized mouse handlers to prevent unnecessary re-renders
-    const handleMouseMove = useCallback((state) => {
-        if (state.isTooltipActive && state.activeTooltipIndex !== undefined) {
-            setHoveredBar(state.activeTooltipIndex);
-        } else {
-            setHoveredBar(null);
-        }
-    }, []);
-
-    const handleMouseLeave = useCallback(() => {
-        setHoveredBar(null);
-    }, []);
+    }, [chartData]);
 
     return (
         <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="glass-card rounded-xl md:rounded-2xl p-4 md:p-6 bg-secondary/30 backdrop-blur-md border border-white/5"
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="glass-card rounded-2xl p-4 md:p-6 bg-slate-900/80 backdrop-blur-md border border-slate-800 shadow-xl"
         >
             {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 md:gap-4 mb-4 md:mb-6">
-                <div className="flex items-center gap-3 md:gap-4">
-                    <div className="p-2 md:p-3 rounded-lg md:rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30">
-                        <TrendingUp className="w-4 h-4 md:w-5 md:h-5 text-cyan-400" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/30">
+                        <TrendingUp className="w-5 h-5 text-cyan-400" />
                     </div>
                     <div>
-                        <h3 className="text-base md:text-lg font-semibold">Evolución de Ventas</h3>
-                        <p className="text-xs md:text-sm text-muted-foreground">
-                            Ventas diarias - Septiembre 2025
+                        <h3 className="text-base md:text-lg font-bold text-white">Evolución de Ventas</h3>
+                        <p className="text-xs text-slate-400">
+                            {chartData.length > 0 ? `${chartData.length} puntos temporales registrados con ingresos` : 'Sin registros de ventas en el período'}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-1 md:gap-2">
-                    {/* Month Selector */}
-                    <div className="flex bg-secondary/50 rounded-lg p-0.5 md:p-1">
-                        {[
-                            { id: 'current', label: 'Mes Actual' },
-                            { id: 'history', label: 'Histórico' },
-                        ].map((month) => (
-                            <button
-                                key={month.id}
-                                onClick={() => setSelectedMonth(month.id)}
-                                className={cn(
-                                    'px-2 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-all duration-300',
-                                    selectedMonth === month.id
-                                        ? 'bg-primary text-primary-foreground shadow-sm bg-cyan-600/20 text-cyan-400'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                )}
-                            >
-                                {month.label}
-                            </button>
-                        ))}
+                <div className="flex items-center gap-3 text-xs">
+                    <div className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300">
+                        Pico máximo: <span className="font-bold text-cyan-400">${maxSales.toLocaleString('es-CU')}</span>
                     </div>
-
-                    <button className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                        <Filter className="w-4 h-4 text-muted-foreground" />
-                    </button>
-
-                    <button className="p-2 rounded-lg hover:bg-secondary transition-colors">
-                        <Download className="w-4 h-4 text-muted-foreground" />
-                    </button>
                 </div>
             </div>
 
-            {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
-                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
-                        Total del Mes
-                    </p>
-                    <p className="text-sm md:text-xl font-bold text-cyan-400">
-                        ${totalSales.toLocaleString('es-CU')}
-                    </p>
-                </div>
-                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
-                        Promedio Diario
-                    </p>
-                    <p className="text-sm md:text-xl font-bold text-emerald-400">
-                        ${Math.round(avgSales).toLocaleString('es-CU')}
-                    </p>
-                </div>
-                <div className="p-2 md:p-4 rounded-lg md:rounded-xl bg-secondary/30">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wider mb-0.5 md:mb-1 truncate">
-                        Mejor Día
-                    </p>
-                    <p className="text-sm md:text-xl font-bold text-violet-400">
-                        ${maxSales.toLocaleString('es-CU')}
-                    </p>
-                </div>
-            </div>
-
-            {/* Chart */}
-            <div className="h-64 md:h-80 min-h-[250px] md:min-h-[300px] relative">
-                {!isMounted ? (
-                    <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
-                        <div className="animate-pulse">Cargando gráfico...</div>
+            {/* Chart Area */}
+            <div className="h-64 sm:h-72 w-full">
+                {loading ? (
+                    <div className="h-full flex items-center justify-center text-slate-500 text-sm animate-pulse">
+                        Cargando estadísticas en tiempo real...
                     </div>
-                ) : (
-                <ResponsiveContainer width="100%" height="100%" minWidth={300} minHeight={300}>
-                    <BarChart
-                        data={salesData}
-                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                        onMouseMove={handleMouseMove}
-                        onMouseLeave={handleMouseLeave}
-                    >
-                        <defs>
-                            <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.8} />
-                                <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.3} />
-                            </linearGradient>
-                            <linearGradient id="barGradientToday" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#8b5cf6" stopOpacity={1} />
-                                <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.5} />
-                            </linearGradient>
-                            <linearGradient id="barGradientHover" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="#22d3ee" stopOpacity={1} />
-                                <stop offset="100%" stopColor="#22d3ee" stopOpacity={0.5} />
-                            </linearGradient>
-                        </defs>
-
-                        <CartesianGrid
-                            strokeDasharray="3 3"
-                            stroke="rgba(255,255,255,0.05)"
-                            vertical={false}
-                        />
-
-                        <XAxis
-                            dataKey="day"
-                            axisLine={false}
-                            tickLine={false}
-                            tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                            interval={2}
-                        />
-
-                        <YAxis
-                            axisLine={false}
-                            tickLine={false}
-                            tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
-                            tickFormatter={(value) => `$${(value / 1000).toFixed(0)}K`}
-                        />
-
-                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-
-                        <Bar
-                            dataKey="sales"
-                            radius={[4, 4, 0, 0]}
-                            maxBarSize={40}
-                        >
-                            {salesData.map((entry, index) => {
-                                const isHovered = hoveredBar === index;
-                                const fill = entry.isToday
-                                    ? 'url(#barGradientToday)'
-                                    : isHovered
-                                        ? 'url(#barGradientHover)'
-                                        : 'url(#barGradient)';
-                                
-                                return (
-                                    <Cell
-                                        key={`sales-cell-${entry.day}-${index}`}
-                                        fill={fill}
-                                        style={{
-                                            // Simplified hover effect - CSS transition only, no drop-shadow for GPU performance
-                                            opacity: isHovered ? 1 : 0.9,
-                                            transition: 'opacity 0.15s ease',
-                                        }}
-                                    />
-                                );
-                            })}
-                        </Bar>
-                    </BarChart>
-                </ResponsiveContainer>
-                )}
+                ) : chartData.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm space-y-2">
+                        <BarChart3 className="w-8 h-8 opacity-40" />
+                        <span>No hay datos de ventas para los filtros seleccionados</span>
+                    </div>
+                ) : isMounted ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.4} />
+                                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
+                            <XAxis
+                                dataKey="day"
+                                stroke="#64748b"
+                                fontSize={11}
+                                tickLine={false}
+                                tickFormatter={(val) => {
+                                    if (!val) return '';
+                                    const parts = String(val).split('-');
+                                    return parts.length === 3 ? `${parts[2]}/${parts[1]}` : val;
+                                }}
+                            />
+                            <YAxis
+                                stroke="#64748b"
+                                fontSize={11}
+                                tickLine={false}
+                                tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
+                            />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Area
+                                type="monotone"
+                                dataKey="sales"
+                                stroke="#06b6d4"
+                                strokeWidth={2.5}
+                                fillOpacity={1}
+                                fill="url(#salesGradient)"
+                            />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                ) : null}
             </div>
         </motion.div>
     );

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Configuración de Axios
 const api = axios.create({
@@ -81,6 +81,12 @@ export const adjustStock = async (product_id, inventory_id, quantity, type) => {
   return res.data;
 };
 
+export const fetchDashboardStats = async (params = {}) => {
+  const query = new URLSearchParams(params).toString();
+  const res = await api.get(`/dashboard/stats?${query}`);
+  return res.data;
+};
+
 export const fetchSettings = async () => {
   const res = await api.get('/settings');
   return res.data;
@@ -142,5 +148,19 @@ export const fetchLegacyHistory = async (type) => {
   const res = await api.get(`/admin/legacy-history/${type}`);
   return res.data;
 };
+
+
+export const unifyProducts = async (productIds, data) => {
+  const res = await api.post('/products/unify', { productIds, ...data });
+  return res.data;
+};
+
+// --- NEXUS ---
+export const fetchNexusNodes = async (archived = false) => (await api.get(`/nexus/nodes?${archived ? 'archived=true' : 'active=true'}`)).data;
+export const createNexusNode = async node => (await api.post('/nexus/nodes', node)).data;
+export const updateNexusNode = async (id, patch) => (await api.patch(`/nexus/nodes/${id}`, patch)).data;
+export const archiveNexusNode = async id => (await api.post(`/nexus/nodes/${id}/archive`)).data;
+export const restoreNexusNode = async id => (await api.post(`/nexus/nodes/${id}/restore`)).data;
+export const deleteNexusNodePermanent = async id => (await api.delete(`/nexus/nodes/${id}`)).data;
 
 export default api;

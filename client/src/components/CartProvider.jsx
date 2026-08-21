@@ -102,6 +102,13 @@ const [editingSession, setEditingSession] = useState(() => {
     }, [currentInventory]);
 
     const addToCart = (product, quantity = 1) => {
+        // Validar stock en el inventario activo antes de agregar
+        const stock = product.inventory?.[currentInventory] || 0;
+        const existing = cart.find(item => item.id === product.id);
+        const currentQtyInCart = existing ? existing.quantity : 0;
+        if (currentQtyInCart + quantity > stock) {
+            return { error: 'stock_insuficiente', product, stock, requested: currentQtyInCart + quantity };
+        }
         setCart(prev => {
             const existing = prev.find(item => item.id === product.id);
             if (existing) {
@@ -113,6 +120,7 @@ const [editingSession, setEditingSession] = useState(() => {
             }
             return [...prev, { ...product, quantity }];
         });
+        return { success: true };
     };
 
     const removeFromCart = (productId) => {

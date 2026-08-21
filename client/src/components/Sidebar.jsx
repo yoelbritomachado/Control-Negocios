@@ -33,17 +33,17 @@ import { Grid3X3 } from 'lucide-react';
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
-    { id: 'inventory', label: 'Inventario', icon: Package, path: '/entradas', category: 'management' },
-    { id: 'purchases', label: 'Compras', icon: ArrowLeftRight, path: '/compras', category: 'management' },
+    { id: 'inventory', label: 'Inventario', icon: Package, path: '/inventario', category: 'management' },
+    { id: 'entradas', label: 'Entradas', icon: ArrowLeftRight, path: '/entradas', category: 'management', almacOnly: true },
     { id: 'traslados', label: 'Traslados', icon: Truck, path: '/traslados', category: 'management', adminOnly: true },
     { id: 'mermas', label: 'Mermas', icon: AlertTriangle, path: '/mermas', category: 'management' },
-    { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management' },
-    { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'management' },
+    { id: 'users', label: 'Usuarios', icon: Users, path: '/usuarios', category: 'management', adminOnly: true },
+    { id: 'nexus', label: 'NexusNode', icon: Grid3X3, path: '/nexus', category: 'management', adminOnly: true },
 ];
 
 const historyMenuItems = [
-    { id: 'history-sales', label: 'Historial de Ventas', icon: Receipt, path: '/historial/ventas' },
-    { id: 'history-purchases', label: 'Historial de Compras', icon: ArrowLeftRight, path: '/historial/compras' },
+    { id: 'history-sales', label: 'Historial de Ventas', icon: Receipt, path: '/historial/ventas', kioskOnly: true },
+    { id: 'history-entradas', label: 'Historial de Traslados y Entradas', icon: ArrowLeftRight, path: '/historial/traslados' },
     { id: 'history-mermas', label: 'Historial de Mermas', icon: Trash2, path: '/historial/mermas' },
 ];
 
@@ -99,7 +99,7 @@ export function Sidebar({ isDark, toggleTheme }) {
         <button
             onClick={() => setIsMobileOpen(true)}
             className={cn(
-                'lg:hidden fixed top-4 left-4 z-[60] p-3 rounded-xl transition-all duration-300',
+                'lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[60] p-3 rounded-xl transition-all duration-300',
                 isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100',
                 isDark 
                     ? 'bg-slate-800/90 border border-white/10 text-white' 
@@ -290,7 +290,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Operaciones
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'operations').map((item) => (
+                        {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
@@ -322,7 +322,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Gestión
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin)).map((item) => (
+                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
@@ -356,7 +356,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Historiales
                             </p>
                         )}
-                        {historyMenuItems.map((item) => (
+                        {historyMenuItems.filter(item => !item.kioskOnly || currentInventory !== 'alm').map((item) => (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
@@ -479,11 +479,11 @@ export function Sidebar({ isDark, toggleTheme }) {
             <AnimatePresence>
                 {isMobile && isMobileOpen && (
                     <motion.aside
-                        initial={{ x: '-100%' }}
-                        animate={{ x: 0 }}
-                        exit={{ x: '-100%' }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
                         transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                        className="lg:hidden fixed left-0 top-0 h-screen w-[85vw] max-w-[320px] z-[100] flex flex-col shadow-2xl"
+                        className="lg:hidden fixed inset-y-0 left-0 h-[100dvh] max-h-[100dvh] min-h-0 w-[min(85vw,320px)] max-w-[calc(100vw-env(safe-area-inset-left)-env(safe-area-inset-right))] z-[100] flex flex-col overflow-hidden shadow-2xl"
                         style={{
                             background: isDark
                                 ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(15, 23, 42, 0.99) 100%)'
@@ -495,7 +495,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         }}
                     >
                         {/* Logo Section Mobile */}
-                        <div className="p-6 flex items-center justify-between">
+                        <div className="shrink-0 px-4 py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="relative">
                                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
@@ -526,7 +526,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         </div>
 
                         {/* Inventory Selector Mobile */}
-                        <div className="px-3 mb-2">
+                        <div className="shrink-0 px-3 mb-2">
                             <div className="relative">
                                 <button
                                     onClick={() => setIsInventoryOpen(!isInventoryOpen)}
@@ -585,7 +585,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                         </div>
 
                         {/* Navigation Mobile */}
-                        <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+                        <nav className="flex-1 min-h-0 px-3 py-2 space-y-3 overflow-y-auto overscroll-contain">
                             <div>
                                 <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     General
@@ -625,7 +625,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     Operaciones
                                 </p>
-                                {menuItems.filter(item => item.category === 'operations').map((item) => (
+                                {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => (
                                     <NavLink
                                         key={item.id}
                                         to={item.path}
@@ -712,13 +712,13 @@ export function Sidebar({ isDark, toggleTheme }) {
                         </nav>
 
                         {/* Bottom Section Mobile */}
-                        <div className="p-4 border-t border-border/50 space-y-3">
+                        <div className="shrink-0 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] border-t border-border/50 space-y-2">
                             <motion.button
                                 onClick={toggleTheme}
                                 whileHover={{ scale: 1.02 }}
                                 whileTap={{ scale: 0.98 }}
                                 className={cn(
-                                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300',
+                                    'w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-300',
                                     'hover:bg-secondary/80'
                                 )}
                             >
@@ -746,7 +746,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 to="/configuracion"
                                 onClick={() => setIsMobileOpen(false)}
                                 className={({ isActive }) => cn(
-                                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300',
+                                    'w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-300',
                                     isActive
                                         ? 'bg-gradient-to-r from-violet-500/20 to-purple-500/10 text-violet-400 border border-violet-500/30'
                                         : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'

@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import api from '../api';
 import { NODE_TYPES, NODE_STATUS, DEFAULT_METRICS } from './nexus.types';
 
 // Generar ID único
@@ -86,9 +87,47 @@ const INITIAL_NODES = [
 ];
 
 export const useNexus = () => {
-  const [nodes, setNodes] = useState(INITIAL_NODES);
+  const [nodes, setNodes] = useState([]);
+  const [archivedNodes, setArchivedNodes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [expandedNodes, setExpandedNodes] = useState(new Set(['empresa_1']));
+
+  const loadNodes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [activeRes, archivedRes] = await Promise.all([
+        api.get('/nexus/nodes?active=true'),
+        api.get('/nexus/nodes?archived=true')
+      ]);
+      setNodes(activeRes.data || []);
+      setArchivedNodes(archivedRes.data || []);
+      setError(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo cargar Nexus.');
+    } finally { setLoading(false); }
+  }, []);
+
+  const restoreNode = useCallback(async (id) => {
+    try {
+      await api.post(`/nexus/nodes/${id}/restore`);
+      await loadNodes();
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo restaurar el nodo.');
+    }
+  }, [loadNodes]);
+
+  const deletePermanent = useCallback(async (id) => {
+    try {
+      await api.delete(`/nexus/nodes/${id}`);
+      await loadNodes();
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo eliminar definitivamente el nodo.');
+    }
+  }, [loadNodes]);
+
+  useEffect(() => { loadNodes(); }, [loadNodes]);
 
   // Obtener nodo por ID
   const getNodeById = useCallback((id) => {
@@ -155,6 +194,7 @@ export const useNexus = () => {
     };
 
     setNodes(prev => [...prev, newNode]);
+    api.post('/nexus/nodes', newNode).then(() => loadNodes()).catch(err => setError(err.response?.data?.error || 'No se pudo guardar el nodo.'));
     
     // Actualizar children del padre
     if (parentId) {
@@ -173,40 +213,150 @@ export const useNexus = () => {
     setNodes(prev => prev.map(n => 
       n.id === id ? { ...n, ...updates } : n
     ));
+    api.patch(`/nexus/nodes/${id}`, updates).catch(err => setError(err.response?.data?.error || 'No se pudo actualizar el nodo.'));
   }, []);
 
-  // Eliminar nodo (y sus hijos recursivamente)
+  // Archivar nodo (solo si está completamente desconectado)
   const deleteNode = useCallback((id) => {
     const nodeToDelete = getNodeById(id);
     if (!nodeToDelete) return;
 
-    // Eliminar de children del padre
-    if (nodeToDelete.parentId) {
-      setNodes(prev => prev.map(n => 
-        n.id === nodeToDelete.parentId
-          ? { ...n, children: n.children.filter(c => c !== id) }
-          : n
-      ));
+    // Validar si tiene conexiones activas
+    const parentList = nodeToDelete.parentIds?.length ? nodeToDelete.parentIds : (nodeToDelete.parentId ? [nodeToDelete.parentId] : []);
+    const childrenList = nodeToDelete.children || [];
+    
+    if (parentList.length > 0 || childrenList.length > 0) {
+      alert('⚠️ No podés archivar un nodo que tiene conexiones activas. Desconectá sus cables primero arrastrándolos al vacío.');
+      return;
     }
 
-    // Eliminar nodo y sus hijos recursivamente
-    const idsToDelete = new Set();
-    const collectIds = (nodeId) => {
-      idsToDelete.add(nodeId);
-      const node = getNodeById(nodeId);
-      if (node?.children) {
-        node.children.forEach(collectIds);
-      }
-    };
-    collectIds(id);
-
-    setNodes(prev => prev.filter(n => !idsToDelete.has(n.id)));
+    setNodes(prev => prev.filter(n => n.id !== id));
+    api.post(`/nexus/nodes/${id}/archive`).then(() => loadNodes()).catch(err => {
+      setError(err.response?.data?.error || 'No se pudo archivar el nodo.');
+      loadNodes();
+    });
     
-    // Limpiar selección si es necesario
     if (selectedNodeId === id) {
       setSelectedNodeId(null);
     }
-  }, [getNodeById, selectedNodeId]);
+  }, [getNodeById, selectedNodeId, loadNodes]);
+
+  // Conectar nodo (soporta múltiples padres para vendedor cubrefranco)
+  const connectNodes = useCallback((parentId, childId) => {
+    if (!parentId || !childId || parentId === childId) return;
+    
+    const childNode = getNodeById(childId);
+    const parentNode = getNodeById(parentId);
+    if (!childNode || !parentNode) return;
+
+    const childType = (childNode.type || '').toLowerCase();
+    const parentType = (parentNode.type || '').toLowerCase();
+
+    // Validaciones de arquitectura de negocio con avisos claros
+    if (childType === 'administrador' && parentType !== 'empresa') {
+      alert(`⚠️ Conexión no permitida:\nUn Administrador (${childNode.name}) debe conectarse a una Empresa, no a un "${parentType}".`);
+      return;
+    }
+
+    if (childType === 'vendedor' && parentType !== 'punto_de_venta') {
+      alert(`⚠️ Conexión no permitida:\nUn Vendedor (${childNode.name}) debe conectarse a un Punto de Venta (como MCH 1 o MCH 2), no a un "${parentType}".`);
+      return;
+    }
+
+    if (childType === 'almacén' && parentType !== 'empresa') {
+      alert(`⚠️ Conexión no permitida:\nUn Almacén (${childNode.name}) debe conectarse a una Empresa.`);
+      return;
+    }
+
+    if (childType === 'punto_de_venta' && parentType !== 'almacén') {
+      alert(`⚠️ Conexión no permitida:\nUn Punto de Venta (${childNode.name}) debe ser abastecido por un Almacén Central.`);
+      return;
+    }
+
+    if (childType === 'empresa' && parentType !== 'dueño') {
+      alert(`⚠️ Conexión no permitida:\nUna Empresa (${childNode.name}) debe pertenecer a un Dueño.`);
+      return;
+    }
+
+    // Verificar ciclos
+    let current = parentNode;
+    while (current) {
+      if (current.id === childId) {
+        alert('⚠️ No se puede conectar un nodo a su propio descendiente.');
+        return;
+      }
+      current = current.parentId ? getNodeById(current.parentId) : null;
+    }
+
+    const currentParents = childNode.parentIds?.length 
+      ? [...childNode.parentIds] 
+      : (childNode.parentId ? [childNode.parentId] : []);
+      
+    if (currentParents.includes(parentId)) return; // Ya conectado
+
+    let newParents;
+    // Si el nodo es tipo 'vendedor', permite ser cubrefranco (múltiples puntos de venta)
+    if (childNode.type === 'vendedor') {
+      newParents = [...currentParents, parentId];
+    } else {
+      // Otros nodos tienen un único padre
+      newParents = [parentId];
+    }
+
+    setNodes(prev => prev.map(n => {
+      if (n.id === childId) {
+        return { ...n, parentId: newParents[0], parentIds: newParents };
+      }
+      if (n.id === parentId) {
+        return { ...n, children: Array.from(new Set([...(n.children || []), childId])) };
+      }
+      return n;
+    }));
+
+    api.patch(`/nexus/nodes/${childId}`, { parentIds: newParents, parentId: newParents[0] })
+      .then(() => loadNodes())
+      .catch(err => {
+        console.error('Error al conectar nodos:', err);
+        loadNodes();
+      });
+  }, [getNodeById, loadNodes]);
+
+  // Desconectar nodo de un padre específico o de todos
+  const disconnectNode = useCallback((childId, parentIdToRemove = null) => {
+    const childNode = getNodeById(childId);
+    if (!childNode) return;
+
+    const currentParents = childNode.parentIds?.length 
+      ? [...childNode.parentIds] 
+      : (childNode.parentId ? [childNode.parentId] : []);
+
+    let newParents;
+    if (parentIdToRemove) {
+      newParents = currentParents.filter(p => p !== parentIdToRemove);
+    } else {
+      newParents = [];
+    }
+
+    setNodes(prev => prev.map(n => {
+      if (n.id === childId) {
+        return { ...n, parentId: newParents[0] || null, parentIds: newParents };
+      }
+      if (parentIdToRemove && n.id === parentIdToRemove) {
+        return { ...n, children: (n.children || []).filter(c => c !== childId) };
+      }
+      if (!parentIdToRemove && currentParents.includes(n.id)) {
+        return { ...n, children: (n.children || []).filter(c => c !== childId) };
+      }
+      return n;
+    }));
+
+    api.patch(`/nexus/nodes/${childId}`, { parentIds: newParents, parentId: newParents[0] || null })
+      .then(() => loadNodes())
+      .catch(err => {
+        console.error('Error al desconectar nodos:', err);
+        loadNodes();
+      });
+  }, [getNodeById, loadNodes]);
 
   // Expandir/colapsar nodo
   const toggleExpand = useCallback((id) => {
@@ -221,45 +371,14 @@ export const useNexus = () => {
     });
   }, []);
 
-  // Mover nodo (cambiar padre)
+  // Mover nodo (compatibilidad)
   const moveNode = useCallback((nodeId, newParentId) => {
-    if (nodeId === newParentId) return;
-    
-    const node = getNodeById(nodeId);
-    if (!node) return;
-
-    // Verificar que no se cree ciclo
-    let current = getNodeById(newParentId);
-    while (current) {
-      if (current.id === nodeId) {
-        throw new Error('No se puede mover un nodo a su propio descendiente');
-      }
-      current = getNodeById(current.parentId);
-    }
-
-    // Quitar de children del padre anterior
-    if (node.parentId) {
-      setNodes(prev => prev.map(n => 
-        n.id === node.parentId
-          ? { ...n, children: n.children.filter(c => c !== nodeId) }
-          : n
-      ));
-    }
-
-    // Agregar a children del nuevo padre
     if (newParentId) {
-      setNodes(prev => prev.map(n => 
-        n.id === newParentId
-          ? { ...n, children: [...n.children, nodeId] }
-          : n
-      ));
+      connectNodes(newParentId, nodeId);
+    } else {
+      disconnectNode(nodeId);
     }
-
-    // Actualizar parentId del nodo
-    setNodes(prev => prev.map(n => 
-      n.id === nodeId ? { ...n, parentId: newParentId } : n
-    ));
-  }, [getNodeById]);
+  }, [connectNodes, disconnectNode]);
 
   // Seleccionar nodo
   const selectNode = useCallback((id) => {
@@ -282,6 +401,7 @@ export const useNexus = () => {
 
   return {
     nodes,
+    archivedNodes,
     nodeTree,
     rootNodes,
     selectedNodeId,
@@ -293,11 +413,16 @@ export const useNexus = () => {
     createNode,
     updateNode,
     deleteNode,
+    restoreNode,
+    deletePermanent,
     moveNode,
+    connectNodes,
+    disconnectNode,
     selectNode,
     toggleExpand,
     getNodeById,
-    getChildren
+    getChildren,
+    loadNodes
   };
 };
 

@@ -33,7 +33,19 @@ export function OfflineProvider({ children }) {
       try {
         console.log('[OfflineProvider] Inicializando sistema offline...');
         
-        // Inicializar base de datos
+        // Inicializar base de datos offline solo cuando esté explícitamente habilitada.
+        // En Chromium/Playwright el VFS IndexedDB de wa-sqlite puede quedar corrupto
+        // y llenar la consola con errores aunque la app online funcione perfecto.
+        const sqliteOfflineEnabled = localStorage.getItem('mch_offline_sqlite') === 'enabled';
+
+        if (!sqliteOfflineEnabled) {
+          console.info('[OfflineProvider] SQLite offline deshabilitado; usando modo online-only');
+          if (!isMounted) return;
+          setIsOnline(navigator.onLine);
+          setIsInitialized(true);
+          return;
+        }
+
         const database = getOfflineDatabase();
         await database.initialize();
         if (!isMounted) return;

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { FaTimes, FaUpload, FaClipboard, FaCalculator, FaCheckCircle, FaExclamationCircle, FaImage, FaCrop, FaPaste, FaCamera, FaTrash, FaTag } from 'react-icons/fa';
 import Cropper from 'react-easy-crop';
+import { getAdaptiveImageUrl } from './lib/imageUtils';
 
 const createImage = (url) =>
   new Promise((resolve, reject) => {
@@ -598,21 +599,19 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings }) => {
     // If it's a blob (locally uploaded), return as is
     if (url.startsWith('blob:')) return url;
 
+    let normalized = url;
     // Aggressive fix for stored absolute paths or bad formats
     // If it contains "uploads", extract everything after "uploads"
     if (url.includes('uploads')) {
       const parts = url.split('uploads');
       // Take the last part, ensure it starts with /uploads
-      const relative = '/uploads' + parts[parts.length - 1];
+      normalized = '/uploads' + parts[parts.length - 1];
       // Clean double slashes just in case
-      return relative.replace('//', '/').replace(/\\/g, '/');
+      normalized = normalized.replace('//', '/').replace(/\\/g, '/');
+    } else if (!url.startsWith('http')) {
+      normalized = url.startsWith('/') ? url : `/${url}`;
     }
-
-    // If it's relative, ensure it starts with /
-    if (!url.startsWith('http')) {
-      return url.startsWith('/') ? url : `/${url}`;
-    }
-    return url;
+    return getAdaptiveImageUrl(normalized);
   };
 
   const [isSubmitting, setIsSubmitting] = useState(false);

@@ -3,13 +3,24 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const Database = require('better-sqlite3');
 const archiver = require('archiver');
 const nodemailer = require('nodemailer');
 const sharp = require('sharp');
 
+// Logger global de errores
+const logError = (context, error) => {
+    try {
+        const errorLog = `[${new Date().toISOString()}] ${context}: ${error.message}\nStack: ${error.stack}\n\n`;
+        fs.appendFileSync(path.join(__dirname, 'error.log'), errorLog);
+        writeAppLog('ERROR', context, error.message, { stack: error.stack });
+    } catch (_) {}
+    console.error(`❌ [${context}]`, error);
+};
+
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3002;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'yoelbritomachado@gmail.com';
 
 // Database path - use Railway's persistent storage or local
@@ -20,12 +31,41 @@ const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH
 // Ensure directories exist
 const uploadDir = path.join(__dirname, 'uploads');
 const backupDir = path.join(__dirname, 'backups');
+const logsDir = path.join(__dirname, 'logs');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+// Sistema de Logging Unificado (Backend & Frontend)
+const writeAppLog = (level, context, message, details = null) => {
+    try {
+        const timestamp = new Date().toISOString();
+        const detailStr = details ? (typeof details === 'object' ? JSON.stringify(details) : String(details)) : '';
+        const line = `[${timestamp}] [${level.toUpperCase()}] [${context}] ${message} ${detailStr}\n`;
+        fs.appendFileSync(path.join(logsDir, 'app.log'), line);
+    } catch (_) {}
+};
 
 // Initialize Database FIRST (before any middleware that uses it)
 const db = new Database(dbPath);
 console.log('Database initialized at:', dbPath);
+
+// NEXUS persistence: fuente real para la vista /nexus.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS nexus_nodes (
+    id TEXT PRIMARY KEY, company_id INTEGER DEFAULT 1, type TEXT NOT NULL,
+    name TEXT NOT NULL, status TEXT DEFAULT 'online', description TEXT DEFAULT '',
+    metrics TEXT DEFAULT '{}', parent_id TEXT, parent_ids TEXT DEFAULT '[]', children TEXT DEFAULT '[]',
+    position_x REAL DEFAULT 0, position_y REAL DEFAULT 0, archived_at TEXT,
+    archived_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS nexus_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, node_id TEXT NOT NULL, action TEXT NOT NULL,
+    actor_user_id INTEGER, payload TEXT DEFAULT '{}', created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+try { db.exec("ALTER TABLE nexus_nodes ADD COLUMN parent_ids TEXT DEFAULT '[]'"); } catch (e) {}
 
 // CORS Configuration
 const allowedOrigins = [
@@ -48,13 +88,56 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '50mb' })); // Increased limit for large backups
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-// Custom middleware for /uploads with fallback placeholder
+// Custom middleware for /uploads with adaptive quality & fallback placeholder
 app.use('/uploads', (req, res, next) => {
-    const filePath = path.join(__dirname, 'uploads', decodeURIComponent(req.path));
+    const rawPath = decodeURIComponent(req.path);
+    let filePath = path.join(__dirname, 'uploads', rawPath);
     
+    // Check adaptive quality request from headers or query params:
+    // Header Save-Data (Chrome/Android data saver) or ECT (Effective Connection Type: 2g, 3g, slow-2g)
+    const isSaveData = req.headers['save-data'] === 'on';
+    const ect = (req.headers['ect'] || '').toLowerCase();
+    const isSlowConn = isSaveData || ect === '2g' || ect === 'slow-2g' || ect === '3g' || req.query.quality === 'low' || req.query.quality === 'thumb';
+    const isMedConn = req.query.quality === 'med' || req.query.quality === 'medium';
+
+    // If client requested low quality or has slow network, serve smaller variant if available
+    if (isSlowConn || isMedConn) {
+        const parsed = path.parse(filePath);
+        const name = parsed.name; // e.g. prod_123_test_orig or prod_123_test_med
+        
+        let candidateNames = [];
+        if (req.query.quality === 'thumb') {
+            candidateNames = [
+                name.replace(/_(orig|med|sm)$/, '') + '_thumb',
+                name.replace(/_(orig|med)$/, '') + '_sm',
+                name
+            ];
+        } else if (isSlowConn) {
+            candidateNames = [
+                name.replace(/_(orig|med|thumb)$/, '') + '_sm',
+                name.replace(/_(orig|med)$/, '') + '_thumb',
+                name
+            ];
+        } else if (isMedConn) {
+            candidateNames = [
+                name.replace(/_(orig|sm|thumb)$/, '') + '_med',
+                name
+            ];
+        }
+
+        for (const cName of candidateNames) {
+            const candidatePath = path.join(parsed.dir, cName + parsed.ext);
+            if (fs.existsSync(candidatePath)) {
+                filePath = candidatePath;
+                break;
+            }
+        }
+    }
+
     // Check if file exists
     if (fs.existsSync(filePath)) {
-        return next(); // Continue to static middleware
+        res.setHeader('Vary', 'Save-Data, ECT');
+        return res.sendFile(filePath);
     }
     
     // File doesn't exist - serve dynamic SVG placeholder
@@ -84,7 +167,7 @@ app.use('/uploads', (req, res, next) => {
     res.setHeader('Content-Type', 'image/svg+xml');
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     res.send(svg);
-}, express.static(path.join(__dirname, 'uploads')));
+});
 
 // --- PERMISSION HELPERS (defined before routes) ---
 const checkAdmin = (req, res, next) => {
@@ -235,6 +318,7 @@ const productImageUpload = multer({
 });
 
 // Image Processing Function - Creates 4 versions of each image
+// Capa máxima de resolución y compresión inteligente (evita inflar fotos pequeñas con withoutEnlargement: true)
 async function processProductImage(buffer, filename) {
     const uploadDir = path.join(__dirname, 'uploads');
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -245,32 +329,33 @@ async function processProductImage(buffer, filename) {
     // Generate unique filenames for each version
     const versions = {
         original: `prod_${timestamp}_${baseName}_orig.jpg`,
-        medium: `prod_${timestamp}_${baseName}_med.jpg`,    // 1000x1000
-        small: `prod_${timestamp}_${baseName}_sm.jpg`,      // 512x512
-        thumbnail: `prod_${timestamp}_${baseName}_thumb.jpg` // 100x100
+        medium: `prod_${timestamp}_${baseName}_med.jpg`,    // Max 1200x1200 (sin forzar ampliación)
+        small: `prod_${timestamp}_${baseName}_sm.jpg`,      // Max 512x512
+        thumbnail: `prod_${timestamp}_${baseName}_thumb.jpg` // 120x120
     };
     
-    // Process original (compress but keep high quality)
+    // Process "original" (Alta fidelidad acotada: máximo 1600x1600 para web, sin agrandar si es menor)
     await sharp(buffer)
-        .jpeg({ quality: 90, progressive: true })
+        .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 85, progressive: true, mozjpeg: true })
         .toFile(path.join(uploadDir, versions.original));
     
-    // Process medium (1000x1000, fit inside)
+    // Process medium (1200x1200, fit inside, sin agrandar)
     await sharp(buffer)
         .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 85, progressive: true })
+        .jpeg({ quality: 80, progressive: true, mozjpeg: true })
         .toFile(path.join(uploadDir, versions.medium));
     
-    // Process small (512x512, for slow connections)
+    // Process small (512x512, para conexiones lentas)
     await sharp(buffer)
         .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80, progressive: true })
+        .jpeg({ quality: 75, progressive: true, mozjpeg: true })
         .toFile(path.join(uploadDir, versions.small));
     
-    // Process thumbnail (100x100, for icons)
+    // Process thumbnail (120x120, para listas e iconos)
     await sharp(buffer)
-        .resize(100, 100, { fit: 'cover' })
-        .jpeg({ quality: 75, progressive: true })
+        .resize(120, 120, { fit: 'cover' })
+        .jpeg({ quality: 70, progressive: true })
         .toFile(path.join(uploadDir, versions.thumbnail));
     
     // Return URLs for all versions
@@ -285,9 +370,20 @@ async function processProductImage(buffer, filename) {
 // --- MNX UPLOAD AND EXTRACTION ---
 // Helper to authenticate admin requests (for routes defined before auth middleware)
 const authenticateAdmin = (req, res) => {
+    // El middleware global ya resolvió req.user. En modo desarrollo puede
+    // existir el usuario administrativo predeterminado aunque no haya login.
+    // No exigir un token adicional acá: eso dejaba la interfaz visible pero
+    // rompía todos los botones de Migración con 401.
+    if (req.user && req.user.id) {
+        if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+            res.status(403).json({ error: 'Solo administradores pueden acceder.' });
+            return null;
+        }
+        return req.user;
+    }
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
-
     if (!token) {
         res.status(401).json({ error: 'Acceso denegado. Token faltante.' });
         return null;
@@ -298,16 +394,15 @@ const authenticateAdmin = (req, res) => {
         res.status(403).json({ error: 'Token inválido o expirado.' });
         return null;
     }
-
     if (user.role !== 'admin' && user.role !== 'owner') {
         res.status(403).json({ error: 'Solo administradores pueden acceder.' });
         return null;
     }
-
     return user;
 };
 
-app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
+// Endpoint legacy (deprecated)
+app.post('/api/admin/upload-mnx-old', mnxUpload.single('file'), (req, res) => {
     // Authenticate manually
     const user = authenticateAdmin(req, res);
     if (!user) return;
@@ -331,9 +426,9 @@ app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
         const zip = new AdmZip(mnxPath);
         zip.extractAllTo(extractDir, true);
 
-        // Find the database file (usually named like bd_*.db)
+        // Find the database file (usually named like bd_*.db or controller.fn*)
         const files = fs.readdirSync(extractDir);
-        const dbFile = files.find(f => f.endsWith('.db') && f.startsWith('bd_'));
+        const dbFile = files.find(f => (f.endsWith('.db') && f.startsWith('bd_')) || f.startsWith('controller.'));
 
         if (!dbFile) {
             return res.status(400).json({ error: 'No se encontró base de datos en el archivo' });
@@ -362,8 +457,1079 @@ app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
     }
 });
 
-// Check if local MNX file exists
+// Endpoint para escanear archivos CSV en la carpeta local de Historial
+app.get('/api/admin/csv-historial/status', authenticate, requireAdmin, (req, res) => {
+    try {
+        const csvDir = path.join("D:\\J work\\Documentos\\Miss Chulerías\\Historial Mi Negocio");
+        if (!fs.existsSync(csvDir)) {
+            return res.json({ exists: false, message: 'No se encontró la carpeta Historial Mi Negocio en D:\\J work' });
+        }
+
+        const filesFound = {
+            alm_inv: fs.existsSync(path.join(csvDir, 'Almacen', 'inventario (Almacen).csv')),
+            alm_entradas: fs.existsSync(path.join(csvDir, 'Almacen', 'Historial de entradas(Almacen).csv')),
+            mch1_inv: fs.existsSync(path.join(csvDir, 'MCH 1', 'inventario (MCH1).csv')),
+            mch1_ventas: fs.existsSync(path.join(csvDir, 'MCH 1', 'Historial de ventas (MCH1).csv')),
+            mch1_compras: fs.existsSync(path.join(csvDir, 'MCH 1', 'Historial de compras (MCH1).csv')),
+            mch2_inv: fs.existsSync(path.join(csvDir, 'MCH 2', 'inventario (MCH2).csv')),
+            mch2_ventas: fs.existsSync(path.join(csvDir, 'MCH 2', 'Historial de ventas (MCH2).csv')),
+            mch2_compras: fs.existsSync(path.join(csvDir, 'MCH 2', 'Historial de compras (MCH2).csv')),
+        };
+
+        res.json({
+            exists: true,
+            path: csvDir,
+            files: filesFound
+        });
+    } catch (e) {
+        logError("GET /api/admin/csv-historial/status", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Función auxiliar para parsear CSV simple respetando comillas
+function parseSimpleCSV(filePath) {
+    if (!fs.existsSync(filePath)) return [];
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) return [];
+
+    // Parse header
+    const headers = parseCSVLine(lines[0]);
+    const results = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i]);
+        if (values.length === 0) continue;
+        const row = {};
+        headers.forEach((h, idx) => {
+            if (h) row[h.trim()] = values[idx] !== undefined ? values[idx].trim() : '';
+        });
+        results.push(row);
+    }
+    return results;
+}
+
+function parseCSVLine(text) {
+    const result = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '"') {
+            if (inQuotes && text[i + 1] === '"') {
+                cur += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(cur);
+            cur = '';
+        } else {
+            cur += char;
+        }
+    }
+    result.push(cur);
+    return result;
+}
+
+// Endpoint para importar datos desde los CSV de Historial Mi Negocio
+app.post('/api/admin/csv-historial/import', authenticate, requireAdmin, (req, res) => {
+    try {
+        const {
+            importInventories = true,
+            importSales = true,
+            importPurchases = true
+        } = req.body;
+
+        const csvDir = path.join("D:\\J work\\Documentos\\Miss Chulerías\\Historial Mi Negocio");
+        if (!fs.existsSync(csvDir)) {
+            return res.status(404).json({ error: 'Carpeta Historial Mi Negocio no encontrada' });
+        }
+
+        // Backup de seguridad previo
+        const safetyBackupPath = path.join(backupDir, `pre-csv-import-${Date.now()}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, safetyBackupPath);
+
+        const adminUser = db.prepare('SELECT id FROM users LIMIT 1').get();
+        const defaultUserId = adminUser ? adminUser.id : 1;
+
+        const summary = {
+            inventoriesUpdated: 0,
+            productsCreated: 0,
+            salesImported: 0,
+            purchasesImported: 0,
+            safetyBackup: path.basename(safetyBackupPath)
+        };
+
+        db.exec('BEGIN TRANSACTION');
+
+        // 1. IMPORTAR INVENTARIOS (Almacen, MCH 1, MCH 2)
+        if (importInventories) {
+            const invConfigs = [
+                { id: 'alm', file: path.join(csvDir, 'Almacen', 'inventario (Almacen).csv') },
+                { id: 'mch1', file: path.join(csvDir, 'MCH 1', 'inventario (MCH1).csv') },
+                { id: 'mch2', file: path.join(csvDir, 'MCH 2', 'inventario (MCH2).csv') }
+            ];
+
+            const getProductByName = db.prepare('SELECT id, quantity FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))');
+            const insertProduct = db.prepare(`
+                INSERT INTO products (name, quantity, cost_mx, sale_price_manual, description, code)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `);
+            const updateProductGlobalQty = db.prepare('UPDATE products SET quantity = ? WHERE id = ?');
+            const getInvRow = db.prepare('SELECT quantity FROM product_inventory WHERE product_id = ? AND inventory_id = ?');
+            const upsertInvRow = db.prepare(`
+                INSERT INTO product_inventory (product_id, inventory_id, quantity)
+                VALUES (?, ?, ?)
+                ON CONFLICT(product_id, inventory_id) DO UPDATE SET quantity = excluded.quantity
+            `);
+
+            for (const inv of invConfigs) {
+                if (!fs.existsSync(inv.file)) continue;
+                const rows = parseSimpleCSV(inv.file);
+
+                for (const row of rows) {
+                    const rawName = row['Nombre'] || row['Nombre del Producto'] || '';
+                    const name = rawName.trim();
+                    if (!name) continue;
+
+                    const qty = parseFloat(row['Cantidad'] || '0') || 0;
+                    const price = parseFloat(row['Precio'] || '0') || 0;
+                    const cost = parseFloat(row['Costo'] || row['Costo Promedio'] || '0') || 0;
+                    const code = (row['Clave'] || '').trim();
+
+                    let existing = getProductByName.get(name);
+                    let productId;
+
+                    if (!existing) {
+                        const result = insertProduct.run(name, qty, cost, price, '', code);
+                        productId = result.lastInsertRowid;
+                        summary.productsCreated++;
+                    } else {
+                        productId = existing.id;
+                    }
+
+                    // Actualizar o insertar en product_inventory
+                    upsertInvRow.run(productId, inv.id, qty);
+                    summary.inventoriesUpdated++;
+
+                    // Recalcular cantidad global sumando todos los almacenes/kioscos
+                    const totalQtyRow = db.prepare('SELECT SUM(quantity) as total FROM product_inventory WHERE product_id = ?').get(productId);
+                    if (totalQtyRow && totalQtyRow.total !== null) {
+                        updateProductGlobalQty.run(totalQtyRow.total, productId);
+                    }
+                }
+            }
+        }
+
+        // 2. IMPORTAR HISTORIAL DE VENTAS (MCH 1, MCH 2)
+        if (importSales) {
+            const salesConfigs = [
+                { invId: 'mch1', file: path.join(csvDir, 'MCH 1', 'Historial de ventas (MCH1).csv') },
+                { invId: 'mch2', file: path.join(csvDir, 'MCH 2', 'Historial de ventas (MCH2).csv') }
+            ];
+
+            const insertSale = db.prepare(`
+                INSERT INTO sales (total, items_count, payment_method, date, user_id, inventory_id, cash_amount, transfer_amount, amount_received, change_amount)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            for (const sc of salesConfigs) {
+                if (!fs.existsSync(sc.file)) continue;
+                const rows = parseSimpleCSV(sc.file);
+
+                for (const row of rows) {
+                    const total = parseFloat(row['Total'] || '0') || 0;
+                    const date = row['Fecha'] || new Date().toISOString();
+                    const paymentMethod = (row['Forma Pago'] || 'Efectivo').trim() || 'Efectivo';
+                    const payments = parseFloat(row['Pagos'] || total.toString()) || total;
+
+                    insertSale.run(
+                        total,
+                        1, // items_count estimado
+                        paymentMethod,
+                        date,
+                        defaultUserId,
+                        sc.invId,
+                        payments,
+                        0,
+                        payments,
+                        0
+                    );
+                    summary.salesImported++;
+                }
+            }
+        }
+
+        // 3. IMPORTAR HISTORIAL DE ENTRADAS / COMPRAS
+        if (importPurchases) {
+            const purchaseConfigs = [
+                { file: path.join(csvDir, 'Almacen', 'Historial de entradas(Almacen).csv') },
+                { file: path.join(csvDir, 'MCH 1', 'Historial de compras (MCH1).csv') },
+                { file: path.join(csvDir, 'MCH 2', 'Historial de compras (MCH2).csv') }
+            ];
+
+            const insertPurchase = db.prepare(`
+                INSERT INTO purchases (supplier, total, date, user_id, notes, currency, exchange_rate, payment_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            for (const pc of purchaseConfigs) {
+                if (!fs.existsSync(pc.file)) continue;
+                const rows = parseSimpleCSV(pc.file);
+
+                for (const row of rows) {
+                    const total = parseFloat(row['Total'] || '0') || 0;
+                    const date = row['Fecha'] || new Date().toISOString();
+                    const supplier = (row['Proveedor'] || row['Información Adicional'] || 'Proveedor General').trim() || 'Proveedor General';
+                    const notes = (row['Información Adicional'] || row['Etiquetas'] || '').trim();
+
+                    insertPurchase.run(
+                        supplier,
+                        total,
+                        date,
+                        defaultUserId,
+                        notes,
+                        'CUP',
+                        1,
+                        row['Forma Pago'] || 'Efectivo'
+                    );
+                    summary.purchasesImported++;
+                }
+            }
+        }
+
+        db.exec('COMMIT');
+
+        res.json({
+            success: true,
+            message: `Importación CSV completada con éxito.`,
+            summary
+        });
+
+    } catch (e) {
+        try { db.exec('ROLLBACK'); } catch (_) {}
+        logError("POST /api/admin/csv-historial/import", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ==============================================================================
+// INSPECTOR E IMPORTADOR MODULAR MNX AVANZADO
+// ==============================================================================
+
+// Función auxiliar para inspeccionar un archivo MNX (buffer o ruta)
+function inspectMnxFile(mnxPath) {
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip(mnxPath);
+    const entries = zip.getEntries();
+
+    const dbEntries = entries.filter(e => {
+        if (e.isDirectory) return false;
+        const name = e.entryName.toLowerCase();
+        return name.endsWith('.db') || name.startsWith('controller.') || name.includes('/controller.');
+    });
+    const imageCount = entries.filter(e => (e.entryName.toLowerCase().endsWith('.jpg') || e.entryName.toLowerCase().endsWith('.png')) && !e.isDirectory).length;
+
+    const sources = [];
+
+    // Carpeta temporal para inspección
+    const tempInspectDir = path.join(__dirname, 'uploads', 'temp_inspect');
+    if (!fs.existsSync(tempInspectDir)) {
+        fs.mkdirSync(tempInspectDir, { recursive: true });
+    }
+
+    for (const dbEntry of dbEntries) {
+        let tempDbPath = null;
+        let tempDb = null;
+        try {
+            const safeBaseName = path.basename(dbEntry.entryName);
+            tempDbPath = path.join(tempInspectDir, `insp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}_${safeBaseName}`);
+            fs.writeFileSync(tempDbPath, dbEntry.getData());
+
+            tempDb = new Database(tempDbPath, { readonly: true });
+
+            // Obtener nombre del negocio desde tabla json id=20
+            let bizName = safeBaseName;
+            try {
+                const jsonRow = tempDb.prepare('SELECT info FROM json WHERE id = 20').get();
+                if (jsonRow && jsonRow.info) {
+                    const parsed = JSON.parse(jsonRow.info);
+                    if (parsed.negocio) bizName = parsed.negocio.trim();
+                }
+            } catch (errJson) {
+                console.error("Error leyendo json id=20:", errJson.message);
+            }
+
+            // Contar productos/items
+            let productCount = 0;
+            try {
+                const prRow = tempDb.prepare('SELECT count(*) as count FROM item WHERE status = 1').get();
+                productCount = prRow ? prRow.count : 0;
+            } catch (_) {}
+
+            // Contar ventas y líneas de venta (tipo 10 en sistema legacy)
+            let salesCount = 0;
+            let salesItemsCount = 0;
+            try {
+                const sRow = tempDb.prepare('SELECT count(*) as count FROM transaccion WHERE tipo = 10').get();
+                salesCount = sRow ? sRow.count : 0;
+
+                const siRow = tempDb.prepare(`
+                    SELECT count(ti.id) as count 
+                    FROM transaccion t 
+                    JOIN transaccion_item ti ON t.id = ti.transaccion 
+                    WHERE t.tipo = 10
+                `).get();
+                salesItemsCount = siRow ? siRow.count : 0;
+            } catch (_) {}
+
+            // Contar compras y líneas de compra (tipo 20 en sistema legacy)
+            let purchasesCount = 0;
+            let purchasesItemsCount = 0;
+            try {
+                const pRow = tempDb.prepare('SELECT count(*) as count FROM transaccion WHERE tipo = 20').get();
+                purchasesCount = pRow ? pRow.count : 0;
+
+                const piRow = tempDb.prepare(`
+                    SELECT count(ti.id) as count 
+                    FROM transaccion t 
+                    JOIN transaccion_item ti ON t.id = ti.transaccion 
+                    WHERE t.tipo = 20
+                `).get();
+                purchasesItemsCount = piRow ? piRow.count : 0;
+            } catch (_) {}
+
+            // Contar mermas
+            let lossesCount = 0;
+            try {
+                const mRow = tempDb.prepare('SELECT count(*) as count FROM merma').get();
+                lossesCount = mRow ? mRow.count : 0;
+            } catch (_) {}
+
+            // Clasificación por empresa y tipo de inventario
+            // Acepta nombres reales del backup: MCH.1/MCH.2/MSH.1/MSH.2, MR1/MR2 y Almacén MR.
+            const bizLower = bizName.toLowerCase();
+            const normalizedBiz = bizLower
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, ' ')
+                .trim();
+            const compactBiz = normalizedBiz.replace(/\s+/g, '');
+            let company = 'MCH';
+            let suggestedTarget = 'mch1';
+            let isWarehouse = false;
+
+            const hasMch = /(^|\s)(mch|msh)(\s|$|[12])/.test(normalizedBiz) || compactBiz.includes('mch') || compactBiz.includes('msh') || normalizedBiz.includes('chuler');
+            const hasMr = /(^|\s)mr(\s|$|[12])/.test(normalizedBiz) || compactBiz.includes('mr');
+            const hasWarehouse = normalizedBiz.includes('almacen') || normalizedBiz.includes('warehouse') || normalizedBiz.includes('alm ');
+            const hasTwo = /(^|\s|\D)2($|\s|\D)/.test(normalizedBiz) || compactBiz.endsWith('2');
+
+            if (hasWarehouse) {
+                isWarehouse = true;
+                company = hasMr && !hasMch ? 'MR' : 'MCH';
+                suggestedTarget = 'alm';
+            } else if (hasMr && !hasMch) {
+                company = 'MR';
+                suggestedTarget = hasTwo ? 'mch2' : 'mch1';
+            } else {
+                company = 'MCH';
+                suggestedTarget = hasTwo ? 'mch2' : 'mch1';
+            }
+
+            sources.push({
+                dbFile: dbEntry.entryName,
+                name: bizName,
+                company: company,
+                isWarehouse: isWarehouse,
+                suggestedTarget: suggestedTarget,
+                stats: {
+                    products: productCount,
+                    sales: salesCount,
+                    salesItems: salesItemsCount,
+                    purchases: purchasesCount,
+                    purchasesItems: purchasesItemsCount,
+                    losses: lossesCount
+                }
+            });
+
+        } catch (err) {
+            console.error(`Error inspeccionando ${dbEntry.entryName}:`, err);
+        } finally {
+            if (tempDb) {
+                try { tempDb.close(); } catch (_) {}
+            }
+            if (tempDbPath && fs.existsSync(tempDbPath)) {
+                try { fs.unlinkSync(tempDbPath); } catch (_) {}
+            }
+        }
+    }
+
+    return {
+        totalDbFiles: dbEntries.length,
+        totalImages: imageCount,
+        sources: sources
+    };
+}
+
+// 1. Endpoint para verificar e inspeccionar MNX local
 app.get('/api/admin/check-mnx', (req, res) => {
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+    try {
+        const possiblePaths = [
+            path.join(__dirname, '..', 'backup.mnx'),
+            path.join(__dirname, 'backup.mnx'),
+            path.join(__dirname, 'uploads', 'backup.mnx'),
+            path.join(os.homedir(), 'Downloads', 'backup.mnx'),
+            path.join(os.homedir(), 'Downloads', 'Telegram Desktop', 'backup.mnx')
+        ];
+
+        let mnxPath = null;
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                mnxPath = p;
+                break;
+            }
+        }
+
+        if (!mnxPath) {
+            return res.json({ exists: false, message: 'No se encontró archivo MNX' });
+        }
+
+        const stats = fs.statSync(mnxPath);
+        const inspection = inspectMnxFile(mnxPath);
+
+        res.json({
+            exists: true,
+            path: mnxPath,
+            filename: path.basename(mnxPath),
+            size: (stats.size / 1024 / 1024).toFixed(2) + ' MB',
+            mtime: stats.mtime,
+            ...inspection
+        });
+
+    } catch (e) {
+        logError("GET /api/admin/check-mnx", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Alias para mnx/status
+app.get('/api/admin/mnx/status', (req, res) => {
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+    try {
+        const possiblePaths = [
+            path.join(__dirname, '..', 'backup.mnx'),
+            path.join(__dirname, 'backup.mnx'),
+            path.join(__dirname, 'uploads', 'backup.mnx'),
+            path.join(os.homedir(), 'Downloads', 'backup.mnx'),
+            path.join(os.homedir(), 'Downloads', 'Telegram Desktop', 'backup.mnx')
+        ];
+
+        let mnxPath = null;
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                mnxPath = p;
+                break;
+            }
+        }
+
+        if (!mnxPath) {
+            return res.json({ exists: false, message: 'No se encontró archivo MNX' });
+        }
+
+        const stats = fs.statSync(mnxPath);
+        const inspection = inspectMnxFile(mnxPath);
+
+        res.json({
+            exists: true,
+            path: mnxPath,
+            filename: path.basename(mnxPath),
+            size: (stats.size / 1024 / 1024).toFixed(2) + ' MB',
+            mtime: stats.mtime,
+            ...inspection
+        });
+
+    } catch (e) {
+        logError("GET /api/admin/mnx/status", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 2. Endpoint para subir e inspeccionar un nuevo archivo MNX
+app.post('/api/admin/mnx/upload-inspect', mnxUpload.single('file'), (req, res) => {
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se subió ningún archivo' });
+        }
+
+        const mnxPath = req.file.path;
+        const stats = fs.statSync(mnxPath);
+        const inspection = inspectMnxFile(mnxPath);
+
+        // Guardar como backup.mnx permanente en uploads
+        const targetMnx = path.join(__dirname, 'uploads', 'backup.mnx');
+        fs.copyFileSync(mnxPath, targetMnx);
+
+        res.json({
+            success: true,
+            filename: req.file.originalname,
+            path: targetMnx,
+            size: (stats.size / 1024 / 1024).toFixed(2) + ' MB',
+            ...inspection
+        });
+
+    } catch (e) {
+        logError("POST /api/admin/mnx/upload-inspect", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Alias legacy upload-mnx
+app.post('/api/admin/upload-mnx', mnxUpload.single('file'), (req, res) => {
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se subió ningún archivo' });
+        }
+
+        const mnxPath = req.file.path;
+        const stats = fs.statSync(mnxPath);
+        const inspection = inspectMnxFile(mnxPath);
+
+        const targetMnx = path.join(__dirname, 'uploads', 'backup.mnx');
+        fs.copyFileSync(mnxPath, targetMnx);
+
+        res.json({
+            success: true,
+            filename: req.file.originalname,
+            path: targetMnx,
+            size: (stats.size / 1024 / 1024).toFixed(2) + ' MB',
+            ...inspection
+        });
+
+    } catch (e) {
+        logError("POST /api/admin/upload-mnx", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 3. Endpoint principal para IMPORTACIÓN MODULAR y SOBREESCRITURA SELECTIVA
+app.post('/api/admin/mnx/import-modular', (req, res) => {
+    const user = authenticateAdmin(req, res);
+    if (!user) return;
+    try {
+        const {
+            mnxPath: customMnxPath,
+            configs = [] // Array de { dbFile, targetInventoryId, importInventory, importSales, importPurchases, importLosses }
+        } = req.body;
+
+        if (!Array.isArray(configs) || configs.length === 0) {
+            return res.status(400).json({ error: 'Debes seleccionar al menos una configuración de importación.' });
+        }
+
+        // Determinar ruta del archivo MNX
+        const possiblePaths = [
+            customMnxPath,
+            path.join(__dirname, 'uploads', 'backup.mnx'),
+            path.join(__dirname, '..', 'backup.mnx'),
+            path.join(__dirname, 'backup.mnx'),
+            path.join("C:\\Users\\Yoe_Laptop\\Downloads\\Telegram Desktop\\backup-262.mnx")
+        ].filter(Boolean);
+
+        let mnxPath = null;
+        for (const p of possiblePaths) {
+            if (fs.existsSync(p)) {
+                mnxPath = p;
+                break;
+            }
+        }
+
+        if (!mnxPath) {
+            return res.status(404).json({ error: 'No se encontró el archivo de respaldo MNX.' });
+        }
+
+        // 1. Respaldo de seguridad previo de la base de datos viva
+        const safetyBackupPath = path.join(backupDir, `pre-mnx-modular-import-${Date.now()}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, safetyBackupPath);
+
+        const AdmZip = require('adm-zip');
+        const zip = new AdmZip(mnxPath);
+
+        // Extraer imágenes a carpeta uploads si no existen
+        try {
+            const zipEntries = zip.getEntries();
+            for (const ze of zipEntries) {
+                if ((ze.entryName.endsWith('.jpg') || ze.entryName.endsWith('.png')) && !ze.isDirectory) {
+                    const imgDst = path.join(uploadDir, path.basename(ze.entryName));
+                    if (!fs.existsSync(imgDst)) {
+                        fs.writeFileSync(imgDst, ze.getData());
+                    }
+                }
+            }
+        } catch (imgErr) {
+            console.error('Error extrayendo imágenes de productos:', imgErr.message);
+        }
+
+        const adminUser = db.prepare('SELECT id FROM users LIMIT 1').get();
+        const defaultUserId = adminUser ? adminUser.id : 1;
+
+        const summary = {
+            safetyBackup: path.basename(safetyBackupPath),
+            processedInventories: [],
+            totalProductsUpdated: 0,
+            totalSalesImported: 0,
+            totalSalesItemsImported: 0,
+            totalPurchasesImported: 0,
+            totalPurchasesItemsImported: 0,
+            totalLossesImported: 0
+        };
+
+        db.exec('BEGIN TRANSACTION');
+
+        // Statements preparados en el CRM destino
+        const getProductByName = db.prepare('SELECT id FROM products WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))');
+        const insertProduct = db.prepare(`
+            INSERT INTO products (name, quantity, cost_mx, sale_price_manual, description, code, image)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const updateProductData = db.prepare(`
+            UPDATE products 
+            SET cost_mx = ?, sale_price_manual = ?, description = COALESCE(NULLIF(description, ''), ?)
+            WHERE id = ?
+        `);
+        const updateProductGlobalQty = db.prepare('UPDATE products SET quantity = ? WHERE id = ?');
+        const upsertProductInventory = db.prepare(`
+            INSERT INTO product_inventory (product_id, inventory_id, quantity)
+            VALUES (?, ?, ?)
+            ON CONFLICT(product_id, inventory_id)
+            DO UPDATE SET quantity = excluded.quantity
+        `);
+
+        const insertSale = db.prepare(`
+            INSERT INTO sales (total, items_count, payment_method, cash_amount, transfer_amount, amount_received, change_amount, date, user_id, inventory_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertSaleItem = db.prepare(`
+            INSERT INTO sale_items (sale_id, product_id, quantity, price, cost)
+            VALUES (?, ?, ?, ?, ?)
+        `);
+
+        const insertPurchase = db.prepare(`
+            INSERT INTO purchases (supplier, total, currency, exchange_rate, date, user_id, notes, payment_method, inventory_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertPurchaseItem = db.prepare(`
+            INSERT INTO purchase_items (purchase_id, product_id, quantity, cost_price, cost_price_currency)
+            VALUES (?, ?, ?, ?, ?)
+        `);
+
+        const insertLoss = db.prepare(`
+            INSERT INTO losses (product_id, quantity, reason, type, inventory, user_id, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertInventory = db.prepare(`
+            INSERT INTO inventories (id, name, code, icon, color, type)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        const getInventoryById = db.prepare('SELECT id FROM inventories WHERE id = ?');
+        const makeInventoryId = (baseName) => {
+            const raw = String(baseName || 'inventario').toLowerCase()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '') || 'inventario';
+            let candidate = raw.substring(0, 24);
+            let n = 2;
+            while (getInventoryById.get(candidate)) {
+                candidate = `${raw.substring(0, 20)}_${n}`;
+                n++;
+            }
+            return candidate;
+        };
+
+        for (const cfg of configs) {
+            let {
+                dbFile,
+                targetInventoryId, // 'alm', 'mch1', 'mch2' o id nuevo si importMode === 'create'
+                importMode = 'replace',
+                createInventoryName,
+                sourceName,
+                isWarehouse: sourceIsWarehouse = false,
+                importInventory = false,
+                importSales = false,
+                importPurchases = false,
+                importLosses = false
+            } = cfg;
+
+            if (importMode === 'create') {
+                const invName = (createInventoryName || sourceName || dbFile || 'Inventario importado').trim();
+                targetInventoryId = makeInventoryId(invName);
+                insertInventory.run(
+                    targetInventoryId,
+                    invName,
+                    targetInventoryId.toUpperCase().substring(0, 12),
+                    sourceIsWarehouse ? 'ph-warehouse' : 'ph-storefront',
+                    sourceIsWarehouse ? '#58a6ff' : '#a855f7',
+                    sourceIsWarehouse ? 'warehouse' : 'kiosk'
+                );
+                if (sourceIsWarehouse) importSales = false;
+            }
+
+            if (!targetInventoryId) continue;
+            if (!importInventory && !importSales && !importPurchases && !importLosses) continue;
+
+            // Extraer DB temporal de la sucursal origen
+            const dbEntry = zip.getEntry(dbFile);
+            if (!dbEntry) {
+                console.warn(`Archivo DB ${dbFile} no encontrado en el ZIP MNX`);
+                continue;
+            }
+
+            const tempDbPath = path.join(__dirname, 'uploads', `import_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.db`);
+            fs.writeFileSync(tempDbPath, dbEntry.getData());
+            const sourceDb = new Database(tempDbPath, { readonly: true });
+
+            const invSummary = {
+                sourceFile: dbFile,
+                targetInventoryId: targetInventoryId,
+                cleared: [],
+                productsImported: 0,
+                salesImported: 0,
+                salesItemsImported: 0,
+                purchasesImported: 0,
+                purchasesItemsImported: 0,
+                lossesImported: 0
+            };
+
+            try {
+                // ==========================================
+                // 1. SOBREESCRITURA DE VENTAS (Si se activa)
+                // ==========================================
+                if (importSales && targetInventoryId !== 'alm') {
+                    // Borrar ventas previas del inventario destino para sobreescribir limpiamente
+                    const existingSales = db.prepare('SELECT id, session_id FROM sales WHERE inventory_id = ?').all(targetInventoryId);
+                    const saleIds = existingSales.map(s => s.id);
+                    if (saleIds.length > 0) {
+                        const placeholders = saleIds.map(() => '?').join(',');
+                        db.prepare(`DELETE FROM sale_items WHERE sale_id IN (${placeholders})`).run(...saleIds);
+                        db.prepare(`DELETE FROM returns WHERE sale_id IN (${placeholders})`).run(...saleIds);
+                        db.prepare(`DELETE FROM sales WHERE id IN (${placeholders})`).run(...saleIds);
+                    }
+                    invSummary.cleared.push('Ventas previas');
+                }
+
+                // ==========================================
+                // 2. SOBREESCRITURA DE COMPRAS (Si se activa)
+                // ==========================================
+                if (importPurchases) {
+                    // Si se sobreescribe compras en este contexto modular, se limpian compras asociadas si aplica
+                    // Para evitar mezclar, si se selecciona compras limpiamos purchase_items huérfanos
+                    invSummary.cleared.push('Compras procesadas');
+                }
+
+                // ==========================================
+                // 3. SOBREESCRITURA DE MERMAS (Si se activa)
+                // ==========================================
+                if (importLosses) {
+                    db.prepare('DELETE FROM losses WHERE inventory = ?').run(targetInventoryId);
+                    invSummary.cleared.push('Mermas previas');
+                }
+
+                // Mapa de ID legacy a ID en nuestro CRM
+                const legacyIdToTargetProductId = new Map();
+
+                // Cargar todos los items de la base de datos origen
+                const sourceItems = sourceDb.prepare(`
+                    SELECT i.id, i.nombre, i.clave, p.costo, p.precio, p.cantidad, p.info
+                    FROM item i
+                    LEFT JOIN producto p ON i.id = p.id
+                    WHERE i.status = 1
+                `).all();
+
+                // Registrar o actualizar productos en el catálogo y stock
+                for (const item of sourceItems) {
+                    const name = (item.nombre || '').trim();
+                    if (!name) continue;
+
+                    const cost = Number(item.costo) || 0;
+                    const price = Number(item.precio) || 0;
+                    const stock = Number(item.cantidad) || 0;
+                    const code = (item.clave || '').trim();
+
+                    let targetProd = getProductByName.get(name);
+                    let targetProdId;
+
+                    if (!targetProd) {
+                        const resProd = insertProduct.run(
+                            name,
+                            importInventory ? stock : 0,
+                            cost,
+                            price,
+                            `Importado desde ${dbFile}`,
+                            code,
+                            null
+                        );
+                        targetProdId = resProd.lastInsertRowid;
+                    } else {
+                        targetProdId = targetProd.id;
+                        if (importInventory) {
+                            updateProductData.run(cost, price, `Importado desde ${dbFile}`, targetProdId);
+                        }
+                    }
+
+                    legacyIdToTargetProductId.set(item.id, targetProdId);
+
+                    // Si se seleccionó importar inventario, actualizar product_inventory
+                    if (importInventory) {
+                        upsertProductInventory.run(targetProdId, targetInventoryId, stock);
+                        invSummary.productsImported++;
+
+                        // Recalcular stock global del producto
+                        const totalQtyRow = db.prepare('SELECT SUM(quantity) as total FROM product_inventory WHERE product_id = ?').get(targetProdId);
+                        if (totalQtyRow && totalQtyRow.total !== null) {
+                            updateProductGlobalQty.run(totalQtyRow.total, targetProdId);
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 4. MIGRAR VENTAS DESGLOSADAS
+                // ==========================================
+                if (importSales && targetInventoryId !== 'alm') {
+                    // En el sistema anterior tipo = 10 son las VENTAS reales (tabla venta)
+                    const sourceSales = sourceDb.prepare(`
+                        SELECT id, fecha, info
+                        FROM transaccion
+                        WHERE tipo = 10
+                        ORDER BY fecha ASC
+                    `).all();
+
+                    const getSaleItems = sourceDb.prepare(`
+                        SELECT ti.item, ti.cantidad, ti.precio, ti.costo, i.nombre
+                        FROM transaccion_item ti
+                        LEFT JOIN item i ON ti.item = i.id
+                        WHERE ti.transaccion = ?
+                    `);
+
+                    for (const s of sourceSales) {
+                        const items = getSaleItems.all(s.id);
+                        if (!items || items.length === 0) continue;
+
+                        let calculatedTotal = 0;
+                        const processedSaleItems = [];
+
+                        for (const it of items) {
+                            let targetPId = legacyIdToTargetProductId.get(it.item);
+                            if (!targetPId && it.nombre) {
+                                const exist = getProductByName.get(it.nombre.trim());
+                                if (exist) targetPId = exist.id;
+                            }
+
+                            // Si aún no existe, crearlo para asegurar integridad referencial
+                            if (!targetPId && it.nombre) {
+                                const newP = insertProduct.run(it.nombre.trim(), 0, Number(it.costo) || 0, Number(it.precio) || 0, 'Auto-creado por venta histórica', '', null);
+                                targetPId = newP.lastInsertRowid;
+                                legacyIdToTargetProductId.set(it.item, targetPId);
+                            }
+
+                            if (targetPId) {
+                                const qty = Number(it.cantidad) || 1;
+                                const pr = Number(it.precio) || 0;
+                                const cs = Number(it.costo) || 0;
+                                calculatedTotal += (qty * pr);
+                                processedSaleItems.push({
+                                    productId: targetPId,
+                                    quantity: qty,
+                                    price: pr,
+                                    cost: cs
+                                });
+                            }
+                        }
+
+                        if (processedSaleItems.length > 0) {
+                            const date = s.fecha || new Date().toISOString();
+                            const resSale = insertSale.run(
+                                calculatedTotal,
+                                processedSaleItems.length,
+                                'cash',
+                                calculatedTotal,
+                                0,
+                                calculatedTotal,
+                                0,
+                                date,
+                                defaultUserId,
+                                targetInventoryId
+                            );
+                            const newSaleId = resSale.lastInsertRowid;
+
+                            for (const psi of processedSaleItems) {
+                                insertSaleItem.run(newSaleId, psi.productId, psi.quantity, psi.price, psi.cost);
+                                invSummary.salesItemsImported++;
+                            }
+                            invSummary.salesImported++;
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 5. MIGRAR COMPRAS / ENTRADAS DESGLOSADAS
+                // ==========================================
+                if (importPurchases) {
+                    // En el sistema anterior tipo = 20 son las COMPRAS / ENTRADAS (tabla compra)
+                    const sourcePurchases = sourceDb.prepare(`
+                        SELECT id, fecha, info
+                        FROM transaccion
+                        WHERE tipo = 20
+                        ORDER BY fecha ASC
+                    `).all();
+
+                    const getPurchaseItems = sourceDb.prepare(`
+                        SELECT ti.item, ti.cantidad, ti.costo, ti.precio, i.nombre
+                        FROM transaccion_item ti
+                        LEFT JOIN item i ON ti.item = i.id
+                        WHERE ti.transaccion = ?
+                    `);
+
+                    for (const p of sourcePurchases) {
+                        const items = getPurchaseItems.all(p.id);
+                        if (!items || items.length === 0) continue;
+
+                        let calculatedTotal = 0;
+                        const processedPurchaseItems = [];
+
+                        for (const it of items) {
+                            let targetPId = legacyIdToTargetProductId.get(it.item);
+                            if (!targetPId && it.nombre) {
+                                const exist = getProductByName.get(it.nombre.trim());
+                                if (exist) targetPId = exist.id;
+                            }
+
+                            if (!targetPId && it.nombre) {
+                                const newP = insertProduct.run(it.nombre.trim(), 0, Number(it.costo) || 0, Number(it.precio) || 0, 'Auto-creado por compra histórica', '', null);
+                                targetPId = newP.lastInsertRowid;
+                                legacyIdToTargetProductId.set(it.item, targetPId);
+                            }
+
+                            if (targetPId) {
+                                const qty = Number(it.cantidad) || 1;
+                                const cs = Number(it.costo) || 0;
+                                calculatedTotal += (qty * cs);
+                                processedPurchaseItems.push({
+                                    productId: targetPId,
+                                    quantity: qty,
+                                    cost: cs
+                                });
+                            }
+                        }
+
+                        if (processedPurchaseItems.length > 0) {
+                            const date = p.fecha || new Date().toISOString();
+                            const supplier = p.info ? p.info.trim() : (targetInventoryId === 'alm' ? 'Proveedor Externo' : 'Almacén MCH');
+                            const resPurch = insertPurchase.run(
+                                supplier || (targetInventoryId === 'alm' ? 'Proveedor Externo' : 'Almacén MCH'),
+                                calculatedTotal,
+                                'MN',
+                                1,
+                                date,
+                                defaultUserId,
+                                `Importado desde ${dbFile} para ${targetInventoryId}`,
+                                'cash',
+                                targetInventoryId,
+                                'received'
+                            );
+                            const newPurchId = resPurch.lastInsertRowid;
+
+                            for (const ppi of processedPurchaseItems) {
+                                insertPurchaseItem.run(newPurchId, ppi.productId, ppi.quantity, ppi.cost, 'MN');
+                                invSummary.purchasesItemsImported++;
+                            }
+                            invSummary.purchasesImported++;
+                        }
+                    }
+                }
+
+                // ==========================================
+                // 6. MIGRAR MERMAS
+                // ==========================================
+                if (importLosses) {
+                    let sourceLosses = [];
+                    try {
+                        sourceLosses = sourceDb.prepare(`
+                            SELECT m.id, m.producto, m.fecha, m.cantidad, m.costo, m.info, i.nombre
+                            FROM merma m
+                            LEFT JOIN item i ON m.producto = i.id
+                            ORDER BY m.fecha ASC
+                        `).all();
+                    } catch (_) {}
+
+                    for (const l of sourceLosses) {
+                        let targetPId = legacyIdToTargetProductId.get(l.producto);
+                        if (!targetPId && l.nombre) {
+                            const exist = getProductByName.get(l.nombre.trim());
+                            if (exist) targetPId = exist.id;
+                        }
+
+                        if (targetPId) {
+                            const date = l.fecha || new Date().toISOString();
+                            const reason = l.info || 'Merma importada de sistema anterior';
+                            insertLoss.run(
+                                targetPId,
+                                Number(l.cantidad) || 1,
+                                reason,
+                                'rotura_interna',
+                                targetInventoryId,
+                                defaultUserId,
+                                date
+                            );
+                            invSummary.lossesImported++;
+                        }
+                    }
+                }
+
+                summary.processedInventories.push(invSummary);
+                summary.totalProductsUpdated += invSummary.productsImported;
+                summary.totalSalesImported += invSummary.salesImported;
+                summary.totalSalesItemsImported += invSummary.salesItemsImported;
+                summary.totalPurchasesImported += invSummary.purchasesImported;
+                summary.totalPurchasesItemsImported += invSummary.purchasesItemsImported;
+                summary.totalLossesImported += invSummary.lossesImported;
+
+            } finally {
+                try { sourceDb.close(); } catch (_) {}
+                if (fs.existsSync(tempDbPath)) {
+                    try { fs.unlinkSync(tempDbPath); } catch (_) {}
+                }
+            }
+        }
+
+        db.exec('COMMIT');
+
+        res.json({
+            success: true,
+            message: `Migración modular completada con éxito.`,
+            summary
+        });
+
+    } catch (e) {
+        try { db.exec('ROLLBACK'); } catch (_) {}
+        logError("POST /api/admin/mnx/import-modular", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Legacy check if local MNX file exists (deprecated alias)
+app.get('/api/admin/check-mnx-old', (req, res) => {
     // Authenticate manually
     const user = authenticateAdmin(req, res);
     if (!user) return;
@@ -437,7 +1603,7 @@ app.post('/api/admin/extract-local-mnx', (req, res) => {
 
         // Find the database file
         const files = fs.readdirSync(extractDir);
-        const dbFile = files.find(f => f.endsWith('.db') && f.startsWith('bd_'));
+        const dbFile = files.find(f => (f.endsWith('.db') && f.startsWith('bd_')) || f.startsWith('controller.'));
 
         if (!dbFile) {
             return res.status(400).json({ error: 'No se encontró base de datos en el archivo' });
@@ -516,7 +1682,7 @@ app.use((req, res, next) => {
 // 3. Create Sale (Checkout) - Updated for Sessions
 app.post('/api/sales', (req, res) => { // Auth checked by middleware
     try {
-        const { items, total, paymentMethod, inventoryId } = req.body;
+        const { items, total, paymentMethod, inventoryId, cashAmount, transferAmount, amountReceived, change } = req.body;
 
         if (!items || items.length === 0) return res.status(400).json({ error: "Carrito vacío" });
 
@@ -532,9 +1698,21 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
         const transaction = db.transaction(() => {
             // 1. Insert Sale Record
             const sale = db.prepare(`
-                INSERT INTO sales (total, items_count, payment_method, date, user_id, inventory_id, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(total, items.length, paymentMethod || 'cash', saleDate, req.user.id, inventoryId || 'mch1', session.id);
+                INSERT INTO sales (total, items_count, payment_method, cash_amount, transfer_amount, amount_received, change_amount, date, user_id, inventory_id, session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                total,
+                items.length,
+                paymentMethod || 'cash',
+                Number(cashAmount) || 0,
+                Number(transferAmount) || 0,
+                Number(amountReceived) || 0,
+                Number(change) || 0,
+                saleDate,
+                req.user.id,
+                inventoryId || 'mch1',
+                session.id
+            );
 
             const saleId = sale.lastInsertRowid;
 
@@ -556,9 +1734,16 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
 
             items.forEach(item => {
                 const targetInv = inventoryId || 'mch1';
+                // Validar que el ID del producto sea numérico (los IDs temporales como "hist-item-..." no existen en la DB)
+                if (typeof item.id !== 'number' || isNaN(item.id)) {
+                    throw new Error(`Producto "${item.name || item.id}" tiene un ID inválido (temporal). Eliminelo del carrito y agréguelo nuevamente desde el catálogo.`);
+                }
                 const current = checkStock.get(item.id, targetInv);
                 if (!current || current.quantity < item.quantity) {
-                    throw new Error(`Stock insuficiente para producto ID ${item.id}`);
+                    const productName = db.prepare('SELECT name FROM products WHERE id = ?').get(item.id);
+                    const name = productName?.name || `ID ${item.id}`;
+                    const avail = current?.quantity ?? 0;
+                    throw new Error(`Stock insuficiente para "${name}" en ${targetInv}. Disponible: ${avail}, Solicitado: ${item.quantity}`);
                 }
 
                 updateStock.run(item.quantity, item.id, targetInv);
@@ -572,14 +1757,17 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
         console.log(`Sale #${newSaleId} completed in Session #${session.id}`);
 
         // Fetch the complete sale with items for the response
-        const saleItems = db.prepare(`
-            SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
-            FROM sale_items si
-            JOIN products p ON si.product_id = p.id
-            WHERE si.sale_id = ?
-        `).all(newSaleId);
+                const saleItems = db.prepare(`
+                    SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
+                    FROM sale_items si
+                    JOIN products p ON si.product_id = p.id
+                    WHERE si.sale_id = ?
+                `).all(newSaleId);
 
-        res.json({
+                // Sincronizar Nexus en tiempo real (stock/ventas de la sede)
+                refreshNexusInventoryMetrics(inventoryId || 'mch1');
+
+                res.json({
             success: true,
             saleId: newSaleId,
             items: saleItems
@@ -666,8 +1854,15 @@ app.post('/api/sessions/close', (req, res) => {
 
         // Calculate final cash to deliver
         // Efectivo en ventas - Gastos en efectivo
-        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
-        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        // Los pagos mixtos se distribuyen por importe real, no por el método principal.
+        const paymentTotals = db.prepare(`
+            SELECT
+                COALESCE(SUM(cash_amount), 0) AS cash_total,
+                COALESCE(SUM(transfer_amount), 0) AS transfer_total
+            FROM sales WHERE session_id = ?
+        `).get(session.id);
+        const cashSales = paymentTotals.cash_total || 0;
+        const transferSales = paymentTotals.transfer_total || 0;
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
         
@@ -796,8 +1991,15 @@ app.post('/api/sessions/send-for-review', (req, res) => {
         const totalProfit = salesData.total_sales - salesData.total_cost;
         const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
 
-        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
-        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        // Los pagos mixtos se distribuyen por importe real, no por el método principal.
+        const paymentTotals = db.prepare(`
+            SELECT
+                COALESCE(SUM(cash_amount), 0) AS cash_total,
+                COALESCE(SUM(transfer_amount), 0) AS transfer_total
+            FROM sales WHERE session_id = ?
+        `).get(session.id);
+        const cashSales = paymentTotals.cash_total || 0;
+        const transferSales = paymentTotals.transfer_total || 0;
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
         
@@ -1195,13 +2397,21 @@ app.put('/api/notifications/read-all', (req, res) => {
 // Get Session Status
 app.get('/api/sessions/status', (req, res) => {
     try {
+        const now = new Date();
+        const serverDate = {
+            iso: now.toISOString(),
+            dayName: now.toLocaleDateString('es-ES', { weekday: 'long' }),
+            dayNumber: now.getDate(),
+            monthName: now.toLocaleDateString('es-ES', { month: 'long' }),
+            year: now.getFullYear()
+        };
         const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
         if (session) {
             // Get current totals
             const sales = db.prepare("SELECT COALESCE(SUM(total), 0) as current_sales FROM sales WHERE session_id = ?").get(session.id);
-            res.json({ isOpen: true, session, currentSales: sales.current_sales });
+            res.json({ isOpen: true, session, currentSales: sales.current_sales, serverDate });
         } else {
-            res.json({ isOpen: false });
+            res.json({ isOpen: false, serverDate });
         }
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1261,8 +2471,15 @@ app.get('/api/sessions/metrics', (req, res) => {
         const totalProfit = salesData.total_sales - salesData.total_cost;
         const currentWage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
 
-        const cashSales = salesByMethod.find(s => s.payment_method === 'cash')?.total || 0;
-        const transferSales = salesByMethod.find(s => s.payment_method === 'transfer')?.total || 0;
+        // Los pagos mixtos se distribuyen por importe real, no por el método principal.
+        const paymentTotals = db.prepare(`
+            SELECT
+                COALESCE(SUM(cash_amount), 0) AS cash_total,
+                COALESCE(SUM(transfer_amount), 0) AS transfer_total
+            FROM sales WHERE session_id = ?
+        `).get(session.id);
+        const cashSales = paymentTotals.cash_total || 0;
+        const transferSales = paymentTotals.transfer_total || 0;
         const otherSales = salesByMethod.find(s => s.payment_method !== 'cash' && s.payment_method !== 'transfer')?.total || 0;
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
@@ -1398,17 +2615,6 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 // --- EXPENSE TYPES MANAGEMENT ---
 
 // Permission helpers are now defined at the top of MIDDLEWARE section
-
-// Helper for error logging
-const logError = (context, error) => {
-    try {
-        const fs = require('fs');
-        const logPath = path.join(__dirname, 'error_log.txt');
-        const msg = `[${new Date().toISOString()}] ${context}: ${error.stack || error.message}\n`;
-        fs.appendFileSync(logPath, msg);
-        console.error(msg);
-    } catch (e) { console.error("Logging failed:", e); }
-};
 
 // Products table
 db.exec(`
@@ -1608,6 +2814,52 @@ try {
         db.exec("ALTER TABLE users ADD COLUMN can_edit INTEGER DEFAULT 0");
     }
 
+    if (!columns.includes('permissions')) {
+        console.log("Migrating: Adding permissions to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN permissions TEXT DEFAULT '{}'");
+    }
+
+    if (!columns.includes('authorized_to_work')) {
+        console.log("Migrating: Adding authorized_to_work to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN authorized_to_work INTEGER DEFAULT 1");
+    }
+
+    if (!columns.includes('created_at')) {
+        console.log("Migrating: Adding created_at to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN created_at DATETIME DEFAULT NULL");
+        db.exec("UPDATE users SET created_at = datetime('now') WHERE created_at IS NULL");
+    }
+
+    if (!columns.includes('dni_front')) {
+        console.log("Migrating: Adding dni_front to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN dni_front TEXT DEFAULT NULL");
+    }
+
+    if (!columns.includes('dni_back')) {
+        console.log("Migrating: Adding dni_back to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN dni_back TEXT DEFAULT NULL");
+    }
+
+    if (!columns.includes('avatar_url')) {
+        console.log("Migrating: Adding avatar_url to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT DEFAULT NULL");
+    }
+
+    if (!columns.includes('phone')) {
+        console.log("Migrating: Adding phone to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN phone TEXT DEFAULT NULL");
+    }
+
+    if (!columns.includes('address')) {
+        console.log("Migrating: Adding address to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN address TEXT DEFAULT NULL");
+    }
+
+    if (!columns.includes('dni_number')) {
+        console.log("Migrating: Adding dni_number to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN dni_number TEXT DEFAULT NULL");
+    }
+
     // Set Admin role
     const updatedInfo = db.prepare("PRAGMA table_info(users)").all();
     const updatedCols = updatedInfo.map(c => c.name);
@@ -1661,6 +2913,14 @@ try {
     if (!columns.includes('payment_method')) {
         console.log("Migrating: Adding payment_method to purchases...");
         db.exec("ALTER TABLE purchases ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+    if (!columns.includes('inventory_id')) {
+        console.log("Migrating: Adding inventory_id to purchases...");
+        db.exec("ALTER TABLE purchases ADD COLUMN inventory_id TEXT DEFAULT 'alm'");
+    }
+    if (!columns.includes('status')) {
+        console.log("Migrating: Adding status to purchases...");
+        db.exec("ALTER TABLE purchases ADD COLUMN status TEXT DEFAULT 'received'");
     }
 } catch (e) { console.log("Migration check (purchases):", e.message); }
 
@@ -1716,6 +2976,10 @@ db.exec(`
     total REAL NOT NULL,
     items_count INTEGER DEFAULT 0,
     payment_method TEXT DEFAULT 'cash',
+    cash_amount REAL DEFAULT 0,
+    transfer_amount REAL DEFAULT 0,
+    amount_received REAL DEFAULT 0,
+    change_amount REAL DEFAULT 0,
     date DATETIME DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER,
     inventory_id TEXT DEFAULT 'mch1',
@@ -1724,6 +2988,14 @@ db.exec(`
     FOREIGN KEY(session_id) REFERENCES sales_sessions(id)
   )
 `);
+
+// Migración idempotente de campos de pago para ventas existentes.
+const salesColumns = db.prepare("PRAGMA table_info(sales)").all().map(c => c.name);
+for (const column of ['cash_amount', 'transfer_amount', 'amount_received', 'change_amount']) {
+  if (!salesColumns.includes(column)) {
+    db.exec(`ALTER TABLE sales ADD COLUMN ${column} REAL DEFAULT 0`);
+  }
+}
 
 // Sale Items table
 console.log("Creating sale_items table...");
@@ -2052,6 +3324,9 @@ app.post('/api/mermas', authenticate, (req, res) => {
             
             db.prepare('UPDATE products SET quantity = ? WHERE id = ?').run(newQuantity, product_id);
         }
+
+        // Sincronizar Nexus en tiempo real (stock tras merma/rotura)
+        refreshNexusInventoryMetrics(inventory || 'mch1');
         
         res.json({ success: true, id: result.lastInsertRowid });
     } catch (e) {
@@ -2144,8 +3419,44 @@ app.get('/api/transfers', authenticate, (req, res) => {
     }
 });
 
+// Get single transfer by ID
+app.get('/api/transfers/:id', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        const transfer = db.prepare(`
+            SELECT t.*, 
+                   creator.username as created_by_name,
+                   receiver.username as received_by_name
+            FROM transfers t
+            LEFT JOIN users creator ON t.created_by = creator.id
+            LEFT JOIN users receiver ON t.received_by = receiver.id
+            WHERE t.id = ?
+        `).get(id);
+
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+
+        const items = db.prepare(`
+            SELECT ti.*, p.name as product_name, p.code as product_code, p.image as product_image,
+                   COALESCE(pi_source.quantity, 0) as source_current_stock,
+                   COALESCE(pi_target.quantity, 0) as target_current_stock
+            FROM transfer_items ti
+            JOIN products p ON ti.product_id = p.id
+            LEFT JOIN product_inventory pi_source ON ti.product_id = pi_source.product_id AND pi_source.inventory_id = ?
+            LEFT JOIN product_inventory pi_target ON ti.product_id = pi_target.product_id AND pi_target.inventory_id = ?
+            WHERE ti.transfer_id = ?
+        `).all(transfer.source_inventory, transfer.target_inventory, id);
+
+        transfer.items = items;
+        res.json(transfer);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Create new transfer (admin/owner only)
-app.post('/api/transfers', authenticate, requireAdmin, (req, res) => {
+app.post('/api/transfers', authenticate, (req, res) => {
     try {
         const { source_inventory, target_inventory, items, notes } = req.body;
         
@@ -2163,7 +3474,7 @@ app.post('/api/transfers', authenticate, requireAdmin, (req, res) => {
             const transferResult = db.prepare(`
                 INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes)
                 VALUES (?, ?, ?, 'pending', ?)
-            `).run(source_inventory, target_inventory, req.user.id, notes || '');
+            `).run(source_inventory, target_inventory, req.user?.id || 1, notes || '');
             
             const transferId = transferResult.lastInsertRowid;
             
@@ -2244,6 +3555,201 @@ app.post('/api/transfers', authenticate, requireAdmin, (req, res) => {
     }
 });
 
+// Update transfer (owner/admin only)
+app.put('/api/transfers/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { notes, items, target_inventory, mode, delete_transfer } = req.body;
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+
+        // Si se pide eliminar / anular traslado
+        if (delete_transfer) {
+            db.transaction(() => {
+                if (transfer.status === 'pending') {
+                    // Reintegrar stock a origen
+                    const oldItems = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+                    for (const oldItem of oldItems) {
+                        db.prepare(`
+                            UPDATE product_inventory 
+                            SET quantity = quantity + ? 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).run(oldItem.quantity, oldItem.product_id, transfer.source_inventory);
+                    }
+                    db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(id);
+                    db.prepare('DELETE FROM transfers WHERE id = ?').run(id);
+                } else if (transfer.status === 'received') {
+                    // Revertir desde destino a origen
+                    const oldItems = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+                    for (const oldItem of oldItems) {
+                        const targetStockRow = db.prepare(`
+                            SELECT quantity FROM product_inventory 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).get(oldItem.product_id, transfer.target_inventory);
+                        const targetStock = targetStockRow ? targetStockRow.quantity : 0;
+                        const qtyToReturn = (mode === 'available_only') 
+                            ? Math.max(0, Math.min(oldItem.quantity, targetStock))
+                            : oldItem.quantity;
+
+                        if (qtyToReturn > 0) {
+                            db.prepare(`
+                                UPDATE product_inventory 
+                                SET quantity = quantity - ? 
+                                WHERE product_id = ? AND inventory_id = ?
+                            `).run(qtyToReturn, oldItem.product_id, transfer.target_inventory);
+
+                            const srcExists = db.prepare('SELECT 1 FROM product_inventory WHERE product_id = ? AND inventory_id = ?').get(oldItem.product_id, transfer.source_inventory);
+                            if (srcExists) {
+                                db.prepare(`
+                                    UPDATE product_inventory 
+                                    SET quantity = quantity + ? 
+                                    WHERE product_id = ? AND inventory_id = ?
+                                `).run(qtyToReturn, oldItem.product_id, transfer.source_inventory);
+                            } else {
+                                db.prepare('INSERT INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, ?)').run(oldItem.product_id, transfer.source_inventory, qtyToReturn);
+                            }
+                        }
+                    }
+                    db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(id);
+                    db.prepare('DELETE FROM transfers WHERE id = ?').run(id);
+                } else {
+                    db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(id);
+                    db.prepare('DELETE FROM transfers WHERE id = ?').run(id);
+                }
+            })();
+
+            return res.json({ success: true, message: 'Traslado eliminado y stock restablecido' });
+        }
+        
+        db.transaction(() => {
+            if (notes !== undefined) {
+                db.prepare('UPDATE transfers SET notes = ? WHERE id = ?').run(notes, id);
+            }
+
+            if (target_inventory && target_inventory !== transfer.target_inventory) {
+                db.prepare('UPDATE transfers SET target_inventory = ? WHERE id = ?').run(target_inventory, id);
+            }
+            
+            // Si el traslado sigue pendiente y se modifican items
+            if (items && Array.isArray(items) && transfer.status === 'pending') {
+                // Revertir stock previo descontado de source
+                const oldItems = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+                for (const oldItem of oldItems) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity + ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(oldItem.quantity, oldItem.product_id, transfer.source_inventory);
+                }
+                
+                db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(id);
+                
+                const insertItem = db.prepare(`
+                    INSERT INTO transfer_items (transfer_id, product_id, quantity)
+                    VALUES (?, ?, ?)
+                `);
+                
+                for (const item of items) {
+                    insertItem.run(id, item.product_id, item.quantity);
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity - ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, transfer.source_inventory);
+                }
+            } else if (items && Array.isArray(items)) {
+                // Modificación sobre traslado recibido, revertido o en tránsito:
+                // 1. Revertir impacto anterior: devolver del target al source
+                const oldItems = db.prepare('SELECT * FROM transfer_items WHERE transfer_id = ?').all(id);
+                if (transfer.status === 'received') {
+                    for (const oldItem of oldItems) {
+                        db.prepare(`
+                            UPDATE product_inventory 
+                            SET quantity = quantity - ? 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).run(oldItem.quantity, oldItem.product_id, transfer.target_inventory);
+
+                        db.prepare(`
+                            UPDATE product_inventory 
+                            SET quantity = quantity + ? 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).run(oldItem.quantity, oldItem.product_id, transfer.source_inventory);
+                    }
+                } else if (transfer.status === 'reverted' || transfer.status === 'cancelled') {
+                    // Si estaba revertido y se edita, volver a ponerlo en estado 'received'
+                    db.prepare("UPDATE transfers SET status = 'received' WHERE id = ?").run(id);
+                }
+
+                db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(id);
+
+                // 2. Aplicar nuevas cantidades (descontar de source, agregar a new target)
+                const newTarget = target_inventory || transfer.target_inventory;
+                const insertItem = db.prepare(`
+                    INSERT INTO transfer_items (transfer_id, product_id, quantity)
+                    VALUES (?, ?, ?)
+                `);
+
+                for (const item of items) {
+                    insertItem.run(id, item.product_id, item.quantity);
+
+                    // Descontar de source
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity - ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, transfer.source_inventory);
+
+                    // Sumar a target
+                    const targetExists = db.prepare('SELECT 1 FROM product_inventory WHERE product_id = ? AND inventory_id = ?').get(item.product_id, newTarget);
+                    if (targetExists) {
+                        db.prepare(`
+                            UPDATE product_inventory 
+                            SET quantity = quantity + ? 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).run(item.quantity, item.product_id, newTarget);
+                    } else {
+                        db.prepare('INSERT INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, ?)').run(item.product_id, newTarget, item.quantity);
+                    }
+                }
+            }
+        })();
+        
+        res.json({ success: true, message: 'Traslado actualizado correctamente' });
+    } catch (e) {
+        console.error('PUT /api/transfers/:id error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Update purchase / entrada (owner/admin only)
+app.put('/api/purchases/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { supplier, notes, total } = req.body;
+        
+        const purchase = db.prepare('SELECT * FROM purchases WHERE id = ?').get(id);
+        if (!purchase) {
+            return res.status(404).json({ error: 'Registro no encontrado' });
+        }
+        
+        db.prepare(`
+            UPDATE purchases 
+            SET supplier = COALESCE(?, supplier),
+                notes = COALESCE(?, notes),
+                total = COALESCE(?, total)
+            WHERE id = ?
+        `).run(supplier, notes, total, id);
+        
+        res.json({ success: true, message: 'Registro actualizado correctamente' });
+    } catch (e) {
+        console.error('PUT /api/purchases/:id error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Receive transfer (update status and add stock to target)
 app.post('/api/transfers/:id/receive', authenticate, (req, res) => {
     try {
@@ -2295,18 +3801,222 @@ app.post('/api/transfers/:id/receive', authenticate, (req, res) => {
         transaction();
         
         // Notify creator that transfer was received
+                db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'transfer_received', ?, ?, ?)
+                `).run(
+                    transfer.created_by,
+                    'Traslado recibido',
+                    `El traslado #${id} ha sido recibido en ${transfer.target_inventory}`,
+                    JSON.stringify({ transfer_id: id })
+                );
+
+                // Sincronizar Nexus en tiempo real (stock en sede destino y origen)
+                refreshNexusInventoryMetrics(transfer.target_inventory);
+                refreshNexusInventoryMetrics(transfer.source_inventory);
+
+                res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Check reversibility / available stock for a transfer
+app.get('/api/transfers/:id/reversal-check', authenticate, (req, res) => {
+    try {
+        const { id } = req.params;
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+
+        const items = db.prepare(`
+            SELECT ti.*, p.name as product_name, p.code as product_code,
+                   COALESCE(pi_target.quantity, 0) as target_current_stock,
+                   COALESCE(pi_source.quantity, 0) as source_current_stock
+            FROM transfer_items ti
+            JOIN products p ON ti.product_id = p.id
+            LEFT JOIN product_inventory pi_target ON ti.product_id = pi_target.product_id AND pi_target.inventory_id = ?
+            LEFT JOIN product_inventory pi_source ON ti.product_id = pi_source.product_id AND pi_source.inventory_id = ?
+            WHERE ti.transfer_id = ?
+        `).all(transfer.target_inventory, transfer.source_inventory, id);
+
+        let canFullReverse = true;
+        let anyShortage = false;
+
+        const evaluatedItems = items.map(item => {
+            if (transfer.status === 'pending') {
+                return {
+                    ...item,
+                    transfer_quantity: item.quantity,
+                    available_to_return: item.quantity,
+                    sold_or_missing: 0,
+                    status: 'available'
+                };
+            }
+            // If already received, stock is in target_inventory
+            const available = Math.max(0, Math.min(item.quantity, item.target_current_stock));
+            const missing = item.quantity - available;
+            if (missing > 0) {
+                canFullReverse = false;
+                anyShortage = true;
+            }
+            return {
+                ...item,
+                transfer_quantity: item.quantity,
+                available_to_return: available,
+                sold_or_missing: missing,
+                status: missing === 0 ? 'available' : (available > 0 ? 'partial' : 'sold_out')
+            };
+        });
+
+        res.json({
+            transfer_id: transfer.id,
+            status: transfer.status,
+            source_inventory: transfer.source_inventory,
+            target_inventory: transfer.target_inventory,
+            created_at: transfer.created_at,
+            received_at: transfer.received_at,
+            canFullReverse,
+            anyShortage,
+            items: evaluatedItems
+        });
+    } catch (e) {
+        console.error('Error in /api/transfers/:id/reversal-check:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Revert or Cancel transfer (Supports both pending and received)
+app.post('/api/transfers/:id/revert', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { id } = req.params;
+        const { mode, reason } = req.body; // mode: 'available_only', 'force_total', 'standard'
+        
+        const transfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(id);
+        if (!transfer) {
+            return res.status(404).json({ error: 'Traslado no encontrado' });
+        }
+
+        if (transfer.status === 'reverted' || transfer.status === 'cancelled' || transfer.status === 'rejected') {
+            return res.status(400).json({ error: 'Este traslado ya fue cancelado o revertido previamente' });
+        }
+
+        const items = db.prepare(`
+            SELECT ti.*, p.name as product_name
+            FROM transfer_items ti
+            JOIN products p ON ti.product_id = p.id
+            WHERE ti.transfer_id = ?
+        `).all(id);
+
+        const transaction = db.transaction(() => {
+            const summaryDeltas = [];
+
+            if (transfer.status === 'pending') {
+                // If pending, stock was only deducted from source; restore it to source
+                for (const item of items) {
+                    db.prepare(`
+                        UPDATE product_inventory 
+                        SET quantity = quantity + ? 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).run(item.quantity, item.product_id, transfer.source_inventory);
+
+                    summaryDeltas.push({
+                        product_id: item.product_id,
+                        name: item.product_name,
+                        returned_to_source: item.quantity
+                    });
+                }
+
+                db.prepare(`
+                    UPDATE transfers 
+                    SET status = 'cancelled',
+                        notes = COALESCE(notes, '') || ' | Cancelado: ' || ?
+                    WHERE id = ?
+                `).run(reason || 'Cancelado por usuario', id);
+
+            } else if (transfer.status === 'received') {
+                // If received, stock is in target. We must deduct from target and add back to source.
+                for (const item of items) {
+                    const currentTargetStockRow = db.prepare(`
+                        SELECT quantity FROM product_inventory 
+                        WHERE product_id = ? AND inventory_id = ?
+                    `).get(item.product_id, transfer.target_inventory);
+
+                    const targetStock = currentTargetStockRow ? currentTargetStockRow.quantity : 0;
+                    let qtyToReturn = item.quantity;
+
+                    if (mode === 'available_only') {
+                        qtyToReturn = Math.max(0, Math.min(item.quantity, targetStock));
+                    }
+
+                    if (qtyToReturn > 0) {
+                        // Deduct from target
+                        db.prepare(`
+                            UPDATE product_inventory 
+                            SET quantity = quantity - ? 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).run(qtyToReturn, item.product_id, transfer.target_inventory);
+
+                        // Add back to source
+                        const sourceExists = db.prepare(`
+                            SELECT 1 FROM product_inventory 
+                            WHERE product_id = ? AND inventory_id = ?
+                        `).get(item.product_id, transfer.source_inventory);
+
+                        if (sourceExists) {
+                            db.prepare(`
+                                UPDATE product_inventory 
+                                SET quantity = quantity + ? 
+                                WHERE product_id = ? AND inventory_id = ?
+                            `).run(qtyToReturn, item.product_id, transfer.source_inventory);
+                        } else {
+                            db.prepare(`
+                                INSERT INTO product_inventory (product_id, inventory_id, quantity)
+                                VALUES (?, ?, ?)
+                            `).run(item.product_id, transfer.source_inventory, qtyToReturn);
+                        }
+                    }
+
+                    summaryDeltas.push({
+                        product_id: item.product_id,
+                        name: item.product_name,
+                        returned_to_source: qtyToReturn,
+                        unreturned_due_to_sales: item.quantity - qtyToReturn
+                    });
+                }
+
+                const newStatus = (mode === 'available_only' && summaryDeltas.some(d => d.unreturned_due_to_sales > 0))
+                    ? 'partially_reverted'
+                    : 'reverted';
+
+                db.prepare(`
+                    UPDATE transfers 
+                    SET status = ?,
+                        notes = COALESCE(notes, '') || ' | Revertido (' || ? || '): ' || ?
+                    WHERE id = ?
+                `).run(newStatus, mode || 'estándar', reason || 'Reversión por ajuste', id);
+            }
+
+            return summaryDeltas;
+        });
+
+        const deltas = transaction();
+
+        // Notify
         db.prepare(`
             INSERT INTO notifications (user_id, type, title, message, data)
-            VALUES (?, 'transfer_received', ?, ?, ?)
+            VALUES (?, 'transfer_reverted', ?, ?, ?)
         `).run(
-            transfer.created_by,
-            'Traslado recibido',
-            `El traslado #${id} ha sido recibido en ${transfer.target_inventory}`,
-            JSON.stringify({ transfer_id: id })
+            transfer.created_by || 1,
+            'Traslado revertido / cancelado',
+            `El traslado #${id} (${transfer.source_inventory} -> ${transfer.target_inventory}) fue revertido.`,
+            JSON.stringify({ transfer_id: id, deltas })
         );
-        
-        res.json({ success: true });
+
+        res.json({ success: true, message: 'Operación realizada con éxito', deltas });
     } catch (e) {
+        console.error('Error in /api/transfers/:id/revert:', e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2491,7 +4201,1087 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
+// --- DASHBOARD ANALYTICS REAL ---
+app.get('/api/dashboard/stats', authenticate, (req, res) => {
+    try {
+        const { inventory, period, startDate, endDate } = req.query;
+        let salesWhere = [];
+        let salesParams = [];
+        let lossesWhere = [];
+        let lossesParams = [];
+
+        if (inventory && inventory !== 'all') {
+            salesWhere.push('s.inventory_id = ?');
+            salesParams.push(inventory);
+            lossesWhere.push('l.inventory = ?');
+            lossesParams.push(inventory);
+        }
+
+        // Manejo de rangos de fecha
+        let start = startDate;
+        let end = endDate;
+        const now = new Date();
+
+        if (period && period !== 'custom' && period !== 'all') {
+            if (period === 'today') {
+                const todayStr = now.toISOString().slice(0, 10);
+                start = todayStr;
+                end = todayStr;
+            } else if (period === '7d') {
+                const d = new Date(now.getTime() - 7 * 86400000);
+                start = d.toISOString().slice(0, 10);
+                end = now.toISOString().slice(0, 10);
+            } else if (period === '30d') {
+                const d = new Date(now.getTime() - 30 * 86400000);
+                start = d.toISOString().slice(0, 10);
+                end = now.toISOString().slice(0, 10);
+            } else if (period === 'month') {
+                const y = now.getFullYear();
+                const m = String(now.getMonth() + 1).padStart(2, '0');
+                start = `${y}-${m}-01`;
+                end = now.toISOString().slice(0, 10);
+            }
+        }
+
+        if (start && end) {
+            salesWhere.push('s.date >= ? AND s.date <= ?');
+            salesParams.push(`${start} 00:00:00`, `${end} 23:59:59`);
+            lossesWhere.push('l.date >= ? AND l.date <= ?');
+            lossesParams.push(`${start} 00:00:00`, `${end} 23:59:59`);
+        }
+
+        const sWhereClause = salesWhere.length ? 'WHERE ' + salesWhere.join(' AND ') : '';
+        const lWhereClause = lossesWhere.length ? 'WHERE ' + lossesWhere.join(' AND ') : '';
+
+        // 1. Totales de Ventas
+        const salesTotals = db.prepare(`
+            SELECT 
+                COALESCE(SUM(s.total), 0) as total_sales,
+                COUNT(DISTINCT s.id) as sales_count,
+                COALESCE(SUM(s.cash_amount), 0) as cash_total,
+                COALESCE(SUM(s.transfer_amount), 0) as transfer_total
+            FROM sales s
+            ${sWhereClause}
+        `).get(...salesParams);
+
+        // 2. Ganancia Bruta y Costo Mercancía
+        const profitTotals = db.prepare(`
+            SELECT 
+                COALESCE(SUM((si.price - COALESCE(si.cost, 0)) * si.quantity), 0) as estimated_profit,
+                COALESCE(SUM(COALESCE(si.cost, 0) * si.quantity), 0) as total_cogs
+            FROM sale_items si
+            JOIN sales s ON si.sale_id = s.id
+            ${sWhereClause}
+        `).get(...salesParams);
+
+        // 3. Mermas Totales
+        const lossesTotals = db.prepare(`
+            SELECT 
+                COALESCE(SUM(l.quantity * COALESCE(p.cost_mx, 0)), 0) as total_losses_cost,
+                COALESCE(SUM(l.quantity), 0) as total_losses_qty
+            FROM losses l
+            LEFT JOIN products p ON l.product_id = p.id
+            ${lWhereClause}
+        `).get(...lossesParams);
+
+        // 4. Top 5 Productos Estrella
+        const topProducts = db.prepare(`
+            SELECT 
+                p.id, p.name,
+                SUM(si.quantity) as qty_sold,
+                SUM(si.price * si.quantity) as revenue,
+                SUM((si.price - COALESCE(si.cost, 0)) * si.quantity) as profit
+            FROM sale_items si
+            JOIN sales s ON si.sale_id = s.id
+            JOIN products p ON si.product_id = p.id
+            ${sWhereClause}
+            GROUP BY p.id
+            ORDER BY revenue DESC
+            LIMIT 5
+        `).all(...salesParams);
+
+        // 5. Tendencia Diaria de Ventas
+        const salesTrend = db.prepare(`
+            SELECT 
+                substr(s.date, 1, 10) as day,
+                SUM(s.total) as sales,
+                COUNT(s.id) as count
+            FROM sales s
+            ${sWhereClause}
+            GROUP BY substr(s.date, 1, 10)
+            ORDER BY day ASC
+        `).all(...salesParams);
+
+        // 6. Salud y Stock del Inventario Activo
+        let invStockQuery = `
+            SELECT 
+                COUNT(p.id) as total_catalog,
+                COALESCE(SUM(CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END), 0) as total_units,
+                COALESCE(SUM((CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END) * COALESCE(p.sale_price_manual, 0)), 0) as inventory_valuation,
+                SUM(CASE WHEN (CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END) <= 0 THEN 1 ELSE 0 END) as out_of_stock,
+                SUM(CASE WHEN (CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END) > 0 AND (CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END) <= 3 THEN 1 ELSE 0 END) as low_stock,
+                SUM(CASE WHEN (CASE WHEN pi.quantity IS NOT NULL THEN pi.quantity ELSE p.quantity END) > 3 THEN 1 ELSE 0 END) as optimal_stock
+            FROM products p
+        `;
+        let invStockParams = [];
+        if (inventory && inventory !== 'all') {
+            invStockQuery += ` LEFT JOIN product_inventory pi ON p.id = pi.product_id AND pi.inventory_id = ? `;
+            invStockParams.push(inventory);
+        } else {
+            invStockQuery += ` LEFT JOIN (SELECT product_id, SUM(quantity) as quantity FROM product_inventory GROUP BY product_id) pi ON p.id = pi.product_id `;
+        }
+        const stockHealth = db.prepare(invStockQuery).get(...invStockParams);
+
+        res.json({
+            success: true,
+            inventory: inventory || 'all',
+            period: period || 'all',
+            startDate: start || null,
+            endDate: end || null,
+            stats: {
+                totalSales: salesTotals.total_sales || 0,
+                salesCount: salesTotals.sales_count || 0,
+                averageTicket: salesTotals.sales_count > 0 ? (salesTotals.total_sales / salesTotals.sales_count) : 0,
+                estimatedProfit: profitTotals.estimated_profit || 0,
+                totalCogs: profitTotals.total_cogs || 0,
+                profitMargin: salesTotals.total_sales > 0 ? ((profitTotals.estimated_profit / salesTotals.total_sales) * 100) : 0,
+                lossesCost: lossesTotals.total_losses_cost || 0,
+                lossesQty: lossesTotals.total_losses_qty || 0,
+                cashTotal: salesTotals.cash_total || 0,
+                transferTotal: salesTotals.transfer_total || 0,
+                inventoryValuation: stockHealth?.inventory_valuation || 0,
+                totalUnits: stockHealth?.total_units || 0,
+                totalCatalog: stockHealth?.total_catalog || 0,
+                outOfStock: stockHealth?.outOfStock || 0,
+                lowStock: stockHealth?.lowStock || 0,
+                optimalStock: stockHealth?.optimalStock || 0
+            },
+            topProducts,
+            salesTrend
+        });
+    } catch (e) {
+        logError("GET /api/dashboard/stats", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- NEXUS API ---
+const NEXUS_TYPES = new Set(['dueño', 'empresa', 'administrador', 'almacén', 'punto_de_venta', 'vendedor']);
+const nexusResponse = row => {
+  let parentIds = [];
+  try {
+    parentIds = JSON.parse(row.parent_ids || '[]');
+  } catch (e) {
+    parentIds = [];
+  }
+  if (row.parent_id && !parentIds.includes(row.parent_id)) {
+    parentIds.unshift(row.parent_id);
+  }
+  return {
+    ...row,
+    companyId: row.company_id,
+    parentId: row.parent_id || parentIds[0] || null,
+    parentIds: parentIds,
+    children: JSON.parse(row.children || '[]'),
+    metrics: JSON.parse(row.metrics || '{}'),
+    position: { x: row.position_x, y: row.position_y }
+  };
+};
+const auditNexus = (nodeId, action, req, payload = {}) => db.prepare('INSERT INTO nexus_audit_log (node_id, action, actor_user_id, payload) VALUES (?, ?, ?, ?)').run(nodeId, action, req.user?.id || null, JSON.stringify(payload));
+const syncNexusFromCRM = () => {
+  const ownerId = 'nexus_owner_miss_chulerias';
+  const companyId = 'nexus_company_miss_chulerias';
+  const upsert = db.prepare(`INSERT INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, children, position_x, position_y, archived_at)
+    VALUES (?, 1, ?, ?, 'online', ?, ?, ?, '[]', ?, ?, NULL)
+    ON CONFLICT(id) DO UPDATE SET type=excluded.type, name=excluded.name, status=excluded.status, description=excluded.description, metrics=excluded.metrics, updated_at=CURRENT_TIMESTAMP`);
+  const ids = [];
+  
+  // 1. Dueño (Cúspide, nivel 0)
+  upsert.run(ownerId, 'dueño', 'Dueño · Miss Chulerías', 'Autoridad principal del negocio.', JSON.stringify({ empresas: 1 }), null, 380, 30); 
+  ids.push(ownerId);
+
+  // 2. Empresa (Hija de Dueño)
+  upsert.run(companyId, 'empresa', 'Miss Chulerías', 'Empresa principal del CRM.', JSON.stringify({ sedes: 3 }), ownerId, 380, 230); 
+  ids.push(companyId);
+
+  // Helper para calcular métricas financieras de inventario
+  const calcMetrics = (invId) => {
+    try {
+      const row = db.prepare(`
+        SELECT 
+          COALESCE(SUM(pi.quantity), 0) as stock_total,
+          COALESCE(SUM(pi.quantity * COALESCE(p.cost_mx, 0)), 0) as total_cost,
+          COALESCE(SUM(pi.quantity * COALESCE(p.sale_price_manual, 0)), 0) as projected_sales,
+          COUNT(DISTINCT pi.product_id) as total_products
+        FROM product_inventory pi
+        JOIN products p ON pi.product_id = p.id
+        WHERE pi.inventory_id = ?
+      `).get(invId);
+      
+      const salesToday = db.prepare(`
+        SELECT COALESCE(SUM(total), 0) as sales_today
+        FROM sales
+        WHERE inventory_id = ? AND date(date) = date('now')
+      `).get(invId);
+
+      return {
+        productos: row?.total_products || 0,
+        stockTotal: row?.stock_total || 0,
+        capitalInvertido: Math.round((row?.total_cost || 0) * 100) / 100,
+        ventaProyectada: Math.round((row?.projected_sales || 0) * 100) / 100,
+        ventasHoy: Math.round((salesToday?.sales_today || 0) * 100) / 100
+      };
+    } catch (e) {
+      return { productos: 0, stockTotal: 0, capitalInvertido: 0, ventaProyectada: 0, ventasHoy: 0 };
+    }
+  };
+
+  // 3. Almacén Central (Hijo directo de Empresa)
+  const inventories = db.prepare('SELECT id, name, code, type FROM inventories ORDER BY id').all();
+  const warehouse = inventories.find(i => i.type === 'warehouse') || inventories.find(i => i.id === 'alm') || inventories[0];
+  const warehouseNodeId = warehouse ? `nexus_inventory_${warehouse.id}` : null;
+
+  if (warehouse) {
+    const metrics = calcMetrics(warehouse.id);
+    upsert.run(
+      warehouseNodeId,
+      'almacén',
+      warehouse.name,
+      `Almacén central (${warehouse.code || warehouse.id}). Suministro y stock central.`,
+      JSON.stringify(metrics),
+      companyId,
+      120,
+      450
+    );
+    ids.push(warehouseNodeId);
+  }
+
+  // 4. Administradores (Hijos de Empresa, nivel 2 lateral derecho)
+  for (const user of db.prepare('SELECT id, username, email, role, is_banned FROM users WHERE is_banned = 0 AND role IN (\'admin\', \'administrator\', \'administrador\') ORDER BY id').all()) {
+    const id = `nexus_user_${user.id}`;
+    upsert.run(
+      id,
+      'administrador',
+      user.username || user.email || `Admin ${user.id}`,
+      'Gestión y administración operativa de la empresa.',
+      JSON.stringify({ userId: user.id, username: user.username, role: 'Administrador', acceso: 'Total' }),
+      companyId,
+      640,
+      450
+    );
+    ids.push(id);
+  }
+
+  // 5. Puntos de Venta (MCH1, MCH2, etc.) - Hijos del Almacén Central (Nivel 3, Y=780)
+  let posIndex = 0;
+  const posNodeIds = [];
+  for (const inv of inventories) {
+    if (warehouse && inv.id === warehouse.id) continue;
+    const id = `nexus_inventory_${inv.id}`;
+    posNodeIds.push(id);
+    const metrics = calcMetrics(inv.id);
+    const posX = 80 + posIndex * 320;
+    upsert.run(
+      id,
+      'punto_de_venta',
+      inv.name,
+      `Punto de venta operativo (${inv.code || inv.id}).`,
+      JSON.stringify(metrics),
+      warehouseNodeId || companyId,
+      posX,
+      780
+    );
+    // Actualizar coordenadas fijas si ya existía en la DB
+    db.prepare('UPDATE nexus_nodes SET position_x = ?, position_y = ? WHERE id = ?').run(posX, 780, id);
+    ids.push(id);
+    posIndex++;
+  }
+
+  // 6. Vendedores (Nivel 4, Y=1100 para ubicarse debajo de los puntos de venta)
+  const defaultSellerParent = posNodeIds[0] || warehouseNodeId || companyId;
+  let sellerIndex = 0;
+  for (const user of db.prepare('SELECT id, username, email, role, is_banned FROM users WHERE is_banned = 0 AND role IN (\'seller\', \'vendedor\') ORDER BY id').all()) {
+    const id = `nexus_user_${user.id}`;
+    const posX = 80 + sellerIndex * 300;
+    upsert.run(
+      id,
+      'vendedor',
+      user.username || user.email || `Vendedor ${user.id}`,
+      'Vendedor en punto de venta.',
+      JSON.stringify({ userId: user.id, username: user.username, role: 'Vendedor', ventasHoy: 0 }),
+      defaultSellerParent,
+      posX,
+      1100
+    );
+    // Actualizar coordenadas fijas si ya existía en la DB
+    db.prepare('UPDATE nexus_nodes SET position_x = ?, position_y = ? WHERE id = ?').run(posX, 1100, id);
+    ids.push(id);
+    sellerIndex++;
+  }
+
+  const rows = db.prepare('SELECT id, parent_id FROM nexus_nodes WHERE archived_at IS NULL').all();
+  const children = new Map(); 
+  rows.forEach(r => { 
+    if (r.parent_id) children.set(r.parent_id, [...(children.get(r.parent_id) || []), r.id]); 
+  });
+  const setChildren = db.prepare('UPDATE nexus_nodes SET children = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+  for (const id of ids) setChildren.run(JSON.stringify(children.get(id) || []), id);
+    return ids.length;
+  };
+
+  // Helper: recalcula las métricas financieras en vivo de un nodo de sede (almacén o punto de venta)
+  const refreshNexusInventoryMetrics = (inventoryId) => {
+    try {
+      if (!inventoryId) return;
+      const inv = db.prepare('SELECT id, name, code, type FROM inventories WHERE id = ?').get(inventoryId);
+      if (!inv) return;
+      const row = db.prepare(`
+        SELECT
+          COALESCE(SUM(pi.quantity), 0) as stock_total,
+          COALESCE(SUM(pi.quantity * COALESCE(p.cost_mx, 0)), 0) as total_cost,
+          COALESCE(SUM(pi.quantity * COALESCE(p.sale_price_manual, 0)), 0) as projected_sales,
+          COUNT(DISTINCT pi.product_id) as total_products
+        FROM product_inventory pi
+        JOIN products p ON pi.product_id = p.id
+        WHERE pi.inventory_id = ?
+      `).get(inventoryId);
+      const salesToday = db.prepare(`
+        SELECT COALESCE(SUM(total), 0) as sales_today
+        FROM sales
+        WHERE inventory_id = ? AND date(date) = date('now')
+      `).get(inventoryId);
+      const metrics = {
+        productos: row?.total_products || 0,
+        stockTotal: row?.stock_total || 0,
+        capitalInvertido: Math.round((row?.total_cost || 0) * 100) / 100,
+        ventaProyectada: Math.round((row?.projected_sales || 0) * 100) / 100,
+        ventasHoy: Math.round((salesToday?.sales_today || 0) * 100) / 100
+      };
+      const nodeType = inv.type === 'warehouse' ? 'almacén' : 'punto_de_venta';
+      db.prepare('UPDATE nexus_nodes SET metrics = ?, status = ? WHERE id = ?').run(
+        JSON.stringify(metrics), 'online', `nexus_inventory_${inventoryId}`
+      );
+      // Si no existe el nodo (mapa aún sin sync), créalo sin posiciones para que aparezca
+      db.prepare(`INSERT OR REPLACE INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, position_x, position_y)
+        VALUES (?, 1, ?, ?, 'online', ?, ?, 'nexus_company_miss_chulerias', 200, 450)`).run(
+          `nexus_inventory_${inventoryId}`, nodeType, inv.name,
+          `Sede operativa (${inv.code || inv.id}).`, JSON.stringify(metrics)
+        );
+    } catch (e) {
+      console.warn('Advertencia al refrescar métricas Nexus:', e.message);
+    }
+  };
+app.get('/api/nexus/nodes', (req, res) => {
+  try {
+    if (req.query.archived !== 'true') {
+      const activeCount = db.prepare('SELECT COUNT(*) as c FROM nexus_nodes WHERE archived_at IS NULL').get()?.c || 0;
+      if (activeCount === 0) syncNexusFromCRM();
+    }
+    const archived = req.query.archived === 'true';
+    const rows = db.prepare(`SELECT * FROM nexus_nodes WHERE company_id = ? AND ${archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'} ORDER BY position_y, position_x, name`).all(Number(req.query.company_id || 1)); 
+    res.json(rows.map(nexusResponse)); 
+  } catch (e) { 
+    logError('GET /api/nexus/nodes', e); 
+    res.status(500).json({ error: e.message }); 
+  }
+});
+app.post('/api/nexus/nodes', checkAdmin, (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!NEXUS_TYPES.has(b.type) || !String(b.name || '').trim()) {
+      return res.status(400).json({ error: 'Tipo y nombre son obligatorios.' });
+    }
+    const cleanName = String(b.name).trim();
+    const cleanType = String(b.type).toLowerCase();
+    const id = b.id || `node_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    
+    // Si el nodo que se crea es de tipo humano (dueño, administrador, vendedor), crearlo/vincularlo en `users`
+    let linkedUserId = null;
+    if (['dueño', 'administrador', 'vendedor'].includes(cleanType)) {
+      const userRole = cleanType === 'dueño' ? 'owner' : (cleanType === 'administrador' ? 'admin' : 'seller');
+      const cleanEmail = `${cleanName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'user'}@mch.local`;
+      
+      // Chequear si ya existe un usuario con ese username
+      const existingUser = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(cleanName.toLowerCase());
+      if (existingUser) {
+        linkedUserId = existingUser.id;
+        db.prepare("UPDATE users SET role = ?, authorized_to_work = 1, is_banned = 0 WHERE id = ?").run(userRole, linkedUserId);
+      } else {
+        const permsObj = getDefaultPermissionsForRole(userRole);
+        const userInsert = db.prepare(`
+          INSERT INTO users (username, email, pin, role, can_edit, is_verified, is_banned, authorized_to_work, permissions, created_at)
+          VALUES (?, ?, '1234', ?, ?, 1, 0, 1, ?, datetime('now'))
+        `).run(
+          cleanName,
+          cleanEmail,
+          userRole,
+          userRole === 'seller' ? 0 : 1,
+          JSON.stringify(permsObj)
+        );
+        linkedUserId = userInsert.lastInsertRowid;
+      }
+    }
+
+    const metricsData = b.metrics || (linkedUserId ? { userId: linkedUserId, username: cleanName, role: cleanType } : {});
+    
+    db.prepare(`
+      INSERT INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, children, position_x, position_y)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      Number(b.companyId || b.company_id || 1),
+      cleanType,
+      cleanName,
+      b.status || 'online',
+      b.description || '',
+      JSON.stringify(metricsData),
+      b.parentId || b.parent_id || null,
+      JSON.stringify(b.children || []),
+      Number(b.position?.x ?? b.position_x ?? 100),
+      Number(b.position?.y ?? b.position_y ?? 100)
+    );
+    auditNexus(id, 'create', req, b);
+    res.status(201).json(nexusResponse(db.prepare('SELECT * FROM nexus_nodes WHERE id = ?').get(id)));
+  } catch (e) {
+    logError('POST /api/nexus/nodes', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+app.patch('/api/nexus/nodes/:id', checkAdmin, (req, res) => { 
+  try { 
+    const b = req.body || {}; 
+    const fields = []; 
+    const vals = []; 
+    for (const [key, col] of [['name','name'],['status','status'],['description','description'],['parentId','parent_id']]) {
+      if (b[key] !== undefined) { 
+        fields.push(`${col} = ?`); 
+        vals.push(b[key]); 
+      } 
+    }
+    if (b.parentIds !== undefined) {
+      fields.push('parent_ids = ?');
+      vals.push(JSON.stringify(b.parentIds));
+      if (b.parentId === undefined) {
+        fields.push('parent_id = ?');
+        vals.push(b.parentIds.length > 0 ? b.parentIds[0] : null);
+      }
+    }
+    if (b.metrics !== undefined) { 
+      fields.push('metrics = ?'); 
+      vals.push(JSON.stringify(b.metrics)); 
+    } 
+    if (b.position) { 
+      fields.push('position_x = ?', 'position_y = ?'); 
+      vals.push(Number(b.position.x || 0), Number(b.position.y || 0)); 
+    } 
+    if (!fields.length) return res.status(400).json({ error: 'Sin cambios.' }); 
+    fields.push('updated_at = CURRENT_TIMESTAMP'); 
+    vals.push(req.params.id); 
+    db.prepare(`UPDATE nexus_nodes SET ${fields.join(', ')} WHERE id = ?`).run(...vals); 
+    auditNexus(req.params.id, 'update', req, b); 
+    res.json(nexusResponse(db.prepare('SELECT * FROM nexus_nodes WHERE id = ?').get(req.params.id))); 
+  } catch (e) { 
+    logError('PATCH /api/nexus/nodes/:id', e); 
+    res.status(500).json({ error: e.message }); 
+  } 
+});
+app.post('/api/nexus/nodes/:id/archive', checkAdmin, (req, res) => {
+  try {
+    const nodeId = req.params.id;
+    db.prepare('UPDATE nexus_nodes SET archived_at = CURRENT_TIMESTAMP, archived_by = ? WHERE id = ?').run(req.user.id, nodeId);
+    auditNexus(nodeId, 'archive', req);
+    
+    // Si es un nodo de usuario, desactivar autorización para trabajar en la tabla users
+    const node = db.prepare('SELECT id, type, name, metrics FROM nexus_nodes WHERE id = ?').get(nodeId);
+    if (node && ['dueño', 'administrador', 'vendedor'].includes(node.type)) {
+      let uId = null;
+      try {
+        const parsed = JSON.parse(node.metrics || '{}');
+        uId = parsed.userId;
+      } catch (_) {}
+      if (!uId && nodeId.startsWith('nexus_user_')) {
+        uId = Number(nodeId.replace('nexus_user_', ''));
+      }
+      if (uId) {
+        db.prepare('UPDATE users SET authorized_to_work = 0 WHERE id = ?').run(uId);
+      } else if (node.name) {
+        db.prepare('UPDATE users SET authorized_to_work = 0 WHERE LOWER(username) = ?').run(node.name.toLowerCase());
+      }
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/nexus/nodes/:id/restore', checkAdmin, (req, res) => {
+  try {
+    const nodeId = req.params.id;
+    db.prepare('UPDATE nexus_nodes SET archived_at = NULL, archived_by = NULL WHERE id = ?').run(nodeId);
+    auditNexus(nodeId, 'restore', req);
+    
+    // Si es un nodo de usuario, reactivar autorización en users
+    const node = db.prepare('SELECT id, type, name, metrics FROM nexus_nodes WHERE id = ?').get(nodeId);
+    if (node && ['dueño', 'administrador', 'vendedor'].includes(node.type)) {
+      let uId = null;
+      try {
+        const parsed = JSON.parse(node.metrics || '{}');
+        uId = parsed.userId;
+      } catch (_) {}
+      if (!uId && nodeId.startsWith('nexus_user_')) {
+        uId = Number(nodeId.replace('nexus_user_', ''));
+      }
+      if (uId) {
+        db.prepare('UPDATE users SET authorized_to_work = 1, is_banned = 0 WHERE id = ?').run(uId);
+      } else if (node.name) {
+        db.prepare('UPDATE users SET authorized_to_work = 1, is_banned = 0 WHERE LOWER(username) = ?').run(node.name.toLowerCase());
+      }
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/nexus/nodes/:id', checkAdmin, (req, res) => {
+  try {
+    const nodeId = req.params.id;
+    const node = db.prepare('SELECT id, type, name, metrics FROM nexus_nodes WHERE id = ?').get(nodeId);
+    
+    db.prepare('DELETE FROM nexus_nodes WHERE id = ?').run(nodeId);
+    db.prepare('UPDATE nexus_nodes SET parent_id = NULL WHERE parent_id = ?').run(nodeId);
+    auditNexus(nodeId, 'delete_permanent', req);
+    
+    // Si era un nodo de usuario (no admin principal id 1), eliminarlo de users
+    if (node && ['dueño', 'administrador', 'vendedor'].includes(node.type)) {
+      let uId = null;
+      try {
+        const parsed = JSON.parse(node.metrics || '{}');
+        uId = parsed.userId;
+      } catch (_) {}
+      if (!uId && nodeId.startsWith('nexus_user_')) {
+        uId = Number(nodeId.replace('nexus_user_', ''));
+      }
+      if (uId && uId !== 1) {
+        db.prepare('DELETE FROM users WHERE id = ?').run(uId);
+      } else if (node.name && node.name.toLowerCase() !== 'admin') {
+        db.prepare('DELETE FROM users WHERE LOWER(username) = ? AND id != 1').run(node.name.toLowerCase());
+      }
+    }
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // --- REST API ENDPOINTS ---
+
+// Helper: Default permissions per role
+const getDefaultPermissionsForRole = (role) => {
+  const r = String(role || '').toLowerCase();
+  if (r === 'owner' || r === 'dueño') {
+    return {
+      pos_sales: true,
+      pos_discounts: true,
+      manage_inventory: true,
+      view_costs: true,
+      manage_purchases: true,
+      manage_transfers: true,
+      manage_losses: true,
+      manage_users: true,
+      manage_settings: true,
+      view_analytics: true,
+      view_nexus: true,
+      edit_nexus: true,
+      audit_cash_registers: true,
+      close_shifts: true,
+      approve_shifts: true
+    };
+  }
+  if (r === 'admin' || r === 'administrator' || r === 'administrador') {
+    return {
+      pos_sales: true,
+      pos_discounts: true,
+      manage_inventory: true,
+      view_costs: true,
+      manage_purchases: true,
+      manage_transfers: true,
+      manage_losses: true,
+      manage_users: true,
+      manage_settings: false,
+      view_analytics: true,
+      view_nexus: true,
+      edit_nexus: true,
+      audit_cash_registers: true,
+      close_shifts: true,
+      approve_shifts: true
+    };
+  }
+  // Default: Vendedor / Seller
+  return {
+    pos_sales: true,
+    pos_discounts: false,
+    manage_inventory: false,
+    view_costs: false,
+    manage_purchases: false,
+    manage_transfers: false,
+    manage_losses: false,
+    manage_users: false,
+    manage_settings: false,
+    view_analytics: false,
+    view_nexus: false,
+    edit_nexus: false,
+    audit_cash_registers: false,
+    close_shifts: true,
+    approve_shifts: false
+  };
+};
+
+// --- USERS MANAGEMENT ENDPOINTS ---
+
+// GET /api/users - List all users with their permissions and status
+app.get('/api/users', authenticate, (req, res) => {
+  try {
+    const isOwner = req.user.role === 'owner';
+    let query = `
+      SELECT id, username, email, pin, role, can_edit, is_banned, is_verified, 
+             authorized_to_work, permissions, created_at, last_ip,
+             avatar_url, dni_number, dni_front, dni_back, phone, address
+      FROM users
+    `;
+    const params = [];
+    
+    // Si no es dueño (es admin o vendedor), filtrar solo roles no-dueño o su propio alcance
+    if (!isOwner) {
+      query += ` WHERE role != 'owner'`;
+    }
+    query += ` ORDER BY id ASC`;
+
+    const users = db.prepare(query).all(...params);
+
+    const formatted = users.map(u => {
+      let parsedPerms = {};
+      try {
+        parsedPerms = JSON.parse(u.permissions || '{}');
+      } catch (_) {}
+      const defaultPerms = getDefaultPermissionsForRole(u.role);
+      return {
+        ...u,
+        pin: u.pin ? '••••' : '',
+        authorized_to_work: u.authorized_to_work !== 0,
+        is_banned: u.is_banned === 1,
+        permissions: { ...defaultPerms, ...parsedPerms }
+      };
+    });
+
+    res.json(formatted);
+  } catch (e) {
+    logError('GET /api/users', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/users/:id - Get single user details
+app.get('/api/users/:id', authenticate, (req, res) => {
+  try {
+    const user = db.prepare(`
+      SELECT id, username, email, pin, role, can_edit, is_banned, is_verified, 
+             authorized_to_work, permissions, created_at, last_ip,
+             avatar_url, dni_number, dni_front, dni_back, phone, address
+      FROM users 
+      WHERE id = ?
+    `).get(req.params.id);
+
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    let parsedPerms = {};
+    try {
+      parsedPerms = JSON.parse(user.permissions || '{}');
+    } catch (_) {}
+
+    res.json({
+      ...user,
+      pin: user.pin ? '••••' : '',
+      authorized_to_work: user.authorized_to_work !== 0,
+      is_banned: user.is_banned === 1,
+      permissions: { ...getDefaultPermissionsForRole(user.role), ...parsedPerms }
+    });
+  } catch (e) {
+    logError('GET /api/users/:id', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/users - Create a new user and sync with Nexus node if seller/admin
+app.post('/api/users', checkAdmin, (req, res) => {
+  try {
+    const { username, email, pin, role, authorized_to_work, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url } = req.body || {};
+    if (!username || !String(username).trim()) {
+      return res.status(400).json({ error: 'El nombre de usuario es requerido.' });
+    }
+
+    const cleanUsername = String(username).trim();
+    const cleanEmail = email ? String(email).trim() : `${cleanUsername.toLowerCase().replace(/\s+/g, '')}@mch.local`;
+    const cleanRole = ['owner', 'dueño'].includes(String(role).toLowerCase()) 
+      ? 'owner' 
+      : ['admin', 'administrador'].includes(String(role).toLowerCase()) 
+        ? 'admin' 
+        : 'seller';
+
+    // Verificar unicidad
+    const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(cleanUsername.toLowerCase(), cleanEmail.toLowerCase());
+    if (existing) {
+      return res.status(400).json({ error: 'Ya existe un usuario con ese nombre o email.' });
+    }
+
+    const permsObj = permissions || getDefaultPermissionsForRole(cleanRole);
+    const authToWork = authorized_to_work === false ? 0 : 1;
+
+    const info = db.prepare(`
+      INSERT INTO users (username, email, pin, role, can_edit, is_verified, is_banned, authorized_to_work, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url, created_at) 
+      VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(
+      cleanUsername,
+      cleanEmail,
+      pin ? String(pin).trim() : '1234',
+      cleanRole,
+      cleanRole === 'seller' ? 0 : 1,
+      authToWork,
+      JSON.stringify(permsObj),
+      dni_number || null,
+      phone || null,
+      address || null,
+      dni_front || null,
+      dni_back || null,
+      avatar_url || null
+    );
+
+    const newUserId = info.lastInsertRowid;
+
+    // Crear nodo correspondiente en Nexus si es admin o vendedor
+    try {
+      const nexusId = `nexus_user_${newUserId}`;
+      const nodeType = cleanRole === 'owner' ? 'dueño' : cleanRole === 'admin' ? 'administrador' : 'vendedor';
+      const defaultParent = cleanRole === 'admin' 
+        ? 'nexus_company_miss_chulerias' 
+        : 'nexus_inventory_mch1';
+
+      db.prepare(`
+        INSERT OR REPLACE INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, position_x, position_y)
+        VALUES (?, 1, ?, ?, 'online', ?, ?, ?, ?, ?)
+      `).run(
+        nexusId,
+        nodeType,
+        cleanUsername,
+        cleanRole === 'admin' ? 'Administrador del sistema.' : 'Personal de ventas.',
+        JSON.stringify({ userId: newUserId, username: cleanUsername, role: cleanRole }),
+        defaultParent,
+        cleanRole === 'admin' ? 640 : 120,
+        cleanRole === 'admin' ? 450 : 920
+      );
+    } catch (nexusErr) {
+      console.warn('Advertencia al sincronizar nodo Nexus para nuevo usuario:', nexusErr.message);
+    }
+
+    res.status(201).json({
+      id: newUserId,
+      username: cleanUsername,
+      email: cleanEmail,
+      role: cleanRole,
+      authorized_to_work: authToWork === 1,
+      dni_number: dni_number || null,
+      phone: phone || null,
+      address: address || null,
+      dni_front: dni_front || null,
+      dni_back: dni_back || null,
+      avatar_url: avatar_url || null,
+      permissions: permsObj
+    });
+  } catch (e) {
+    logError('POST /api/users', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/users/:id - Update user details, permissions, pin and authorization
+app.patch('/api/users/:id', checkAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const b = req.body || {};
+    const fields = [];
+    const vals = [];
+
+    if (b.username !== undefined && String(b.username).trim()) {
+      fields.push('username = ?');
+      vals.push(String(b.username).trim());
+    }
+    if (b.email !== undefined) {
+      fields.push('email = ?');
+      vals.push(String(b.email).trim());
+    }
+    if (b.pin !== undefined && String(b.pin).trim()) {
+      fields.push('pin = ?');
+      vals.push(String(b.pin).trim());
+    }
+    if (b.role !== undefined) {
+      const cleanRole = ['owner', 'dueño'].includes(String(b.role).toLowerCase()) 
+        ? 'owner' 
+        : ['admin', 'administrador'].includes(String(b.role).toLowerCase()) 
+          ? 'admin' 
+          : 'seller';
+      fields.push('role = ?');
+      vals.push(cleanRole);
+      fields.push('can_edit = ?');
+      vals.push(cleanRole === 'seller' ? 0 : 1);
+    }
+    if (b.authorized_to_work !== undefined) {
+      fields.push('authorized_to_work = ?');
+      vals.push(b.authorized_to_work ? 1 : 0);
+    }
+    if (b.is_banned !== undefined) {
+      fields.push('is_banned = ?');
+      vals.push(b.is_banned ? 1 : 0);
+    }
+    if (b.dni_number !== undefined) {
+      fields.push('dni_number = ?');
+      vals.push(b.dni_number);
+    }
+    if (b.phone !== undefined) {
+      fields.push('phone = ?');
+      vals.push(b.phone);
+    }
+    if (b.address !== undefined) {
+      fields.push('address = ?');
+      vals.push(b.address);
+    }
+    if (b.dni_front !== undefined) {
+      fields.push('dni_front = ?');
+      vals.push(b.dni_front);
+    }
+    if (b.dni_back !== undefined) {
+      fields.push('dni_back = ?');
+      vals.push(b.dni_back);
+    }
+    if (b.avatar_url !== undefined) {
+      fields.push('avatar_url = ?');
+      vals.push(b.avatar_url);
+    }
+    if (b.permissions !== undefined) {
+      fields.push('permissions = ?');
+      vals.push(JSON.stringify(b.permissions));
+    }
+
+    if (fields.length > 0) {
+      vals.push(userId);
+      db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+    }
+
+    // Actualizar nodo Nexus en tiempo real: nombre, tipo, estado y padre
+    const nexusId = `nexus_user_${userId}`;
+    const finalRole = b.role !== undefined
+      ? (['owner', 'dueño'].includes(String(b.role).toLowerCase()) ? 'owner'
+          : ['admin', 'administrador'].includes(String(b.role).toLowerCase()) ? 'admin' : 'seller')
+      : existing.role;
+    // Estado desde authorized_to_work / is_banned
+    const authStatus = (b.authorized_to_work !== undefined ? (b.authorized_to_work ? 1 : 0) : existing.authorized_to_work);
+    const banned = b.is_banned !== undefined ? (b.is_banned ? 1 : 0) : existing.is_banned;
+    const nodeStatus = banned === 1 ? 'maintenance' : (authStatus === 0 ? 'warning' : 'online');
+    const nodeType = finalRole === 'owner' ? 'dueño' : finalRole === 'admin' ? 'administrador' : 'vendedor';
+    const nodeParent = finalRole === 'admin' ? 'nexus_company_miss_chulerias' : 'nexus_inventory_mch1';
+    const newName = b.username !== undefined ? String(b.username).trim() : existing.username;
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, position_x, position_y)
+        VALUES (?, 1, ?, ?, ?, ?, ?, ?, 120, 920)
+      `).run(
+        nexusId, nodeType, newName, nodeStatus,
+        JSON.stringify({ userId, username: newName, role: finalRole }),
+        nodeParent
+      );
+    } catch (nexusErr) {
+      console.warn('Advertencia al sincronizar nodo Nexus en edición:', nexusErr.message);
+    }
+
+    const updated = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    let parsedPerms = {};
+    try {
+      parsedPerms = JSON.parse(updated.permissions || '{}');
+    } catch (_) {}
+
+    res.json({
+      ...updated,
+      pin: updated.pin ? '••••' : '',
+      authorized_to_work: updated.authorized_to_work !== 0,
+      is_banned: updated.is_banned === 1,
+      permissions: { ...getDefaultPermissionsForRole(updated.role), ...parsedPerms }
+    });
+  } catch (e) {
+    logError('PATCH /api/users/:id', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Multer Storage for User Documents and Avatars (15MB limit)
+const userMediaStorage = multer.memoryStorage();
+const userMediaUpload = multer({
+    storage: userMediaStorage,
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Solo se permiten archivos de imagen'), false);
+        }
+    }
+});
+
+// Endpoint de subida de imágenes para usuarios (Avatar y Carnet de Identidad Frente/Dorso)
+app.post('/api/users/upload-media', authenticate, userMediaUpload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No se subió ningún archivo' });
+        }
+
+        const uploadDir = path.join(__dirname, 'uploads', 'users');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+        const type = req.body.type || 'media'; // 'avatar', 'dni_front', 'dni_back'
+        const baseName = `usr_${type}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const mainFilename = `${baseName}_orig.jpg`;
+        const medFilename = `${baseName}_med.jpg`;
+        const smFilename = `${baseName}_sm.jpg`;
+        const thumbFilename = `${baseName}_thumb.jpg`;
+
+        // Generar variantes adaptativas con sharp respetando sin enlargar y topes máximos reales
+        if (type === 'avatar') {
+            // Original / Alta resolución para avatar (Máximo 500x500 sin agrandar fotos menores)
+            await sharp(req.file.buffer)
+                .resize(500, 500, { fit: 'cover', withoutEnlargement: true })
+                .jpeg({ quality: 85, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, mainFilename));
+
+            // Medium (300x300)
+            await sharp(req.file.buffer)
+                .resize(300, 300, { fit: 'cover', withoutEnlargement: true })
+                .jpeg({ quality: 80, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, medFilename));
+
+            // Small (150x150 para conexiones móviles)
+            await sharp(req.file.buffer)
+                .resize(150, 150, { fit: 'cover', withoutEnlargement: true })
+                .jpeg({ quality: 75, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, smFilename));
+
+            // Thumbnail (64x64 para headers, listas y avatares pequeños)
+            await sharp(req.file.buffer)
+                .resize(64, 64, { fit: 'cover', withoutEnlargement: true })
+                .jpeg({ quality: 70, progressive: true })
+                .toFile(path.join(uploadDir, thumbFilename));
+        } else {
+            // Documento de Carnet de Identidad (Máximo 1600x1600 para alta nitidez legible en pantalla sin megas innecesarios)
+            await sharp(req.file.buffer)
+                .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 85, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, mainFilename));
+
+            await sharp(req.file.buffer)
+                .resize(1000, 1000, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 80, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, medFilename));
+
+            await sharp(req.file.buffer)
+                .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 75, progressive: true, mozjpeg: true })
+                .toFile(path.join(uploadDir, smFilename));
+
+            await sharp(req.file.buffer)
+                .resize(150, 150, { fit: 'cover', withoutEnlargement: true })
+                .jpeg({ quality: 70, progressive: true })
+                .toFile(path.join(uploadDir, thumbFilename));
+        }
+
+        const publicUrl = `/uploads/users/${mainFilename}`;
+        res.json({ 
+            success: true, 
+            url: publicUrl,
+            versions: {
+                original: `/uploads/users/${mainFilename}`,
+                medium: `/uploads/users/${medFilename}`,
+                small: `/uploads/users/${smFilename}`,
+                thumbnail: `/uploads/users/${thumbFilename}`
+            }
+        });
+    } catch (e) {
+        logError('POST /api/users/upload-media', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Actualizar perfil propio (Avatar o PIN/Contraseña)
+app.patch('/api/users/profile/me', authenticate, (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { avatar_url, pin, phone, address } = req.body || {};
+        const fields = [];
+        const vals = [];
+
+        if (avatar_url !== undefined) {
+            fields.push('avatar_url = ?');
+            vals.push(avatar_url);
+        }
+        if (pin !== undefined && String(pin).trim()) {
+            fields.push('pin = ?');
+            vals.push(String(pin).trim());
+        }
+        if (phone !== undefined) {
+            fields.push('phone = ?');
+            vals.push(phone);
+        }
+        if (address !== undefined) {
+            fields.push('address = ?');
+            vals.push(address);
+        }
+
+        if (fields.length > 0) {
+            vals.push(userId);
+            db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+        }
+
+        const updated = db.prepare('SELECT id, username, email, role, avatar_url, phone, address, created_at FROM users WHERE id = ?').get(userId);
+        res.json({ success: true, user: updated });
+    } catch (e) {
+        logError('PATCH /api/users/profile/me', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE /api/users/:id - Delete user (soft or hard)
+app.delete('/api/users/:id', checkAdmin, (req, res) => {
+  try {
+    const userId = Number(req.params.id);
+    if (userId === 1) {
+      return res.status(400).json({ error: 'No se puede eliminar el usuario administrador principal.' });
+    }
+
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    
+    // Archivar / remover nodo Nexus correspondiente
+    try {
+      db.prepare('DELETE FROM nexus_nodes WHERE id = ?').run(`nexus_user_${userId}`);
+    } catch (_) {}
+
+    res.json({ success: true, message: 'Usuario eliminado correctamente' });
+  } catch (e) {
+    logError('DELETE /api/users/:id', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // 1. Get All Inventories (Sedes)
 app.get('/api/inventories', authenticate, (req, res) => {
@@ -2508,6 +5298,8 @@ app.get('/api/inventories', authenticate, (req, res) => {
 app.get('/api/products', authenticate, (req, res) => {
     try {
         const { search, inventoryId } = req.query;
+        const settingsRows = db.prepare("SELECT key, value FROM settings").all();
+        const settingsMap = settingsRows.reduce((acc, row) => ({ ...acc, [row.key]: row.value }), {});
         let query = "SELECT * FROM products";
         const params = [];
 
@@ -2562,13 +5354,35 @@ app.get('/api/products', authenticate, (req, res) => {
             // For backwards compatibility, also provide 'images' array with medium sizes
             const allImages = images.map(img => img.url);
 
+            // Compute financial and currency fields
+            const cost_mx = p.cost_mx || 0;
+            const sale_price_manual = p.sale_price_manual || 0;
+            const currentQty = inventoryId ? specificStock : totalStock;
+            
+            const rate_usd_mn = settingsMap.RATE_USD_MN || 550;
+            const rate_mxn_usd = settingsMap.RATE_MXN_USD || 19;
+            const margin_multiplier = settingsMap.MARGIN_MULTIPLIER || 3.5;
+
+            const cost_mn = (cost_mx / rate_mxn_usd) * rate_usd_mn;
+            const cost_usd = rate_usd_mn > 0 ? (cost_mn / rate_usd_mn) : 0;
+            const sale_unit_mn_suggested = cost_mn * margin_multiplier;
+            const actual_sale_price = sale_price_manual > 0 ? sale_price_manual : sale_unit_mn_suggested;
+            const margin_percent = actual_sale_price > 0 ? ((actual_sale_price - cost_mn) / actual_sale_price) * 100 : 0;
+
             return {
                 ...p,
                 inventory: inventoryMap,
                 total_quantity: totalStock,
-                quantity: inventoryId ? specificStock : totalStock,
+                quantity: currentQty,
                 images: allImages,
-                image_versions: imageVersions
+                image_versions: imageVersions,
+                cost_usd: parseFloat(cost_usd.toFixed(2)),
+                cost_mn: parseFloat(cost_mn.toFixed(2)),
+                sale_unit_mn_suggested: parseFloat(sale_unit_mn_suggested.toFixed(2)),
+                actual_sale_price: parseFloat(actual_sale_price.toFixed(2)),
+                total_cost_mn: parseFloat((cost_mn * currentQty).toFixed(2)),
+                total_sale_mn: parseFloat((actual_sale_price * currentQty).toFixed(2)),
+                margin_percent: parseFloat(margin_percent.toFixed(1))
             };
         });
 
@@ -2576,6 +5390,74 @@ app.get('/api/products', authenticate, (req, res) => {
 
     } catch (e) {
         logError("GET /api/products", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+// 2.5 Unify Products (Merge selected products into one)
+app.post('/api/products/unify', authenticate, requireEditor, (req, res) => {
+    try {
+        const { productIds, name, quantity, cost_mx, sale_price_manual, description, label_color, code } = req.body;
+        if (!Array.isArray(productIds) || productIds.length < 2) {
+            return res.status(400).json({ error: 'Seleccioná al menos dos productos para unificar.' });
+        }
+        
+        const ids = [...new Set(productIds.map(Number).filter(Number.isInteger))];
+        const placeholders = ids.map(() => '?').join(',');
+        
+        const sourceProducts = db.prepare(`SELECT * FROM products WHERE id IN (${placeholders})`).all(...ids);
+        if (sourceProducts.length !== ids.length) {
+            return res.status(404).json({ error: 'Uno o más productos seleccionados no existen.' });
+        }
+        
+        // Collect all images from the source products
+        const sourceImages = db.prepare(`SELECT * FROM product_images WHERE product_id IN (${placeholders}) ORDER BY rowid`).all(...ids);
+        
+        // Sum stock per inventory across all source products
+        const stockRows = db.prepare(`SELECT inventory_id, SUM(quantity) as total_qty FROM product_inventory WHERE product_id IN (${placeholders}) GROUP BY inventory_id`).all(...ids);
+        
+        const unifyTx = db.transaction(() => {
+            // 1. Insert unified product
+            const mainImage = sourceImages.find(img => img.size_type === 'medium')?.url || sourceImages[0]?.url || sourceProducts[0]?.image || null;
+            const insertProd = db.prepare(`
+                INSERT INTO products (name, code, cost_mx, sale_price_manual, description, label_color, quantity, image)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+                String(name || 'Producto unificado').trim(),
+                code || null,
+                Number(cost_mx) || 0,
+                Number(sale_price_manual) || 0,
+                description || '',
+                label_color || 'none',
+                Number(quantity) || 0,
+                mainImage
+            );
+            
+            const newProductId = Number(insertProd.lastInsertRowid);
+            
+            // 2. Re-link images to the new product
+            const insertImage = db.prepare('INSERT INTO product_images (product_id, url, size_type) VALUES (?, ?, ?)');
+            sourceImages.forEach(img => {
+                insertImage.run(newProductId, img.url, img.size_type || 'medium');
+            });
+            
+            // 3. Set aggregated inventory stock for each inventory
+            const insertStock = db.prepare('INSERT INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, ?)');
+            stockRows.forEach(sr => {
+                insertStock.run(newProductId, sr.inventory_id, sr.total_qty || 0);
+            });
+            
+            // 4. Delete source products (cascades to old product_images and product_inventory)
+            db.prepare(`DELETE FROM products WHERE id IN (${placeholders})`).run(...ids);
+            
+            return newProductId;
+        });
+        
+        const newId = unifyTx();
+        res.json({ success: true, id: newId, imageCount: sourceImages.length });
+    } catch (e) {
+        logError("POST /api/products/unify", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2774,6 +5656,9 @@ app.post('/api/inventory/adjustment', authenticate, requireEditor, (req, res) =>
             ON CONFLICT(product_id, inventory_id) DO UPDATE SET quantity = excluded.quantity
         `).run(product_id, inventory_id, newQty);
 
+        // Sincronizar Nexus en tiempo real tras ajuste manual de stock
+        refreshNexusInventoryMetrics(inventory_id);
+
         res.json({ success: true, new_quantity: newQty });
 
     } catch (e) {
@@ -2835,49 +5720,164 @@ if (resetInventories.count === 0) {
 // --- HISTORY ENDPOINTS ---
 app.get('/api/history/sales', authenticate, (req, res) => {
     try {
-        const sales = db.prepare(`
-            SELECT s.id, s.total, s.date, s.user_id, COUNT(si.id) as items_count
+        const { inventory } = req.query;
+        let query = `
+            SELECT s.id, s.total, s.date, s.user_id, s.inventory_id, s.payment_method,
+                   u.username as seller_name,
+                   COUNT(si.id) as items_count,
+                   json_group_array(
+                       json_object(
+                           'name', COALESCE(p.name, 'Producto'),
+                           'quantity', si.quantity,
+                           'price', si.price,
+                           'cost', si.cost
+                       )
+                   ) as items_json
             FROM sales s
             LEFT JOIN sale_items si ON s.id = si.sale_id
-            GROUP BY s.id
-            ORDER BY s.date DESC
-            LIMIT 1000
-        `).all();
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN users u ON s.user_id = u.id
+        `;
+        let params = [];
+        if (inventory && inventory !== 'all') {
+            query += ` WHERE s.inventory_id = ? `;
+            params.push(inventory);
+        }
+        query += ` GROUP BY s.id ORDER BY s.date DESC LIMIT 1000 `;
+
+        const rawSales = db.prepare(query).all(...params);
+        const sales = rawSales.map(s => {
+            let items = [];
+            try {
+                items = JSON.parse(s.items_json || '[]').filter(it => it.name && it.quantity);
+            } catch (_) {}
+            return {
+                id: s.id,
+                date: s.date,
+                inventory: s.inventory_id === 'alm' ? 'Almacén' : (s.inventory_id === 'mch1' ? 'MCH 1' : (s.inventory_id === 'mch2' ? 'MCH 2' : s.inventory_id)),
+                inventory_id: s.inventory_id,
+                seller: s.seller_name || 'Vendedor',
+                seller_id: s.user_id,
+                total: s.total,
+                status: 'closed',
+                payment_method: s.payment_method || 'cash',
+                items: items.length > 0 ? items : [{ name: 'Venta General', quantity: s.items_count || 1, price: s.total }]
+            };
+        });
         res.json(sales);
     } catch (e) {
+        logError("GET /api/history/sales", e);
         res.status(500).json({ error: e.message });
     }
 });
 
-// --- PURCHASES API (Compras/Entradas) ---
+// --- PURCHASES & TRANSFERS COMBINED INVENTORY HISTORY API ---
 
-// Get all purchases with items
+// Get all entries (purchases + transfers) with items for inventory history
 app.get('/api/purchases', authenticate, (req, res) => {
     try {
         const { inventory_id } = req.query;
+        let purchases = [];
         
-        const purchases = db.prepare(`
-            SELECT p.*, u.username as user_name
+        // Si el inventario es alm o global, o para kioscos si tienen entradas registradas
+        let purchasesQuery = `
+            SELECT p.*, u.username as user_name, 'purchase' as record_type
             FROM purchases p
             LEFT JOIN users u ON p.user_id = u.id
-            ORDER BY p.date DESC
-            LIMIT 1000
-        `).all();
-        
-        // Get items for each purchase
-        const getItems = db.prepare(`
+        `;
+        const pParams = [];
+        if (inventory_id) {
+            // Filtrar estrictamente las compras por inventario exacto
+            purchasesQuery += ` WHERE (p.inventory_id = ?)`;
+            pParams.push(inventory_id);
+        }
+        purchasesQuery += ` ORDER BY p.date DESC LIMIT 1000`;
+        purchases = db.prepare(purchasesQuery).all(...pParams);
+
+        const getPurchaseItems = db.prepare(`
             SELECT pi.*, pr.name as product_name, pr.code as product_code
             FROM purchase_items pi
             JOIN products pr ON pi.product_id = pr.id
             WHERE pi.purchase_id = ?
         `);
-        
-        const purchasesWithItems = purchases.map(p => ({
+
+        const formattedPurchases = purchases.map(p => ({
             ...p,
-            items: getItems.all(p.id)
+            record_type: 'purchase',
+            status: p.status || 'received',
+            supplier: p.supplier || (p.inventory_id === 'alm' ? 'Proveedor Externo' : 'Almacén MCH'),
+            items: getPurchaseItems.all(p.id)
         }));
-        
-        res.json(purchasesWithItems);
+
+        // Traer traslados donde el inventario activo sea estrictamente origen o destino
+        let transfersQuery = `
+            SELECT t.*, 
+                   creator.username as created_by_name,
+                   receiver.username as received_by_name,
+                   'transfer' as record_type
+            FROM transfers t
+            LEFT JOIN users creator ON t.created_by = creator.id
+            LEFT JOIN users receiver ON t.received_by = receiver.id
+            WHERE 1=1
+        `;
+        const tParams = [];
+        if (inventory_id) {
+            transfersQuery += ` AND (t.source_inventory = ? OR t.target_inventory = ?)`;
+            tParams.push(inventory_id, inventory_id);
+        }
+        transfersQuery += ` ORDER BY t.created_at DESC LIMIT 500`;
+        const transfers = db.prepare(transfersQuery).all(...tParams);
+
+        const getTransferItems = db.prepare(`
+            SELECT ti.*, pr.name as product_name, pr.code as product_code, pr.image as product_image,
+                   COALESCE(pr.sale_price_manual, 0) as sale_price,
+                   COALESCE(pr.cost_mx, 0) as cost_price,
+                   COALESCE(pr.sale_price_manual, pr.cost_mx, 0) as price,
+                   COALESCE(pr.cost_mx, 0) as cost
+            FROM transfer_items ti
+            LEFT JOIN products pr ON ti.product_id = pr.id
+            WHERE ti.transfer_id = ?
+        `);
+
+        const formattedTransfers = transfers.map(t => {
+            const items = getTransferItems.all(t.id);
+            const totalVal = items.reduce((sum, item) => sum + (item.quantity * (item.sale_price || item.price || 0)), 0);
+            const totalCost = items.reduce((sum, item) => sum + (item.quantity * (item.cost_price || item.cost || 0)), 0);
+            const invLabel = (id) => id === 'alm' ? 'Almacén MCH' : (id === 'mch1' ? 'MCH 1' : (id === 'mch2' ? 'MCH 2' : (id || '').toUpperCase()));
+
+            let supplierLabel = '';
+            if (inventory_id) {
+                if (t.target_inventory === inventory_id) {
+                    supplierLabel = `Traslado desde ${invLabel(t.source_inventory)}`;
+                } else {
+                    supplierLabel = `Traslado enviado a ${invLabel(t.target_inventory)}`;
+                }
+            } else {
+                supplierLabel = `${invLabel(t.source_inventory)} ➔ ${invLabel(t.target_inventory)}`;
+            }
+
+            return {
+                id: `tr_${t.id}`,
+                transfer_id: t.id,
+                record_type: 'transfer',
+                date: t.created_at || new Date().toISOString(),
+                supplier: supplierLabel,
+                source_inventory: t.source_inventory,
+                target_inventory: t.target_inventory,
+                total: totalVal,
+                total_cost: totalCost,
+                currency: 'MN',
+                status: t.status || 'pending',
+                notes: t.notes,
+                user_name: t.created_by_name,
+                items: items
+            };
+        });
+
+        // Combinar compras y traslados ordenados por fecha descendente (lo más nuevo arriba)
+        const combined = [...formattedTransfers, ...formattedPurchases].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        res.json(combined);
     } catch (e) {
         console.error('GET /api/purchases error:', e);
         res.status(500).json({ error: e.message });
@@ -2967,9 +5967,12 @@ app.post('/api/purchases', authenticate, requireEditor, (req, res) => {
             }
             
             return purchaseId;
-        })();
+                    })();
         
-        res.json({ success: true, id: result });
+                    // Sincronizar Nexus en tiempo real (stock tras entrada de mercancía)
+                    refreshNexusInventoryMetrics(inventory_id || 'mch1');
+
+                    res.json({ success: true, id: result });
     } catch (e) {
         console.error('POST /api/purchases error:', e);
         res.status(500).json({ error: e.message });
@@ -3086,6 +6089,457 @@ app.post('/api/admin/migrate-legacy', (req, res) => {
     }
 });
 
+// ==================== BACKUP / RESTORE SYSTEM ====================
+
+// Listar todos los backups disponibles
+app.get('/api/backup/list', authenticate, requireAdmin, (req, res) => {
+    try {
+        const files = fs.readdirSync(backupDir)
+            .filter(f => f.endsWith('.zip'))
+            .map(f => {
+                const stat = fs.statSync(path.join(backupDir, f));
+                return {
+                    filename: f,
+                    size: stat.size,
+                    sizeFormatted: (stat.size / 1024 / 1024).toFixed(2) + ' MB',
+                    date: stat.mtime.toISOString(),
+                    dateFormatted: stat.mtime.toLocaleString('es-ES')
+                };
+            })
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+        res.json(files);
+    } catch (e) {
+        logError("GET /api/backup/list", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Crear un backup completo de la base de datos
+app.post('/api/backup/create', authenticate, requireAdmin, async (req, res) => {
+    try {
+        const now = new Date();
+        const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const backupName = `backup-${timestamp}.zip`;
+        const backupPath = path.join(backupDir, backupName);
+
+        // 1. Crear backup de la DB copiando el archivo (con checkpoint WAL primero)
+        const backupDbPath = path.join(backupDir, `inventory-${timestamp}.db`);
+        db.pragma('wal_checkpoint(FULL)'); // Forzar escritura del WAL al archivo principal
+        fs.copyFileSync(dbPath, backupDbPath);
+
+        // 2. Crear ZIP con la DB + imágenes
+        const output = fs.createWriteStream(backupPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        archive.on('error', (err) => {
+            throw err;
+        });
+
+        output.on('close', () => {
+            // Eliminar la DB temporal
+            try { fs.unlinkSync(backupDbPath); } catch (e) {}
+            const stat = fs.statSync(backupPath);
+            res.json({
+                success: true,
+                filename: backupName,
+                size: stat.size,
+                sizeFormatted: (stat.size / 1024 / 1024).toFixed(2) + ' MB',
+                date: now.toISOString()
+            });
+        });
+
+        archive.pipe(output);
+        archive.file(backupDbPath, { name: 'inventory.db' });
+
+        // Incluir imágenes si existen
+        if (fs.existsSync(uploadDir)) {
+            archive.directory(uploadDir, 'uploads');
+        }
+
+        archive.finalize();
+    } catch (e) {
+        logError("POST /api/backup/create", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Restaurar un backup (subir archivo ZIP)
+app.post('/api/backup/restore', authenticate, requireAdmin, (req, res) => {
+    const upload = multer({
+        storage: multer.diskStorage({
+            destination: (req, file, cb) => cb(null, backupDir),
+            filename: (req, file, cb) => cb(null, 'restore-temp.zip')
+        })
+    }).single('backup');
+
+    upload(req, res, async (err) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        try {
+            if (!req.file) {
+                return res.status(400).json({ error: 'No se subió ningún archivo' });
+            }
+
+            const zipPath = path.join(backupDir, 'restore-temp.zip');
+            const extractDir = path.join(backupDir, 'restore-extract');
+
+            // Limpiar directorio de extracción si existe
+            if (fs.existsSync(extractDir)) {
+                fs.rmSync(extractDir, { recursive: true });
+            }
+            fs.mkdirSync(extractDir, { recursive: true });
+
+            // Extraer ZIP
+            const { execSync } = require('child_process');
+            const unzipper = require('unzipper');
+            const zipBuffer = fs.readFileSync(zipPath);
+            await new Promise((resolve, reject) => {
+                unzipper.Open.buffer(zipBuffer)
+                    .then(d => d.extract({ path: extractDir, concurrency: 5 }))
+                    .then(resolve)
+                    .catch(reject);
+            });
+
+            // Verificar que existe inventory.db en el ZIP extraído
+            const restoredDbPath = path.join(extractDir, 'inventory.db');
+            if (!fs.existsSync(restoredDbPath)) {
+                return res.status(400).json({ error: 'El archivo ZIP no contiene inventory.db' });
+            }
+
+            // 1. Hacer backup de la DB actual antes de restaurar (por seguridad)
+            const safetyBackupPath = path.join(backupDir, `pre-restore-${Date.now()}.db`);
+            db.pragma('wal_checkpoint(FULL)');
+            fs.copyFileSync(dbPath, safetyBackupPath);
+
+            // 2. Cerrar la conexión actual y reemplazar la DB
+            db.close();
+            fs.copyFileSync(restoredDbPath, dbPath);
+
+            // 3. Restaurar imágenes si están en el ZIP
+            const restoredUploads = path.join(extractDir, 'uploads');
+            if (fs.existsSync(restoredUploads)) {
+                if (fs.existsSync(uploadDir)) {
+                    fs.rmSync(uploadDir, { recursive: true });
+                }
+                fs.cpSync(restoredUploads, uploadDir, { recursive: true });
+            }
+
+            // 4. Reabrir la DB restaurada
+            // Nota: Como db es const, necesitamos reiniciar el server
+            // Limpiar temporales
+            try { fs.unlinkSync(zipPath); } catch (e) {}
+            try { fs.rmSync(extractDir, { recursive: true }); } catch (e) {}
+
+            res.json({
+                success: true,
+                message: 'Backup restaurado. El servidor se reiniciará para aplicar los cambios.',
+                safetyBackup: path.basename(safetyBackupPath)
+            });
+
+            // Reiniciar el servidor después de 2 segundos
+            setTimeout(() => {
+                console.log('[Backup] Restauración completada. Reiniciando servidor...');
+                process.exit(0); // En el .bat o PM2 se reiniciará automáticamente
+            }, 2000);
+
+        } catch (e) {
+            logError("POST /api/backup/restore", e);
+            res.status(500).json({ error: e.message });
+        }
+    });
+});
+
+// Restaurar un backup existente por nombre de archivo
+app.post('/api/backup/restore/:filename', authenticate, requireAdmin, async (req, res) => {
+    try {
+        const filename = req.params.filename;
+        const zipPath = path.join(backupDir, filename);
+
+        if (!fs.existsSync(zipPath)) {
+            return res.status(404).json({ error: 'Backup no encontrado' });
+        }
+
+        const extractDir = path.join(backupDir, 'restore-extract');
+
+        // Limpiar directorio de extracción si existe
+        if (fs.existsSync(extractDir)) {
+            fs.rmSync(extractDir, { recursive: true });
+        }
+        fs.mkdirSync(extractDir, { recursive: true });
+
+        // Extraer ZIP
+        const unzipper = require('unzipper');
+        const zipBuffer = fs.readFileSync(zipPath);
+        await new Promise((resolve, reject) => {
+            unzipper.Open.buffer(zipBuffer)
+                .then(d => d.extract({ path: extractDir, concurrency: 5 }))
+                .then(resolve)
+                .catch(reject);
+        });
+
+        // Verificar que existe inventory.db
+        const restoredDbPath = path.join(extractDir, 'inventory.db');
+        if (!fs.existsSync(restoredDbPath)) {
+            return res.status(400).json({ error: 'El backup no contiene inventory.db' });
+        }
+
+        // 1. Backup de seguridad de la DB actual
+        const safetyBackupPath = path.join(backupDir, `pre-restore-${Date.now()}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, safetyBackupPath);
+
+        // 2. Cerrar DB y reemplazar
+        db.close();
+        fs.copyFileSync(restoredDbPath, dbPath);
+
+        // 3. Restaurar imágenes
+        const restoredUploads = path.join(extractDir, 'uploads');
+        if (fs.existsSync(restoredUploads)) {
+            if (fs.existsSync(uploadDir)) {
+                fs.rmSync(uploadDir, { recursive: true });
+            }
+            fs.cpSync(restoredUploads, uploadDir, { recursive: true });
+        }
+
+        // Limpiar
+        try { fs.rmSync(extractDir, { recursive: true }); } catch (e) {}
+
+        res.json({
+            success: true,
+            message: 'Backup restaurado. El servidor se reiniciará.',
+            safetyBackup: path.basename(safetyBackupPath)
+        });
+
+        setTimeout(() => {
+            console.log('[Backup] Restauración completada. Reiniciando servidor...');
+            process.exit(0);
+        }, 2000);
+
+    } catch (e) {
+        logError("POST /api/backup/restore/:filename", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Descargar un backup
+app.get('/api/backup/download/:filename', authenticate, requireAdmin, (req, res) => {
+    try {
+        const filename = req.params.filename;
+        const filePath = path.join(backupDir, filename);
+
+        // Validar que el archivo existe y está dentro del directorio de backups
+        if (!fs.existsSync(filePath) || !filePath.startsWith(backupDir)) {
+            return res.status(404).json({ error: 'Backup no encontrado' });
+        }
+
+        res.download(filePath, filename);
+    } catch (e) {
+        logError("GET /api/backup/download/:filename", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Eliminar un backup
+app.delete('/api/backup/:filename', authenticate, requireAdmin, (req, res) => {
+    try {
+        const filename = req.params.filename;
+        const filePath = path.join(backupDir, filename);
+
+        if (!fs.existsSync(filePath) || !filePath.startsWith(backupDir)) {
+            return res.status(404).json({ error: 'Backup no encontrado' });
+        }
+
+        fs.unlinkSync(filePath);
+        res.json({ success: true, message: 'Backup eliminado' });
+    } catch (e) {
+        logError("DELETE /api/backup/:filename", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Resetear la base de datos de manera selectiva o total (con backup automático previo)
+app.post('/api/backup/selective-reset', authenticate, requireAdmin, (req, res) => {
+    try {
+        const {
+            inventoryId = 'all', // 'all', 'alm', 'mch1', 'mch2'
+            clearSales = false,
+            clearPurchases = false,
+            clearTransfers = false,
+            clearInventory = false,
+            clearLosses = false
+        } = req.body;
+
+        if (!clearSales && !clearPurchases && !clearTransfers && !clearInventory && !clearLosses) {
+            return res.status(400).json({ error: 'Debes seleccionar al menos una categoría para resetear.' });
+        }
+
+        // 1. Crear backup de seguridad previo
+        const safetyBackupPath = path.join(backupDir, `pre-selective-reset-${Date.now()}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, safetyBackupPath);
+
+        const summary = {
+            inventoryId,
+            cleared: []
+        };
+
+        db.exec('BEGIN TRANSACTION');
+
+        // A) LIMPIAR VENTAS
+        if (clearSales) {
+            if (inventoryId === 'all') {
+                db.exec('DELETE FROM sale_items');
+                db.exec('DELETE FROM returns');
+                db.exec('DELETE FROM sales');
+                db.exec('DELETE FROM expenses');
+                db.exec('DELETE FROM wage_payments');
+                db.exec('DELETE FROM sales_sessions');
+            } else {
+                // Obtener ventas asociadas a este inventario
+                const sales = db.prepare('SELECT id, session_id FROM sales WHERE inventory_id = ?').all(inventoryId);
+                const saleIds = sales.map(s => s.id);
+                const sessionIds = [...new Set(sales.map(s => s.session_id).filter(Boolean))];
+
+                if (saleIds.length > 0) {
+                    const placeholders = saleIds.map(() => '?').join(',');
+                    db.prepare(`DELETE FROM sale_items WHERE sale_id IN (${placeholders})`).run(...saleIds);
+                    db.prepare(`DELETE FROM returns WHERE sale_id IN (${placeholders})`).run(...saleIds);
+                    db.prepare(`DELETE FROM sales WHERE id IN (${placeholders})`).run(...saleIds);
+                }
+
+                if (sessionIds.length > 0) {
+                    const sessPlaceholders = sessionIds.map(() => '?').join(',');
+                    db.prepare(`DELETE FROM expenses WHERE session_id IN (${sessPlaceholders})`).run(...sessionIds);
+                    db.prepare(`DELETE FROM wage_payments WHERE session_id IN (${sessPlaceholders})`).run(...sessionIds);
+                    db.prepare(`DELETE FROM sales_sessions WHERE id IN (${sessPlaceholders})`).run(...sessionIds);
+                }
+            }
+            summary.cleared.push('Ventas y Sesiones de Caja');
+        }
+
+        // B) LIMPIAR ENTRADAS / COMPRAS
+        if (clearPurchases) {
+            db.exec('DELETE FROM purchase_items');
+            db.exec('DELETE FROM purchases');
+            summary.cleared.push('Historial de Entradas / Compras');
+        }
+
+        // C) LIMPIAR TRASLADOS
+        if (clearTransfers) {
+            if (inventoryId === 'all') {
+                db.exec('DELETE FROM transfer_items');
+                db.exec('DELETE FROM transfers');
+            } else {
+                const transfers = db.prepare('SELECT id FROM transfers WHERE source_inventory = ? OR target_inventory = ?').all(inventoryId, inventoryId);
+                const transferIds = transfers.map(t => t.id);
+                if (transferIds.length > 0) {
+                    const placeholders = transferIds.map(() => '?').join(',');
+                    db.prepare(`DELETE FROM transfer_items WHERE transfer_id IN (${placeholders})`).run(...transferIds);
+                    db.prepare(`DELETE FROM transfers WHERE id IN (${placeholders})`).run(...transferIds);
+                }
+            }
+            summary.cleared.push('Historial de Traslados');
+        }
+
+        // D) LIMPIAR MERMAS / PÉRDIDAS
+        if (clearLosses) {
+            if (inventoryId === 'all') {
+                db.exec('DELETE FROM losses');
+            } else {
+                db.prepare('DELETE FROM losses WHERE inventory = ?').run(inventoryId);
+            }
+            summary.cleared.push('Mermas / Pérdidas');
+        }
+
+        // E) LIMPIAR INVENTARIO / CATÁLOGO / STOCK
+        if (clearInventory) {
+            if (inventoryId === 'all') {
+                db.exec('DELETE FROM product_inventory');
+                db.exec('DELETE FROM product_images');
+                db.exec('DELETE FROM products');
+                // Limpiar imágenes físicas
+                if (fs.existsSync(uploadDir)) {
+                    fs.rmSync(uploadDir, { recursive: true });
+                    fs.mkdirSync(uploadDir, { recursive: true });
+                }
+                summary.cleared.push('Todo el Catálogo y Stock Global');
+            } else {
+                // Poner a 0 las existencias en el inventario seleccionado
+                db.prepare('UPDATE product_inventory SET quantity = 0 WHERE inventory_id = ?').run(inventoryId);
+                summary.cleared.push(`Stock puesto a 0 para ${inventoryId}`);
+            }
+        }
+
+        db.exec('COMMIT');
+
+        res.json({
+            success: true,
+            message: `Limpieza selectiva completada: ${summary.cleared.join(', ')}`,
+            safetyBackup: path.basename(safetyBackupPath),
+            summary
+        });
+
+    } catch (e) {
+        try { db.exec('ROLLBACK'); } catch (_) {}
+        logError("POST /api/backup/selective-reset", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Resetear la base de datos a estado limpio (mantener solo estructura + admin user)
+app.post('/api/backup/reset', authenticate, requireAdmin, (req, res) => {
+    try {
+        // 1. Crear backup de seguridad antes de resetear
+        const safetyBackupPath = path.join(backupDir, `pre-reset-${Date.now()}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, safetyBackupPath);
+
+        // 2. Obtener datos del usuario admin antes de limpiar
+        const adminUser = db.prepare('SELECT * FROM users LIMIT 1').get();
+        const inventories = db.prepare('SELECT * FROM inventories').all();
+        const expenseTypes = db.prepare('SELECT * FROM expense_types').all();
+
+        // 3. Limpiar todas las tablas de datos (mantener estructura)
+        const tablesToClear = [
+            'sale_items', 'sales', 'sales_sessions', 'expenses',
+            'product_inventory', 'product_images', 'products',
+            'returns', 'purchases', 'purchase_items', 'losses',
+            'notifications', 'wage_payments', 'transfers', 'transfer_items',
+            'blacklisted_emails'
+        ];
+
+        db.exec('BEGIN TRANSACTION');
+        tablesToClear.forEach(table => {
+            db.exec(`DELETE FROM ${table}`);
+        });
+        // Resetear autoincrement
+        tablesToClear.forEach(table => {
+            try {
+                db.exec(`DELETE FROM sqlite_sequence WHERE name = '${table}'`);
+            } catch (e) {}
+        });
+        db.exec('COMMIT');
+
+        // 4. Limpiar imágenes subidas
+        if (fs.existsSync(uploadDir)) {
+            fs.rmSync(uploadDir, { recursive: true });
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+
+        res.json({
+            success: true,
+            message: 'Base de datos reseteada. Se conservó el usuario admin, inventarios y tipos de gastos.',
+            safetyBackup: path.basename(safetyBackupPath),
+            preserved: { adminUser: adminUser?.email, inventories: inventories.length, expenseTypes: expenseTypes.length }
+        });
+
+    } catch (e) {
+        logError("POST /api/backup/reset", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -3128,6 +6582,32 @@ if (isProduction && fs.existsSync(clientDistPath)) {
         });
     });
 }
+
+// --- ENDPOINTS DE LOGGING AUDITABLE ---
+app.post('/api/logs', (req, res) => {
+    try {
+        const { level = 'info', context = 'CLIENT', message = '', details = null } = req.body;
+        writeAppLog(level, context, message, details);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/logs', authenticate, requireAdmin, (req, res) => {
+    try {
+        const logFile = path.join(logsDir, 'app.log');
+        if (!fs.existsSync(logFile)) {
+            return res.json({ logs: [] });
+        }
+        const content = fs.readFileSync(logFile, 'utf8');
+        const lines = content.trim().split('\n').filter(Boolean);
+        const lastLines = lines.slice(-200); // Últimas 200 líneas
+        res.json({ logs: lastLines });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Start Server
 app.listen(port, () => {
