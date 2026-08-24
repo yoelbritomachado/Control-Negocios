@@ -3,6 +3,12 @@ import './index.css'
 import App from './App.jsx'
 import { CartProvider } from './components/CartProvider.jsx'
 import { OfflineProvider } from './offline'
+import { registerSW } from 'virtual:pwa-register'
+
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+  registerSW({ immediate: true })
+}
 
 // Capturador Global de Errores para Logging Centralizado
 window.addEventListener('error', (event) => {

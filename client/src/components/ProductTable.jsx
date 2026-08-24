@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { FaEdit, FaTrash, FaTag } from 'react-icons/fa';
+import React, { useState } from 'react';
+import { FaEdit, FaTrash, FaTag, FaCheck } from 'react-icons/fa';
 import ProductThumbnail from './ProductThumbnail';
+import { useRole } from '../hooks/useRole';
 
 const ProductTable = ({
   products,
@@ -9,15 +10,22 @@ const ProductTable = ({
   onEdit,
   onDelete,
   setViewGallery,
+  onProductClick,
   settings,
   isDarkMode = true,
   currentUser,
   selectedProductIds = [],
   onSelectProduct,
+  isSelectMode = false,
   viewMode = 'list'
 }) => {
+  const { isSeller, isAdmin, isOwner } = useRole();
   const primaryCurrency = settings?.PRIMARY_CURRENCY || 'MXN';
-  const canEdit = true;
+
+  // Solo Admin y Dueño pueden editar / eliminar
+  const canEdit = !isSeller && (isAdmin || isOwner);
+  // Ocultar costos al vendedor
+  const showCosts = !isSeller;
 
   const getRowStyle = (color) => {
     if (!color || color === 'none') return {};
@@ -81,10 +89,21 @@ const ProductTable = ({
     }
   };
 
+  const handleRowOrCardClick = (product, e) => {
+    if (isSelectMode || (onSelectProduct && selectedProductIds.length > 0)) {
+      e.stopPropagation();
+      if (onSelectProduct) onSelectProduct(product.id);
+      return;
+    }
+    if (onProductClick) {
+      onProductClick(product);
+    }
+  };
+
   if (products.length === 0) {
     return (
       <div className="bg-card/40 dark:bg-gray-800/60 py-12 rounded-xl border border-dashed border-border text-center">
-        <p className="text-muted-foreground font-medium">No hay productos que coincidan con tu búsqueda.</p>
+        <p className="text-muted-foreground font-medium">No hay productos que coincidan con los filtros aplicados.</p>
       </div>
     );
   }
@@ -102,17 +121,27 @@ const ProductTable = ({
             <div
               key={product.id}
               style={labelStyle}
-              onClick={(e) => {
-                if (onSelectProduct) {
-                  e.stopPropagation();
-                  onSelectProduct(product.id);
-                }
-              }}
-              className={`group cursor-pointer bg-white dark:bg-gray-800/90 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-lg transition-all overflow-hidden ${
-                isSelected ? 'ring-2 ring-blue-500 border-blue-400 dark:border-blue-500 bg-blue-500/10' : ''
+              onClick={(e) => handleRowOrCardClick(product, e)}
+              className={`group cursor-pointer bg-white dark:bg-gray-800/90 rounded-2xl border transition-all overflow-hidden relative ${
+                isSelected 
+                  ? 'ring-2 ring-rose-500 border-rose-500 dark:border-rose-500 bg-rose-500/10' 
+                  : 'border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-lg'
               }`}
             >
               <div className="relative p-3 pb-0">
+                {/* Selector Checkbox overlay in select mode */}
+                {isSelectMode && (
+                  <div className="absolute top-4 right-4 z-20">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all shadow-md ${
+                      isSelected 
+                        ? 'bg-rose-500 border-rose-600 text-white' 
+                        : 'bg-black/60 border-white/40 text-transparent hover:border-white'
+                    }`}>
+                      <FaCheck size={12} className={isSelected ? 'opacity-100' : 'opacity-0'} />
+                    </div>
+                  </div>
+                )}
+
                 <ProductThumbnail
                   product={product}
                   onClick={(images, idx) => setViewGallery && setViewGallery({ images, index: idx })}
@@ -121,7 +150,7 @@ const ProductTable = ({
                 />
 
                 {product.label_color && product.label_color !== 'none' && (
-                  <div className="absolute top-5 left-5 bg-black/60 text-white rounded-full p-1.5 shadow-md">
+                  <div className="absolute top-5 left-5 bg-black/60 text-white rounded-full p-1.5 shadow-md pointer-events-none">
                     <FaTag className="text-xs" />
                   </div>
                 )}
@@ -140,7 +169,7 @@ const ProductTable = ({
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : stock > 0
                           ? 'text-amber-600 dark:text-amber-400'
-                          : 'text-red-600 dark:text-red-400'
+                          : 'text-rose-600 dark:text-rose-400'
                     }`}>{stock}</p>
                   </div>
                   <div className="bg-gray-100 dark:bg-gray-900/50 rounded-lg p-2">
@@ -151,7 +180,7 @@ const ProductTable = ({
                   </div>
                 </div>
 
-                {canEdit && (
+                {canEdit && !isSelectMode && (
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={(e) => { e.stopPropagation(); onEdit(product); }}
@@ -179,6 +208,7 @@ const ProductTable = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 shadow-sm rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {/* Mobile Card List */}
       <div className="md:hidden">
         <div className="divide-y divide-gray-200 dark:divide-gray-700">
           {products.map((product, index) => {
@@ -190,17 +220,24 @@ const ProductTable = ({
             return (
               <div
                 key={`product-card-${product.id}-${index}`}
-                onClick={(e) => {
-                  if (onSelectProduct) {
-                    e.stopPropagation();
-                    onSelectProduct(product.id);
-                  }
-                }}
-                className={`p-4 transition-colors border-l-4 ${getCardBorderColor(product.label_color)} ${
-                  isSelected ? 'bg-blue-500/10 dark:bg-blue-900/30' : 'bg-slate-800/30 hover:bg-slate-800/50'
+                onClick={(e) => handleRowOrCardClick(product, e)}
+                className={`p-4 transition-colors cursor-pointer border-l-4 ${getCardBorderColor(product.label_color)} ${
+                  isSelected ? 'bg-rose-500/10 dark:bg-rose-900/30 ring-1 ring-rose-500' : 'bg-slate-800/30 hover:bg-slate-800/50'
                 }`}
               >
                 <div className="flex items-start gap-3 mb-3">
+                  {isSelectMode && (
+                    <div className="pt-3">
+                      <div className={`w-5 h-5 rounded-md flex items-center justify-center border transition-all ${
+                        isSelected 
+                          ? 'bg-rose-500 border-rose-600 text-white' 
+                          : 'bg-slate-800 border-slate-600 text-transparent'
+                      }`}>
+                        <FaCheck size={10} className={isSelected ? 'opacity-100' : 'opacity-0'} />
+                      </div>
+                    </div>
+                  )}
+
                   <ProductThumbnail
                     product={product}
                     onClick={(images, idx) => setViewGallery && setViewGallery({ images, index: idx })}
@@ -230,11 +267,12 @@ const ProductTable = ({
                 <div className="flex items-center justify-between mb-3 px-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500 dark:text-gray-400">Stock:</span>
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stock > 5
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : stock > 0
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      stock > 5
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : stock > 0
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400'
                     }`}>
                       {stock}
                     </span>
@@ -248,15 +286,17 @@ const ProductTable = ({
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <span>Costo:</span>{' '}
-                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                      ${Number(cost || 0).toFixed(2)}
-                    </span>
-                    <span className="text-gray-500 ml-1">{primaryCurrency}</span>
-                  </div>
+                  {showCosts ? (
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      <span>Costo:</span>{' '}
+                      <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                        ${Number(cost || 0).toFixed(2)}
+                      </span>
+                      <span className="text-gray-500 ml-1">{primaryCurrency}</span>
+                    </div>
+                  ) : <div />}
                   
-                  {canEdit && (
+                  {canEdit && !isSelectMode && (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); onEdit(product); }}
@@ -281,17 +321,27 @@ const ProductTable = ({
         </div>
       </div>
 
+      {/* Desktop Table */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
+              {isSelectMode && (
+                <th className="px-3 py-3 text-center w-10">
+                  <span className="sr-only">Seleccionar</span>
+                </th>
+              )}
               <th className="px-3 sm:px-6 py-3 sm:py-4 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Producto</th>
               <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Stock</th>
               <th className="px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Venta Final</th>
-              <th className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo {primaryCurrency}</th>
-              <th className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo MN</th>
-              <th className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Margen</th>
-              {canEdit && <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>}
+              {showCosts && (
+                <>
+                  <th className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo {primaryCurrency}</th>
+                  <th className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Costo MN</th>
+                  <th className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">Margen</th>
+                </>
+              )}
+              {canEdit && !isSelectMode && <th className="px-3 sm:px-6 py-3 sm:py-4 text-center text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -307,16 +357,22 @@ const ProductTable = ({
                 <tr
                   key={`product-row-${product.id}-${index}`}
                   style={getRowStyle(product.label_color)}
-                  onClick={(e) => {
-                    if (onSelectProduct) {
-                      e.stopPropagation();
-                      onSelectProduct(product.id);
-                    }
-                  }}
+                  onClick={(e) => handleRowOrCardClick(product, e)}
                   className={`transition-colors cursor-pointer hover:bg-black/5 dark:hover:bg-white/5 ${
-                    isSelected ? 'bg-blue-50 dark:bg-blue-900/30 ring-2 ring-inset ring-blue-400 dark:ring-blue-500' : ''
+                    isSelected ? 'bg-rose-50 dark:bg-rose-900/30 ring-2 ring-inset ring-rose-400 dark:ring-rose-500' : ''
                   }`}
                 >
+                  {isSelectMode && (
+                    <td className="px-3 py-3 sm:py-4 text-center" onClick={(e) => { e.stopPropagation(); if (onSelectProduct) onSelectProduct(product.id); }}>
+                      <div className={`w-5 h-5 mx-auto rounded-md flex items-center justify-center border transition-all ${
+                        isSelected 
+                          ? 'bg-rose-500 border-rose-600 text-white' 
+                          : 'bg-white dark:bg-slate-800 border-gray-400 dark:border-gray-600 text-transparent'
+                      }`}>
+                        <FaCheck size={10} className={isSelected ? 'opacity-100' : 'opacity-0'} />
+                      </div>
+                    </td>
+                  )}
                   <td className="px-3 sm:px-6 py-3 sm:py-4">
                     <div className="flex items-center gap-2 sm:gap-4">
                       <ProductThumbnail
@@ -344,11 +400,12 @@ const ProductTable = ({
                     </div>
                   </td>
                   <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${stock > 5
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : stock > 0
-                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      stock > 5
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : stock > 0
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'bg-rose-100 text-red-800 dark:bg-rose-900/30 dark:text-rose-400'
                     }`}>
                       {stock}
                     </span>
@@ -361,16 +418,20 @@ const ProductTable = ({
                       <span className="block text-[9px] text-gray-400 uppercase font-bold tracking-wide mt-0.5">Manual</span>
                     )}
                   </td>
-                  <td className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-indigo-600 dark:text-indigo-400 font-medium">
-                    ${Number(costDynamic).toFixed(2)}
-                  </td>
-                  <td className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-gray-600 dark:text-gray-400">
-                    ${Number(costMN).toFixed(2)}
-                  </td>
-                  <td className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs text-gray-500 dark:text-gray-500 font-medium">
-                    {Number(margin).toFixed(1)}%
-                  </td>
-                  {canEdit && (
+                  {showCosts && (
+                    <>
+                      <td className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-indigo-600 dark:text-indigo-400 font-medium">
+                        ${Number(costDynamic).toFixed(2)}
+                      </td>
+                      <td className="hidden lg:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs sm:text-sm text-gray-600 dark:text-gray-400">
+                        ${Number(costMN).toFixed(2)}
+                      </td>
+                      <td className="hidden xl:table-cell px-3 sm:px-6 py-3 sm:py-4 text-right font-mono text-xs text-gray-500 dark:text-gray-500 font-medium">
+                        {Number(margin).toFixed(1)}%
+                      </td>
+                    </>
+                  )}
+                  {canEdit && !isSelectMode && (
                     <td className="px-3 sm:px-6 py-3 sm:py-4 text-center">
                       <div className="flex justify-center gap-1 sm:gap-2">
                         <button

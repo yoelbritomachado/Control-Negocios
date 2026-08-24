@@ -14,18 +14,22 @@ import {
     Trash2,
     X,
     Edit3,
-    Save
+    Save,
+    QrCode
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 import api from '../api';
+import QRGeneratorModal from '../components/QRGeneratorModal';
+import { prepareTransferQRPayload } from '../lib/qrOfflineService';
+import { getProductsLocal, savePendingTransfer } from '../lib/localDB';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
-const INVENTORIES = [
+const DEFAULT_INVENTORIES = [
+    { id: 'alm', label: 'Almacén', type: 'alm' },
     { id: 'mch1', label: 'MCH 1', type: 'pv' },
     { id: 'mch2', label: 'MCH 2', type: 'pv' },
-    { id: 'alm', label: 'Almacén', type: 'alm' },
 ];
 
 export default function TrasladosPage() {
@@ -34,17 +38,40 @@ export default function TrasladosPage() {
     const navigate = useNavigate();
     const editIdParam = searchParams.get('edit');
 
+    const [inventoriesList, setInventoriesList] = useState(DEFAULT_INVENTORIES);
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     
     // Transfer state
-    const [sourceInventory, setSourceInventory] = useState(currentInventory);
+    const [sourceInventory, setSourceInventory] = useState(currentInventory || 'alm');
     const [targetInventory, setTargetInventory] = useState('');
     const [cart, setCart] = useState([]);
     const [notes, setNotes] = useState('');
+    const [qrModalOpen, setQrModalOpen] = useState(false);
+    const [qrPayload, setQrPayload] = useState(null);
     const [editingTransfer, setEditingTransfer] = useState(null); // Objeto completo si estamos editando
+
+    // Cargar lista dinámica de inventarios desde el backend
+    useEffect(() => {
+        const loadInventories = async () => {
+            try {
+                const res = await api.get('/inventories');
+                if (Array.isArray(res.data) && res.data.length > 0) {
+                    const formatted = res.data.map(inv => ({
+                        id: inv.id,
+                        label: inv.name || inv.id,
+                        type: inv.type === 'warehouse' || inv.id === 'alm' ? 'alm' : 'pv'
+                    }));
+                    setInventoriesList(formatted);
+                }
+            } catch (e) {
+                console.error("Error fetching inventories:", e);
+            }
+        };
+        loadInventories();
+    }, []);
 
     // Si viene param ?edit=ID, cargar el traslado para edición
     useEffect(() => {
@@ -99,10 +126,18 @@ export default function TrasladosPage() {
     const fetchProducts = async () => {
         try {
             setLoading(true);
-            const response = await api.get(`/products?inventory=${sourceInventory}`);
-            setProducts(Array.isArray(response.data) ? response.data : []);
+            const response = await api.get(`/products?inventory=${sourceInventory}`, { timeout: 3000 });
+            const list = Array.isArray(response.data) ? response.data : [];
+            if (list.length > 0) {
+                setProducts(list);
+            } else {
+                const local = await getProductsLocal();
+                setProducts(local);
+            }
         } catch (err) {
-            console.error('Error:', err);
+            console.warn('[Traslados] Servidor no disponible, cargando productos desde almacén local IndexedDB:', err.message);
+            const local = await getProductsLocal();
+            setProducts(local);
         } finally {
             setLoading(false);
         }
@@ -191,6 +226,18 @@ export default function TrasladosPage() {
             return;
         }
 
+        const transferData = {
+            source_inventory: sourceInventory,
+            target_inventory: targetInventory,
+            items: cart.map(item => ({
+                product_id: item.id,
+                name: item.name,
+                code: item.code,
+                quantity: item.quantity
+            })),
+            notes
+        };
+
         try {
             if (editingTransfer) {
                 // Guardar cambios en traslado existente
@@ -207,24 +254,26 @@ export default function TrasladosPage() {
                 cancelEditing();
                 navigate('/historial/traslados');
             } else {
-                // Crear traslado nuevo
-                await api.post('/transfers', {
-                    source_inventory: sourceInventory,
-                    target_inventory: targetInventory,
-                    items: cart.map(item => ({
-                        product_id: item.id,
-                        quantity: item.quantity
-                    })),
-                    notes
-                });
+                // Intentar enviar al backend con timeout
+                try {
+                    await api.post('/transfers', transferData, { timeout: 3500 });
+                    alert('Traslado creado exitosamente en el servidor.');
+                } catch (netErr) {
+                    console.warn('[Traslado] Red offline o falla de servidor. Guardando en local y preparando QR:', netErr.message);
+                    await savePendingTransfer(transferData);
+                    
+                    // Generar QR de contingencia inmediatamente
+                    const payload = prepareTransferQRPayload(transferData);
+                    setQrPayload(payload);
+                    setQrModalOpen(true);
+                    
+                    alert('⚠️ Sin conexión con el servidor. El traslado fue guardado en tu dispositivo localmente. Mostrá el código QR para que la sede destino lo reciba.');
+                }
 
                 // Reset form
                 setCart([]);
                 setNotes('');
                 setTargetInventory('');
-                
-                alert('Traslado creado exitosamente');
-                navigate('/historial/traslados');
             }
             
             // Refresh products list
@@ -314,7 +363,7 @@ export default function TrasladosPage() {
                                     }}
                                     className="w-full px-4 py-3 rounded-xl bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
                                 >
-                                    {INVENTORIES.map(inv => (
+                                    {inventoriesList.map(inv => (
                                         <option key={inv.id} value={inv.id}>
                                             {inv.label} ({inv.type === 'pv' ? 'Punto de Venta' : 'Almacén'})
                                         </option>
@@ -334,7 +383,7 @@ export default function TrasladosPage() {
                                     className="w-full px-4 py-3 rounded-xl bg-background border border-border focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none"
                                 >
                                     <option value="">Seleccionar destino...</option>
-                                    {INVENTORIES.filter(inv => inv.id !== sourceInventory).map(inv => (
+                                    {inventoriesList.filter(inv => inv.id !== sourceInventory).map(inv => (
                                         <option key={inv.id} value={inv.id}>
                                             {inv.label} ({inv.type === 'pv' ? 'Punto de Venta' : 'Almacén'})
                                         </option>
@@ -479,7 +528,7 @@ export default function TrasladosPage() {
                                 <div className="text-center">
                                     <p className="text-xs text-muted-foreground">Origen</p>
                                     <p className="font-medium">
-                                        {INVENTORIES.find(i => i.id === sourceInventory)?.label}
+                                        {inventoriesList.find(i => i.id === sourceInventory)?.label || sourceInventory}
                                     </p>
                                 </div>
                                 <div className="flex-1 flex items-center justify-center">
@@ -491,7 +540,7 @@ export default function TrasladosPage() {
                                     <p className="text-xs text-muted-foreground">Destino</p>
                                     <p className="font-medium">
                                         {targetInventory 
-                                            ? INVENTORIES.find(i => i.id === targetInventory)?.label 
+                                            ? (inventoriesList.find(i => i.id === targetInventory)?.label || targetInventory)
                                             : '...'}
                                     </p>
                                 </div>
@@ -521,34 +570,77 @@ export default function TrasladosPage() {
                                 />
                             </div>
 
-                            {/* Submit Button */}
-                            <button
-                                onClick={handleSubmitTransfer}
-                                disabled={cart.length === 0 || !targetInventory}
-                                className={cn(
-                                    "w-full py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
-                                    cart.length > 0 && targetInventory
-                                        ? editingTransfer
-                                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-orange-500/25"
-                                            : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
-                                        : "bg-secondary text-muted-foreground cursor-not-allowed"
-                                )}
-                            >
-                                {editingTransfer ? (
-                                    <>
-                                        <Save className="w-5 h-5" />
-                                        Guardar Cambios del Traslado
-                                    </>
-                                ) : (
-                                    <>
-                                        <Send className="w-5 h-5" />
-                                        Enviar Traslado
-                                    </>
-                                )}
-                            </button>
+                            {/* Submit Button & QR Button */}
+                            <div className="space-y-2">
+                                <button
+                                    onClick={handleSubmitTransfer}
+                                    disabled={cart.length === 0 || !targetInventory}
+                                    className={cn(
+                                        "w-full py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
+                                        cart.length > 0 && targetInventory
+                                            ? editingTransfer
+                                                ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-orange-500/25"
+                                                : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
+                                            : "bg-secondary text-muted-foreground cursor-not-allowed"
+                                    )}
+                                >
+                                    {editingTransfer ? (
+                                        <>
+                                            <Save className="w-5 h-5" />
+                                            Guardar Cambios del Traslado
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Send className="w-5 h-5" />
+                                            Enviar Traslado
+                                        </>
+                                    )}
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (cart.length === 0 || !targetInventory) {
+                                            alert('Seleccione destino y agregue productos para generar el QR');
+                                            return;
+                                        }
+                                        const payload = prepareTransferQRPayload(
+                                            {
+                                                id: editingTransfer ? editingTransfer.id : `TRF-${Date.now()}`,
+                                                source_inventory: sourceInventory,
+                                                target_inventory: targetInventory,
+                                                notes
+                                            },
+                                            cart
+                                        );
+                                        setQrPayload(payload);
+                                        setQrModalOpen(true);
+                                    }}
+                                    disabled={cart.length === 0 || !targetInventory}
+                                    className={cn(
+                                        "w-full py-3 rounded-xl font-medium transition-all flex items-center justify-center gap-2 text-sm border",
+                                        cart.length > 0 && targetInventory
+                                            ? "border-pink-500/40 bg-pink-500/10 hover:bg-pink-500/20 text-pink-300"
+                                            : "border-slate-800 bg-secondary/30 text-muted-foreground cursor-not-allowed"
+                                    )}
+                                >
+                                    <QrCode className="w-4 h-4 text-pink-400" />
+                                    Generar Código QR (Traspaso Offline)
+                                </button>
+                            </div>
                         </motion.div>
                     </div>
                 </>
+
+                {/* Modal QR */}
+                <QRGeneratorModal
+                    isOpen={qrModalOpen}
+                    onClose={() => setQrModalOpen(false)}
+                    title={editingTransfer ? `QR Traslado #${editingTransfer.id}` : "QR Traslado Offline"}
+                    subtitle={`Origen: ${sourceInventory.toUpperCase()} ➔ Destino: ${targetInventory?.toUpperCase()}`}
+                    type="TRF"
+                    payload={qrPayload}
+                />
             </div>
         );
     }

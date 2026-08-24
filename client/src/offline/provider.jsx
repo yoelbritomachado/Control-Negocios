@@ -97,15 +97,41 @@ export function OfflineProvider({ children }) {
 
     init();
 
+    // Heartbeat activo para comprobar conexión real con el servidor
+    const checkServerHealth = async () => {
+      if (!navigator.onLine) {
+        if (isMounted) setIsOnline(false);
+        return;
+      }
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch('/api/health', { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (isMounted) setIsOnline(res.ok);
+      } catch (e) {
+        if (isMounted) setIsOnline(false);
+      }
+    };
+
     // Listeners de conectividad
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      checkServerHealth();
+    };
+    const handleOffline = () => {
+      if (isMounted) setIsOnline(false);
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Heartbeat periódico cada 8 segundos
+    const heartbeatInterval = setInterval(checkServerHealth, 8000);
+    checkServerHealth();
+
     return () => {
       isMounted = false;
+      clearInterval(heartbeatInterval);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };

@@ -15,8 +15,11 @@ import {
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
     Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
-    CreditCard, Calendar
+    CreditCard, Calendar, QrCode
 } from 'lucide-react';
+import QRGeneratorModal from './QRGeneratorModal';
+import { prepareSaleQRPayload } from '../lib/qrOfflineService';
+import { savePendingSale } from '../lib/localDB';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
@@ -518,7 +521,13 @@ export default function POSLayout() {
     const [showPayment, setShowPayment] = useState(false);
     const [showSaveTicketModal, setShowSaveTicketModal] = useState(false);
     const [ticketCustomName, setTicketCustomName] = useState('');
+    // Ticket que se está editando: al guardarlo conserva el mismo nombre e ID.
+    const [editingSavedSale, setEditingSavedSale] = useState(null);
     const [sessionMetrics, setSessionMetrics] = useState(null);
+    const [qrModalOpen, setQrModalOpen] = useState(false);
+    const [qrPayload, setQrPayload] = useState(null);
+    const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
+    const [quickSaleData, setQuickSaleData] = useState({ name: '', price: '', quantity: 1 });
 
     // Confirm Modals
     const [showCartConfirm, setShowCartConfirm] = useState(false);
@@ -621,7 +630,9 @@ export default function POSLayout() {
 
     const handleSaveSale = () => {
         if (cart.length === 0) return;
-        setTicketCustomName('');
+        // Si el carrito proviene de un ticket editado, conservar su cliente/referencia.
+        // Solo se inicia vacío al crear un ticket nuevo.
+        setTicketCustomName(prev => editingSavedSale?.name || prev || '');
         setShowSaveTicketModal(true);
     };
 
@@ -641,8 +652,12 @@ export default function POSLayout() {
             inventoryId: currentInventory
         };
 
-        setSavedSales(prev => [savedSale, ...prev]);
+        setSavedSales(prev => editingSavedSale
+            ? [{ ...savedSale, id: editingSavedSale.id, name: finalName }, ...prev.filter(s => s.id !== editingSavedSale.id)]
+            : [savedSale, ...prev]
+        );
         clearCart();
+        setEditingSavedSale(null);
         setShowSaveTicketModal(false);
         setTicketCustomName('');
         setAlertModal({
@@ -654,6 +669,9 @@ export default function POSLayout() {
     };
 
     const handleEditSavedSale = async (sale) => {
+        // Conservar el ticket original: al guardar de nuevo se actualizará, no se duplicará.
+        setEditingSavedSale(sale);
+        setTicketCustomName(sale.name || `Ticket #${sale.id}`);
         // Verificar si hay items con IDs temporales
         const itemsWithTempIds = sale.items?.filter(item => isTempId(item.id) && isTempId(item.product_id)) || [];
         if (itemsWithTempIds.length > 0) {
@@ -750,7 +768,7 @@ export default function POSLayout() {
                 onConfirm: () => {
                     const savedCurrent = {
                         id: `pending-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        name: `Ticket #${savedSales.length + 1}`,
+                        name: sale.name || `Ticket #${savedSales.length + 1}`,
                         items: [...cart],
                         total: total,
                         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -859,6 +877,51 @@ export default function POSLayout() {
         setRecentSales(prev => prev.filter(s => s.id !== sale.id));
     };
 
+    const handleGenerateSaleQR = (sale) => {
+        const payload = prepareSaleQRPayload(
+            {
+                id: sale.id,
+                ticket_code: `VTA-${sale.id}`,
+                inventory_id: currentInventory,
+                total_amount: sale.total,
+                payment_method: sale.method || 'cash',
+                cash_received: sale.cashAmount || (sale.method === 'cash' ? sale.total : 0),
+                transfer_received: sale.transferAmount || (sale.method === 'transfer' ? sale.total : 0),
+                created_at: new Date().toISOString()
+            },
+            (sale.items || []).map(i => ({
+                product_id: i.product_id || i.id,
+                name: i.name || 'Producto',
+                quantity: i.quantity,
+                sale_price: i.sale_price_manual || i.price,
+                total_price: (i.quantity || 1) * (i.sale_price_manual || i.price || 0)
+            }))
+        );
+        setQrPayload(payload);
+        setQrModalOpen(true);
+    };
+
+    const handleAddQuickSale = (e) => {
+        e.preventDefault();
+        const price = parseFloat(quickSaleData.price);
+        const qty = parseInt(quickSaleData.quantity, 10) || 1;
+        if (!price || price <= 0) {
+            alert('Ingrese un precio válido');
+            return;
+        }
+        const quickProduct = {
+            id: Number(Date.now().toString().slice(-6)), // ID numérico de contingencia
+            name: quickSaleData.name.trim() || 'Venta Rápida / Comodín',
+            code: 'RAPIDO',
+            sale_price_manual: price,
+            cost_mn: 0,
+            inventory: { [currentInventory]: 999 }
+        };
+        addToCart(quickProduct, qty);
+        setShowQuickSaleModal(false);
+        setQuickSaleData({ name: '', price: '', quantity: 1 });
+    };
+
     const handleDeleteSale = (saleId) => {
         setConfirmModal({
             isOpen: true,
@@ -904,26 +967,43 @@ export default function POSLayout() {
                 id: item.id
             }));
 
-            const res = await api.post('/sales', {
-                items: itemsForBackend,
-                total: total,
-                paymentMethod: paymentMethod,
-                amountReceived: paymentData.amountReceived,
-                change: paymentData.change,
-                inventoryId: currentInventory,
-                cashAmount: paymentData.cashAmount,
-                transferAmount: paymentData.transferAmount
-            });
+            let res = null;
+            let isOfflineRecorded = false;
+            let localSaleId = null;
 
-            if (!res || !res.data) {
-                throw new Error('No se recibió respuesta del servidor');
+            try {
+                res = await api.post('/sales', {
+                    items: itemsForBackend,
+                    total: total,
+                    paymentMethod: paymentMethod,
+                    amountReceived: paymentData.amountReceived,
+                    change: paymentData.change,
+                    inventoryId: currentInventory,
+                    cashAmount: paymentData.cashAmount,
+                    transferAmount: paymentData.transferAmount
+                }, { timeout: 3500 });
+            } catch (networkError) {
+                console.warn('[POS] Sin conexión al servidor, guardando venta localmente (Offline)...');
+                const offlineRecord = await savePendingSale({
+                    items: itemsForBackend,
+                    total: total,
+                    payment_method: paymentMethod,
+                    amount_received: paymentData.amountReceived,
+                    change: paymentData.change,
+                    inventory_id: currentInventory,
+                    cash_amount: paymentData.cashAmount,
+                    transfer_amount: paymentData.transferAmount,
+                    created_at: new Date().toISOString()
+                });
+                isOfflineRecorded = true;
+                localSaleId = offlineRecord.local_id;
             }
 
-            if (res.data.success) {
-                // Guardar la venta con sus items para poder editarla después
-                // Preservar product_id para futuras ediciones
+            if (isOfflineRecorded || (res && res.data && res.data.success)) {
+                const saleIdToUse = isOfflineRecorded ? localSaleId : res.data.saleId;
                 const completedSale = {
-                    id: res.data.saleId,
+                    id: saleIdToUse,
+                    is_offline: isOfflineRecorded,
                     items: cart.map(item => ({
                         id: item.product_id || item.id,
                         product_id: item.product_id || item.id,
@@ -943,13 +1023,24 @@ export default function POSLayout() {
                 setRecentSales(prev => [completedSale, ...prev]);
                 clearCart();
                 setShowPayment(false);
+
+                if (isOfflineRecorded) {
+                    setAlertModal({
+                        isOpen: true,
+                        title: '⚡ Venta Guardada Offline',
+                        message: 'La venta se registró localmente en este dispositivo. Podrás sincronizarla con el servidor o por código QR desde el botón Sincronizar.',
+                        type: 'info'
+                    });
+                }
+            } else {
+                throw new Error('No se pudo procesar la venta');
             }
         } catch (e) {
             console.error('Error al cobrar:', e);
             setAlertModal({
                 isOpen: true,
                 title: 'Error al cobrar',
-                message: e.response?.data?.error || "Error al cobrar",
+                message: e.response?.data?.error || e.message || "Error al cobrar",
                 type: 'danger'
             });
         }
@@ -1199,28 +1290,38 @@ export default function POSLayout() {
                                                     <Package2 className="w-5 h-5 text-cyan-400" />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="font-semibold text-foreground truncate group-hover:text-cyan-300 transition-colors">
+                                                    <div className="font-semibold text-foreground text-sm truncate group-hover:text-cyan-400 transition-colors">
                                                         {product.name}
                                                     </div>
-                                                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-                                                        <span className={stock < 5 ? "text-rose-400 font-medium" : "text-emerald-400 font-medium"}>
-                                                            Stock: {stock} unidades
+                                                    <div className="text-xs text-muted-foreground flex items-center gap-2">
+                                                        <span>{product.code || 'S/C'}</span>
+                                                        <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
+                                                        <span className={stock <= 0 ? "text-amber-400 font-medium" : "text-emerald-400 font-medium"}>
+                                                            Stock: {stock} {stock <= 0 && '(Venta contingencia)'}
                                                         </span>
                                                     </div>
                                                 </div>
                                                 <div className="text-right shrink-0">
-                                                    <div className="font-bold text-emerald-400 font-mono text-lg">
-                                                        ${product.sale_price_manual}
+                                                    <div className="font-bold text-foreground text-sm font-mono">
+                                                        ${product.sale_price_manual?.toFixed(2) || '0.00'}
                                                     </div>
-                                                </div>
-                                                <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all border border-cyan-500/40 shrink-0">
-                                                    <Plus className="w-5 h-5 text-cyan-400" />
+                                                    <div className="text-[10px] text-muted-foreground">MN</div>
                                                 </div>
                                             </motion.div>
                                         );
                                     }}
                                 />
                             </div>
+
+                            {/* Botón de Venta Rápida / Comodín */}
+                            <button
+                                onClick={() => setShowQuickSaleModal(true)}
+                                className="h-10 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-medium text-xs flex items-center gap-1.5 transition-all whitespace-nowrap shadow-sm"
+                                title="Venta rápida manual / comodín sin catálogo"
+                            >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Venta Rápida</span>
+                            </button>
                         </div>
 
                         {/* Cart List Premium - Hidden on mobile when viewing tickets */}
@@ -1312,7 +1413,7 @@ export default function POSLayout() {
                         </div>
 
                         {/* Mobile View Tabs - Only visible on mobile */}
-                        <div className="lg:hidden h-10 flex-none bg-card/50 border-t border-border/50 flex">
+                        <div className="lg:hidden fixed bottom-[72px] left-0 right-0 z-50 h-11 flex-none bg-card/95 backdrop-blur-xl border-y border-border/50 flex shadow-[0_-6px_20px_rgba(0,0,0,0.25)]">
                             <button
                                 onClick={() => setMobileView('cart')}
                                 className={cn(
@@ -1391,7 +1492,7 @@ export default function POSLayout() {
                         <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">
                             <div className="flex items-center gap-2">
                                 <History className="w-4 h-4 text-muted-foreground" />
-                                <span className="text-sm font-semibold text-muted-foreground">Tickets Recientes</span>
+                                <span className="text-sm font-semibold text-muted-foreground">Tickets y ventas del turno</span>
                             </div>
                             <button
                                 onClick={fetchMetrics}
@@ -1517,6 +1618,13 @@ export default function POSLayout() {
                                             <div className="font-bold font-mono text-foreground">${sale.total?.toFixed(2)}</div>
                                         </div>
                                         <div className="flex gap-2 mt-2">
+                                            <button
+                                                onClick={() => handleGenerateSaleQR(sale)}
+                                                className="px-2.5 py-1.5 rounded-lg bg-pink-500/20 text-pink-400 text-xs font-semibold hover:bg-pink-500/30 transition-all flex items-center justify-center gap-1"
+                                                title="Generar QR de esta venta para sincronizar al Admin"
+                                            >
+                                                <QrCode className="w-3 h-3" /> QR
+                                            </button>
                                             <button
                                                 onClick={() => handleEditSale(sale)}
                                                 className="flex-1 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 text-xs font-semibold hover:bg-cyan-500/30 transition-all flex items-center justify-center gap-1"
@@ -1683,13 +1791,13 @@ export default function POSLayout() {
                                             <Save className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <h3 className="font-bold text-foreground text-lg">Guardar Ticket</h3>
-                                            <p className="text-xs text-muted-foreground">Ponle un nombre o referencia para identificarlo</p>
+                                            <h3 className="font-bold text-foreground text-lg">{editingSavedSale ? 'Actualizar Ticket' : 'Guardar Ticket'}</h3>
+                                            <p className="text-xs text-muted-foreground">{editingSavedSale ? 'Conservá el nombre o cambialo si hace falta' : 'Ponle un nombre o referencia para identificarlo'}</p>
                                         </div>
                                     </div>
                                     <button
-                                        onClick={() => setShowSaveTicketModal(false)}
-                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                        onClick={() => { setShowSaveTicketModal(false); setEditingSavedSale(null); setTicketCustomName(''); }}
+                                                                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                                     >
                                         <X className="w-4 h-4" />
                                     </button>
@@ -1727,8 +1835,8 @@ export default function POSLayout() {
                                     <div className="flex items-center justify-end gap-2 pt-2">
                                         <button
                                             type="button"
-                                            onClick={() => setShowSaveTicketModal(false)}
-                                            className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+                                            onClick={() => { setShowSaveTicketModal(false); setEditingSavedSale(null); setTicketCustomName(''); }}
+                                                                                        className="px-4 py-2 rounded-xl text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
                                         >
                                             Cancelar
                                         </button>
@@ -1818,6 +1926,93 @@ export default function POSLayout() {
                         message={confirmModal.message}
                         type={confirmModal.type}
                     />
+
+                    {/* Modal Generador de QR para la Venta/Cierre */}
+                    {qrModalOpen && qrPayload && (
+                        <QRGeneratorModal
+                            isOpen={qrModalOpen}
+                            onClose={() => setQrModalOpen(false)}
+                            payload={qrPayload}
+                            title="Código QR de Venta / Sincronización"
+                            type="SALE"
+                        />
+                    )}
+
+                    {/* Modal de Venta Rápida / Contingencia */}
+                    {showQuickSaleModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+                            <form onSubmit={handleAddQuickSale} className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-amber-400 font-bold">
+                                        <Sparkles className="w-5 h-5" />
+                                        <span>Venta Rápida / Contingencia</span>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setShowQuickSaleModal(false)}
+                                        className="text-slate-400 hover:text-white"
+                                    >
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                    Agregá un producto de contingencia o precio libre al carrito de inmediato.
+                                </p>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs text-slate-300 font-medium mb-1 block">Descripción (opcional):</label>
+                                        <input
+                                            type="text"
+                                            value={quickSaleData.name}
+                                            onChange={(e) => setQuickSaleData({ ...quickSaleData, name: e.target.value })}
+                                            placeholder="Ej. Bolso de playa, Accesorio, etc."
+                                            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:border-amber-500 outline-none"
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-xs text-slate-300 font-medium mb-1 block">Precio ($ MN): *</label>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                required
+                                                autoFocus
+                                                value={quickSaleData.price}
+                                                onChange={(e) => setQuickSaleData({ ...quickSaleData, price: e.target.value })}
+                                                placeholder="0.00"
+                                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm font-mono focus:border-amber-500 outline-none font-bold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs text-slate-300 font-medium mb-1 block">Cantidad:</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={quickSaleData.quantity}
+                                                onChange={(e) => setQuickSaleData({ ...quickSaleData, quantity: e.target.value })}
+                                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm font-mono focus:border-amber-500 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowQuickSaleModal(false)}
+                                        className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-black font-bold text-sm transition-all shadow-lg shadow-amber-500/20"
+                                    >
+                                        Agregar al Carrito
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
                 </AnimatePresence>
             </div>
         </SessionGuard>

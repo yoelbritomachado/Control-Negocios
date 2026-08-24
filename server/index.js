@@ -1768,16 +1768,147 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
                 refreshNexusInventoryMetrics(inventoryId || 'mch1');
 
                 res.json({
-            success: true,
-            saleId: newSaleId,
-            items: saleItems
-        });
+                    success: true,
+                    saleId: newSaleId,
+                    items: saleItems
+                });
 
-    } catch (e) {
-        console.error("Sale Error:", e);
-        res.status(500).json({ error: e.message });
-    }
-});
+                } catch (e) {
+                console.error("Sale Error:", e);
+                res.status(500).json({ error: e.message });
+                }
+                });
+
+                // Importar / Conciliar Venta o Cierre desde QR Offline
+                app.post('/api/sales/qr-import', authenticate, (req, res) => {
+                try {
+                const { qrData, action } = req.body; // action: 'check' | 'apply'
+                if (!qrData || (!qrData.id && !qrData.code && !qrData.shift_id)) {
+                    return res.status(400).json({ error: 'Datos de QR de venta/cierre incompletos' });
+                }
+
+                const saleCode = qrData.code || `VTA-${qrData.id}`;
+                let existingSale = null;
+
+                if (qrData.id && (typeof qrData.id === 'number' || /^\d+$/.test(qrData.id))) {
+                    existingSale = db.prepare('SELECT * FROM sales WHERE id = ?').get(qrData.id);
+                }
+                if (!existingSale && saleCode) {
+                    existingSale = db.prepare("SELECT * FROM sales WHERE notes LIKE ?").get(`%[QR_CODE:${saleCode}]%`);
+                }
+
+                if (action === 'check') {
+                    if (!existingSale) {
+                        return res.json({
+                            exists: false,
+                            isModified: false,
+                            difference: 0,
+                            message: 'Venta offline nueva lista para registrar'
+                        });
+                    }
+
+                    const currentTotal = Number(existingSale.total || 0);
+                    const newTotal = Number(qrData.total || 0);
+                    const difference = Math.round((newTotal - currentTotal) * 100) / 100;
+                    const isModified = difference !== 0;
+
+                    return res.json({
+                        exists: true,
+                        saleId: existingSale.id,
+                        currentTotal,
+                        newTotal,
+                        difference,
+                        isModified,
+                        message: isModified
+                            ? (difference > 0 
+                                ? `Esta venta ya existía ($${currentTotal}) y aumentó a $${newTotal}. Hay una diferencia de $${difference} a cobrar físicamente.`
+                                : `Esta venta ya existía ($${currentTotal}) y disminuyó a $${newTotal}. Diferencia: $${difference}.`)
+                            : 'Esta venta ya fue registrada y cobrada previamente sin modificaciones.'
+                    });
+                }
+
+                // Si action === 'apply'
+                const transaction = db.transaction(() => {
+                    let targetSaleId = existingSale ? existingSale.id : null;
+                    const inv = qrData.inv || 'mch1';
+
+                    if (existingSale) {
+                        // Actualizar venta existente
+                        db.prepare(`
+                            UPDATE sales 
+                            SET total = ?, payment_method = ?, cash_amount = ?, transfer_amount = ?, notes = ?
+                            WHERE id = ?
+                        `).run(
+                            Number(qrData.total || 0),
+                            qrData.method || 'cash',
+                            Number(qrData.cash_paid || 0),
+                            Number(qrData.trans_paid || 0),
+                            (qrData.notes || '') + ` [QR_CODE:${saleCode}]`,
+                            targetSaleId
+                        );
+
+                        // Revertir y recalcular stock si hay items
+                        if (Array.isArray(qrData.items) && qrData.items.length > 0) {
+                            const oldItems = db.prepare('SELECT product_id, quantity FROM sale_items WHERE sale_id = ?').all(targetSaleId);
+                            for (const old of oldItems) {
+                                db.prepare('UPDATE product_inventory SET quantity = quantity + ? WHERE product_id = ? AND inventory_id = ?').run(old.quantity, old.product_id, inv);
+                            }
+
+                            db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(targetSaleId);
+                            const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, quantity, price, cost) VALUES (?, ?, ?, ?, ?)');
+
+                            for (const it of qrData.items) {
+                                const pid = it.pid || it.id;
+                                const qty = Number(it.qty || it.quantity || 0);
+                                const price = Number(it.price || it.unit_price || 0);
+                                insertItem.run(targetSaleId, pid, qty, price, 0);
+
+                                db.prepare('UPDATE product_inventory SET quantity = quantity - ? WHERE product_id = ? AND inventory_id = ?').run(qty, pid, inv);
+                            }
+                        }
+                    } else {
+                        // Crear venta nueva
+                        const resSale = db.prepare(`
+                            INSERT INTO sales (total, items_count, payment_method, cash_amount, transfer_amount, date, user_id, inventory_id, notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `).run(
+                            Number(qrData.total || 0),
+                            qrData.items?.length || 1,
+                            qrData.method || 'cash',
+                            Number(qrData.cash_paid || 0),
+                            Number(qrData.trans_paid || 0),
+                            qrData.date || new Date().toISOString(),
+                            req.user.id,
+                            inv,
+                            (qrData.notes || '') + ` [QR_CODE:${saleCode}]`
+                        );
+                        targetSaleId = resSale.lastInsertRowid;
+
+                        if (Array.isArray(qrData.items)) {
+                            const insertItem = db.prepare('INSERT INTO sale_items (sale_id, product_id, quantity, price, cost) VALUES (?, ?, ?, ?, ?)');
+                            for (const it of qrData.items) {
+                                const pid = it.pid || it.id;
+                                const qty = Number(it.qty || it.quantity || 0);
+                                const price = Number(it.price || it.unit_price || 0);
+                                if (typeof pid === 'number') {
+                                    insertItem.run(targetSaleId, pid, qty, price, 0);
+                                    db.prepare('UPDATE product_inventory SET quantity = quantity - ? WHERE product_id = ? AND inventory_id = ?').run(qty, pid, inv);
+                                }
+                            }
+                        }
+                    }
+
+                    refreshNexusInventoryMetrics(inv);
+                    return targetSaleId;
+                });
+
+                const finalId = transaction();
+                res.json({ success: true, saleId: finalId, message: 'Venta sincronizada y asentada contablemente.' });
+                } catch (e) {
+                console.error('Error en /api/sales/qr-import:', e);
+                res.status(500).json({ error: e.message });
+                }
+                });
 
 // --- SESSION MANAGEMENT ---
 
@@ -2860,6 +2991,11 @@ try {
         db.exec("ALTER TABLE users ADD COLUMN dni_number TEXT DEFAULT NULL");
     }
 
+    if (!columns.includes('inventory_id')) {
+        console.log("Migrating: Adding inventory_id to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN inventory_id TEXT DEFAULT 'alm'");
+    }
+
     // Set Admin role
     const updatedInfo = db.prepare("PRAGMA table_info(users)").all();
     const updatedCols = updatedInfo.map(c => c.name);
@@ -3487,21 +3623,18 @@ app.post('/api/transfers', authenticate, (req, res) => {
             for (const item of items) {
                 insertItem.run(transferId, item.product_id, item.quantity);
                 
-                // Deduct stock from source inventory
-                const currentStock = db.prepare(`
-                    SELECT quantity FROM product_inventory 
-                    WHERE product_id = ? AND inventory_id = ?
-                `).get(item.product_id, source_inventory);
+                // Asegurar que exista la fila en product_inventory para el origen
+                db.prepare(`
+                    INSERT OR IGNORE INTO product_inventory (product_id, inventory_id, quantity)
+                    VALUES (?, ?, 0)
+                `).run(item.product_id, source_inventory);
                 
-                if (currentStock && currentStock.quantity >= item.quantity) {
-                    db.prepare(`
-                        UPDATE product_inventory 
-                        SET quantity = quantity - ? 
-                        WHERE product_id = ? AND inventory_id = ?
-                    `).run(item.quantity, item.product_id, source_inventory);
-                } else {
-                    throw new Error(`Stock insuficiente para el producto ${item.product_id}`);
-                }
+                // Deduct stock from source inventory (permite contingencia si se traslada mercadería recién llegada)
+                db.prepare(`
+                    UPDATE product_inventory 
+                    SET quantity = quantity - ? 
+                    WHERE product_id = ? AND inventory_id = ?
+                `).run(item.quantity, item.product_id, source_inventory);
             }
             
             return transferId;
@@ -3531,21 +3664,25 @@ app.post('/api/transfers', authenticate, (req, res) => {
         
         // 2. If target is a Point of Sale, notify sellers there
         if (target_inventory !== 'alm') {
-            const sellers = db.prepare(`
-                SELECT id FROM users 
-                WHERE role = 'seller' AND inventory_id = ?
-            `).all(target_inventory);
-            
-            for (const seller of sellers) {
-                db.prepare(`
-                    INSERT INTO notifications (user_id, type, title, message, data)
-                    VALUES (?, 'transfer_incoming', ?, ?, ?)
-                `).run(
-                    seller.id,
-                    'Traslado entrante',
-                    `Se ha enviado mercancía desde ${source_inventory} hacia tu punto de venta`,
-                    JSON.stringify({ transfer_id: transferId })
-                );
+            try {
+                const sellers = db.prepare(`
+                    SELECT id FROM users 
+                    WHERE role = 'seller' AND inventory_id = ?
+                `).all(target_inventory);
+                
+                for (const seller of sellers) {
+                    db.prepare(`
+                        INSERT INTO notifications (user_id, type, title, message, data)
+                        VALUES (?, 'transfer_incoming', ?, ?, ?)
+                    `).run(
+                        seller.id,
+                        'Traslado entrante',
+                        `Se ha enviado mercancía desde ${source_inventory} hacia tu punto de venta`,
+                        JSON.stringify({ transfer_id: transferId })
+                    );
+                }
+            } catch (notifyErr) {
+                console.warn('[Notifications] Error notificando vendedores:', notifyErr.message);
             }
         }
         
@@ -4072,6 +4209,133 @@ app.post('/api/transfers/:id/reject', authenticate, (req, res) => {
         
         res.json({ success: true });
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Importar / Procesar Traslado desde QR Offline
+app.post('/api/transfers/qr-import', authenticate, (req, res) => {
+    try {
+        const { qrData, action } = req.body; // action: 'check' | 'apply'
+        if (!qrData || !qrData.id || !qrData.items) {
+            return res.status(400).json({ error: 'Datos de QR de traslado incompletos' });
+        }
+
+        const rawId = qrData.id;
+        // Si el id es numérico o empieza con TRF-
+        let existingTransfer = null;
+        if (typeof rawId === 'number' || /^\d+$/.test(rawId)) {
+            existingTransfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(rawId);
+        } else {
+            // Buscar en notas si tiene referencia previa al ID de QR
+            existingTransfer = db.prepare("SELECT * FROM transfers WHERE notes LIKE ?").get(`%[QR_REF:${rawId}]%`);
+        }
+
+        if (action === 'check') {
+            if (!existingTransfer) {
+                return res.json({
+                    exists: false,
+                    isModified: false,
+                    message: 'Traslado nuevo listo para recibir'
+                });
+            }
+
+            const existingItems = db.prepare('SELECT product_id, quantity FROM transfer_items WHERE transfer_id = ?').all(existingTransfer.id);
+            const currentMap = new Map(existingItems.map(i => [i.product_id, i.quantity]));
+            
+            let isModified = false;
+            if (qrData.items.length !== existingItems.length) {
+                isModified = true;
+            } else {
+                for (const item of qrData.items) {
+                    const pid = item.pid || item.product_id;
+                    const qty = Number(item.qty || item.quantity || 0);
+                    if (currentMap.get(pid) !== qty) {
+                        isModified = true;
+                        break;
+                    }
+                }
+            }
+
+            return res.json({
+                exists: true,
+                transferId: existingTransfer.id,
+                status: existingTransfer.status,
+                isModified,
+                message: isModified 
+                    ? 'El traslado ya existe pero contiene modificaciones en productos o cantidades.'
+                    : 'Este traslado ya fue registrado y procesado anteriormente.'
+            });
+        }
+
+        // Si action === 'apply'
+        const transaction = db.transaction(() => {
+            let targetTransferId = existingTransfer ? existingTransfer.id : null;
+
+            if (existingTransfer) {
+                // Actualizar o reajustar traslado existente
+                db.prepare(`
+                    UPDATE transfers 
+                    SET target_inventory = ?, notes = ?, status = 'received', received_at = datetime('now'), received_by = ?
+                    WHERE id = ?
+                `).run(qrData.tgt || existingTransfer.target_inventory, (qrData.notes || '') + ` [QR_REF:${rawId}]`, req.user.id, targetTransferId);
+
+                // Reemplazar items
+                db.prepare('DELETE FROM transfer_items WHERE transfer_id = ?').run(targetTransferId);
+                const insertItem = db.prepare('INSERT INTO transfer_items (transfer_id, product_id, quantity) VALUES (?, ?, ?)');
+
+                for (const item of qrData.items) {
+                    const pid = item.pid || item.product_id;
+                    const qty = Number(item.qty || item.quantity || 0);
+                    insertItem.run(targetTransferId, pid, qty);
+
+                    // Asegurar stock en destino
+                    const exists = db.prepare('SELECT 1 FROM product_inventory WHERE product_id = ? AND inventory_id = ?').get(pid, qrData.tgt || existingTransfer.target_inventory);
+                    if (exists) {
+                        db.prepare('UPDATE product_inventory SET quantity = quantity + ? WHERE product_id = ? AND inventory_id = ?').run(qty, pid, qrData.tgt || existingTransfer.target_inventory);
+                    } else {
+                        db.prepare('INSERT INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, ?)').run(pid, qrData.tgt || existingTransfer.target_inventory, qty);
+                    }
+                }
+            } else {
+                // Crear y recibir directamente
+                const resTrans = db.prepare(`
+                    INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes, received_at, received_by)
+                    VALUES (?, ?, ?, 'received', ?, datetime('now'), ?)
+                `).run(
+                    qrData.src || 'alm',
+                    qrData.tgt || 'mch1',
+                    req.user.id,
+                    (qrData.notes || '') + ` [QR_REF:${rawId}]`,
+                    req.user.id
+                );
+                targetTransferId = resTrans.lastInsertRowid;
+
+                const insertItem = db.prepare('INSERT INTO transfer_items (transfer_id, product_id, quantity) VALUES (?, ?, ?)');
+                for (const item of qrData.items) {
+                    const pid = item.pid || item.product_id;
+                    const qty = Number(item.qty || item.quantity || 0);
+                    insertItem.run(targetTransferId, pid, qty);
+
+                    const exists = db.prepare('SELECT 1 FROM product_inventory WHERE product_id = ? AND inventory_id = ?').get(pid, qrData.tgt || 'mch1');
+                    if (exists) {
+                        db.prepare('UPDATE product_inventory SET quantity = quantity + ? WHERE product_id = ? AND inventory_id = ?').run(qty, pid, qrData.tgt || 'mch1');
+                    } else {
+                        db.prepare('INSERT INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, ?)').run(pid, qrData.tgt || 'mch1', qty);
+                    }
+                }
+            }
+
+            if (qrData.tgt) refreshNexusInventoryMetrics(qrData.tgt);
+            if (qrData.src) refreshNexusInventoryMetrics(qrData.src);
+
+            return targetTransferId;
+        });
+
+        const finalId = transaction();
+        res.json({ success: true, transferId: finalId, message: 'Traslado aplicado y stock actualizado con éxito.' });
+    } catch (e) {
+        console.error('Error en /api/transfers/qr-import:', e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -5633,6 +5897,47 @@ app.delete('/api/products/:id', authenticate, requireEditor, (req, res) => {
     }
 });
 
+// 3.7 Bulk Delete Products
+app.post('/api/products/bulk-delete', authenticate, requireEditor, (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'Lista de IDs no válida o vacía' });
+        }
+
+        const validIds = ids.map(Number).filter(Number.isInteger);
+        if (validIds.length === 0) {
+            return res.status(400).json({ error: 'IDs inválidos' });
+        }
+
+        const placeholders = validIds.map(() => '?').join(',');
+
+        // 1. Delete image files
+        try {
+            const images = db.prepare(`SELECT url FROM product_images WHERE product_id IN (${placeholders})`).all(...validIds);
+            images.forEach(img => {
+                const filename = path.basename(img.url);
+                const filePath = path.join(__dirname, 'uploads', filename);
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            });
+            db.prepare(`DELETE FROM product_images WHERE product_id IN (${placeholders})`).run(...validIds);
+        } catch (e) {
+            console.error('Error deleting product images in bulk:', e);
+        }
+
+        // 2. Delete inventory records and products
+        db.prepare(`DELETE FROM product_inventory WHERE product_id IN (${placeholders})`).run(...validIds);
+        const result = db.prepare(`DELETE FROM products WHERE id IN (${placeholders})`).run(...validIds);
+
+        res.json({ success: true, deletedCount: result.changes });
+    } catch (e) {
+        logError("POST /api/products/bulk-delete", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 4. Update Stock (Move/Set)
 app.post('/api/inventory/adjustment', authenticate, requireEditor, (req, res) => {
     try {
@@ -6545,18 +6850,17 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Serve static frontend ONLY in production (Railway/Production)
-// In local development, frontend runs separately on Vite (localhost:5173)
-const isProduction = process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT === 'production';
+// Serve static frontend in both Production and Local Network mode
+// Enables phones on the local LAN/WiFi to load the pre-built PWA bundle directly from Node server
 const clientDistPath = path.join(__dirname, '../client/dist');
 
-if (isProduction && fs.existsSync(clientDistPath)) {
-    console.log('[Server] Production mode - Serving static frontend from:', clientDistPath);
+if (fs.existsSync(clientDistPath)) {
+    console.log('[Server] Serving static PWA frontend from:', clientDistPath);
     app.use(express.static(clientDistPath));
     
     // SPA fallback - serve index.html for all non-API routes
     app.use((req, res, next) => {
-        if (req.path.startsWith('/api')) {
+        if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) {
             return next();
         }
         // Check if file exists in dist, serve it directly
@@ -6568,17 +6872,13 @@ if (isProduction && fs.existsSync(clientDistPath)) {
         res.sendFile(path.join(clientDistPath, 'index.html'));
     });
 } else {
-    // Development mode - API only, frontend runs separately on Vite
-    console.log('[Server] Development mode - Running in API-only mode');
-    console.log('[Server] Frontend should run on: http://localhost:5173');
+    // Fallback if dist doesn't exist
+    console.log('[Server] Running in API-only mode (build dist not found)');
     app.get('/', (req, res) => {
         res.json({
-            message: 'Miss Chulerías API Server (Development Mode)',
+            message: 'Miss Chulerías API Server',
             status: 'running',
-            mode: 'API-only',
-            frontend: 'http://localhost:5173',
-            documentation: '/api/health',
-            note: 'Frontend runs separately. Start with: npm run dev (in client folder)'
+            documentation: '/api/health'
         });
     });
 }

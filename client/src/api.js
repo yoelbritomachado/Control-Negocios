@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { saveProductsLocal, getProductsLocal } from './lib/localDB';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -57,9 +58,26 @@ export const fetchInventories = async () => {
 
 // --- PRODUCTS ---
 export const fetchProducts = async (search = '') => {
-  const res = await api.get(`/products?search=${encodeURIComponent(search)}`);
-  return res.data;
-  // Retorna array de productos con campo 'inventory' (mapa de stocks) y 'total_quantity'
+  try {
+    const res = await api.get(`/products?search=${encodeURIComponent(search)}`, { timeout: 3500 });
+    const products = res.data;
+    // Si la búsqueda vino vacía o completa, persistir catálogo local en segundo plano
+    if (!search && Array.isArray(products) && products.length > 0) {
+      saveProductsLocal(products).catch(() => {});
+    }
+    return products;
+  } catch (error) {
+    console.warn('[API] Servidor no disponible, cargando productos desde almacenamiento local (Offline)...');
+    try {
+      const localProducts = await getProductsLocal(search);
+      if (localProducts && localProducts.length > 0) {
+        return localProducts;
+      }
+    } catch (dbErr) {
+      console.error('[API] Error leyendo IndexedDB local:', dbErr);
+    }
+    throw error;
+  }
 };
 
 export const createProduct = async (formData) => {
@@ -113,6 +131,11 @@ export const updateProduct = async (id, formData) => {
 
 export const deleteProduct = async (id) => {
   await api.delete(`/products/${id}`);
+};
+
+export const deleteProductsBulk = async (ids) => {
+  const res = await api.post('/products/bulk-delete', { ids });
+  return res.data;
 };
 
 export const restoreBackup = async (backupData) => {

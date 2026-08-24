@@ -101,12 +101,14 @@ const [editingSession, setEditingSession] = useState(() => {
         localStorage.setItem('mch_inventory', currentInventory);
     }, [currentInventory]);
 
-    const addToCart = (product, quantity = 1) => {
+    const addToCart = (product, quantity = 1, allowNegativeStock = true) => {
         // Validar stock en el inventario activo antes de agregar
-        const stock = product.inventory?.[currentInventory] || 0;
+        const stock = product.inventory?.[currentInventory] ?? 0;
         const existing = cart.find(item => item.id === product.id);
         const currentQtyInCart = existing ? existing.quantity : 0;
-        if (currentQtyInCart + quantity > stock) {
+        
+        // En Cuba / modo contingencia offline, si allowNegativeStock es false se bloquea, sino se permite vender en negativo
+        if (!allowNegativeStock && (currentQtyInCart + quantity > stock)) {
             return { error: 'stock_insuficiente', product, stock, requested: currentQtyInCart + quantity };
         }
         setCart(prev => {
@@ -120,7 +122,7 @@ const [editingSession, setEditingSession] = useState(() => {
             }
             return [...prev, { ...product, quantity }];
         });
-        return { success: true };
+        return { success: true, warning: stock <= 0 ? 'negative_stock' : null };
     };
 
     const removeFromCart = (productId) => {

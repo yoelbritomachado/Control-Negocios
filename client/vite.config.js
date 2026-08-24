@@ -16,7 +16,7 @@ export default defineConfig(async () => {
           name: 'Miss Chulerías POS',
           short_name: 'Miss Chulerías',
           description: 'Sistema de Inventario y Punto de Venta - Miss Chulerías',
-          theme_color: '#1e293b',
+          theme_color: '#ffffff',
           background_color: '#ffffff',
           display: 'standalone',
           orientation: 'portrait',
@@ -24,33 +24,42 @@ export default defineConfig(async () => {
           start_url: '/',
           icons: [
             {
-              src: '/icons/icon-192x192.svg',
+              src: '/icons/icon-192x192.png?v=2',
               sizes: '192x192',
-              type: 'image/svg+xml',
-              purpose: 'any maskable'
+              type: 'image/png',
+              purpose: 'any'
             },
             {
-              src: '/icons/icon-512x512.svg',
+              src: '/icons/icon-512x512.png?v=2',
               sizes: '512x512',
-              type: 'image/svg+xml',
-              purpose: 'any maskable'
+              type: 'image/png',
+              purpose: 'any'
             },
             {
-              src: '/icons/mask-icon.svg',
+              src: '/icons/icon-192x192.png?v=2',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable'
+            },
+            {
+              src: '/icons/icon-512x512.png?v=2',
               sizes: '512x512',
-              type: 'image/svg+xml',
+              type: 'image/png',
               purpose: 'maskable'
             }
           ]
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
           runtimeCaching: [
             {
               urlPattern: /^https?:\/\/localhost:(3002|5173)\/api\/.*/,
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'api-cache',
+                networkTimeoutSeconds: 3,
                 expiration: {
                   maxEntries: 100,
                   maxAgeSeconds: 24 * 60 * 60 // 24 horas
@@ -61,13 +70,24 @@ export default defineConfig(async () => {
               }
             },
             {
-              urlPattern: /\.(?:png|jpg|jpeg|svg|gif)$/,
+              urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
               handler: 'CacheFirst',
               options: {
                 cacheName: 'images-cache',
                 expiration: {
                   maxEntries: 200,
-                  maxAgeSeconds: 7 * 24 * 60 * 60 // 7 días
+                  maxAgeSeconds: 30 * 24 * 60 * 60 // 30 días
+                }
+              }
+            },
+            {
+              urlPattern: /\.(?:js|css|woff2?|ttf|eot)$/,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'static-resources',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 30 * 24 * 60 * 60
                 }
               }
             }
@@ -110,6 +130,7 @@ export default defineConfig(async () => {
     },
     build: {
       target: 'esnext',
+      sourcemap: false,
       rollupOptions: {
         external: ['wa-sqlite'],
         output: {

@@ -18,11 +18,14 @@ import {
     ChevronUp,
     Layers,
     Tag,
-    Image as ImageIcon
+    Image as ImageIcon,
+    QrCode,
+    Camera
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 import TransferReversalModal from '../components/TransferReversalModal';
+import QRScannerModal from '../components/QRScannerModal';
 import api from '../api';
 
 export default function HistoryPurchasesPage() {
@@ -34,6 +37,8 @@ export default function HistoryPurchasesPage() {
     const [dateFilter, setDateFilter] = useState('');
     const [selectedTransferForReversal, setSelectedTransferForReversal] = useState(null);
     const [expandedRowId, setExpandedRowId] = useState(null);
+    const [qrScannerOpen, setQrScannerOpen] = useState(false);
+    const [qrConfirmationModal, setQrConfirmationModal] = useState(null); // { type, checkResult, qrData }
 
     const toggleRow = (id) => {
         setExpandedRowId(prev => prev === id ? null : id);
@@ -64,6 +69,54 @@ export default function HistoryPurchasesPage() {
             fetchPurchases();
         } catch (err) {
             alert('Error al recibir traslado: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    // Procesar QR escaneado (Recepción de Traslado)
+    const handleScanTransferSuccess = async (qrData) => {
+        setQrScannerOpen(false);
+        try {
+            const checkRes = await api.post('/transfers/qr-import', {
+                qrData,
+                action: 'check'
+            });
+
+            const { exists, isModified, message } = checkRes.data;
+
+            if (exists && !isModified) {
+                // Caso: Ya existía y es exactamente igual
+                setQrConfirmationModal({
+                    type: 'ALREADY_EXISTS_IDENTICAL',
+                    message: `Este traslado ya fue recibido anteriormente y no tiene cambios.`,
+                    qrData
+                });
+            } else if (exists && isModified) {
+                // Caso: Ya existía pero fue modificado
+                setQrConfirmationModal({
+                    type: 'EXISTS_MODIFIED',
+                    message: `Este traslado ya existía en el sistema pero contiene modificaciones en sus productos o cantidades. ¿Desea actualizarlo e ingresar la diferencia de stock?`,
+                    qrData
+                });
+            } else {
+                // Caso: Traslado totalmente nuevo
+                applyTransferFromQR(qrData);
+            }
+        } catch (err) {
+            alert('Error al verificar código QR: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const applyTransferFromQR = async (qrData) => {
+        try {
+            const res = await api.post('/transfers/qr-import', {
+                qrData,
+                action: 'apply'
+            });
+            alert(res.data.message || 'Traslado recibido y stock actualizado exitosamente.');
+            setQrConfirmationModal(null);
+            fetchPurchases();
+        } catch (err) {
+            alert('Error al aplicar traslado: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -111,9 +164,19 @@ export default function HistoryPurchasesPage() {
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary">
-                    <Building2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">{currentInventory.toUpperCase()}</span>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setQrScannerOpen(true)}
+                        className="px-4 py-2 rounded-xl font-medium bg-gradient-to-r from-pink-500 to-purple-500 hover:from-pink-600 hover:to-purple-600 text-white shadow-lg shadow-pink-500/20 transition-all flex items-center gap-2 text-sm"
+                        title="Escanear QR de traslado desde el celular del administrador"
+                    >
+                        <Camera className="w-4 h-4" />
+                        Escanear Traslado QR
+                    </button>
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary">
+                        <Building2 className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">{currentInventory.toUpperCase()}</span>
+                    </div>
                 </div>
             </div>
 
@@ -423,6 +486,69 @@ export default function HistoryPurchasesPage() {
                         fetchPurchases();
                     }}
                 />
+            )}
+
+            {/* Escáner de QR de Traslados */}
+            <QRScannerModal
+                isOpen={qrScannerOpen}
+                onClose={() => setQrScannerOpen(false)}
+                onScanSuccess={handleScanTransferSuccess}
+                title="Escanear Traslado QR"
+                expectedType="TRF"
+            />
+
+            {/* Modal de Confirmación e Idempotencia QR */}
+            {qrConfirmationModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+                    <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className={cn(
+                                "p-3 rounded-xl",
+                                qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' 
+                                    ? "bg-cyan-500/20 text-cyan-400" 
+                                    : "bg-amber-500/20 text-amber-400"
+                            )}>
+                                <QrCode className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-white">
+                                    {qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' ? 'Traslado Ya Registrado' : 'Traslado Modificado'}
+                                </h3>
+                                <p className="text-xs text-slate-400">Verificación de Código QR</p>
+                            </div>
+                        </div>
+
+                        <p className="text-sm text-slate-300 leading-relaxed bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60">
+                            {qrConfirmationModal.message}
+                        </p>
+
+                        <div className="flex justify-end gap-3 pt-2">
+                            {qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' ? (
+                                <button
+                                    onClick={() => setQrConfirmationModal(null)}
+                                    className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white font-medium text-sm transition-colors"
+                                >
+                                    Entendido
+                                </button>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => setQrConfirmationModal(null)}
+                                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={() => applyTransferFromQR(qrConfirmationModal.qrData)}
+                                        className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                                    >
+                                        Actualizar Traslado
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

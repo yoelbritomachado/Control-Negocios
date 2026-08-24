@@ -2,15 +2,23 @@
  * Componente de prompt para instalar la PWA
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Smartphone } from 'lucide-react';
+import { Download, X, Smartphone, MoreVertical } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
 export function PWAInstallPrompt() {
-  const { isInstallable, isInstalled, promptInstall, dismissInstall } = usePWAInstall();
+  const { isInstallable, isInstalled, hasNativePrompt, promptInstall, dismissInstall } = usePWAInstall();
+  const [showManualGuide, setShowManualGuide] = useState(false);
 
   if (!isInstallable || isInstalled) return null;
+
+  const handleInstallClick = async () => {
+    const res = await promptInstall();
+    if (res?.manual) {
+      setShowManualGuide(true);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -22,7 +30,7 @@ export function PWAInstallPrompt() {
       >
         <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4">
           <div className="flex items-start gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center flex-shrink-0">
               <Smartphone className="w-6 h-6 text-white" />
             </div>
             
@@ -31,24 +39,31 @@ export function PWAInstallPrompt() {
                 Instalar Miss Chulerías
               </h3>
               <p className="text-sm text-slate-400 mt-1">
-                Instala la app para acceder más rápido y trabajar sin conexión a internet.
+                Instalá la app para abrir directo en pantalla completa y trabajar sin conexión.
               </p>
               
-              <div className="flex items-center gap-2 mt-3">
-                <button
-                  onClick={promptInstall}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors text-sm"
-                >
-                  <Download className="w-4 h-4" />
-                  Instalar
-                </button>
-                <button
-                  onClick={dismissInstall}
-                  className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm"
-                >
-                  Ahora no
-                </button>
-              </div>
+              {showManualGuide ? (
+                <div className="mt-3 p-2.5 bg-slate-800 rounded-xl text-xs text-slate-300 border border-slate-700">
+                  <p className="font-medium text-pink-400 mb-1">Para completar la instalación:</p>
+                  <p>Tocá los <strong>3 puntos (⋮)</strong> arriba a la derecha de Chrome y seleccioná <strong>"Instalar aplicación"</strong> o <strong>"Agregar a pantalla principal"</strong>.</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={handleInstallClick}
+                    className="flex items-center gap-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-lg font-medium transition-colors text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Instalar
+                  </button>
+                  <button
+                    onClick={dismissInstall}
+                    className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm"
+                  >
+                    Ahora no
+                  </button>
+                </div>
+              )}
             </div>
             
             <button

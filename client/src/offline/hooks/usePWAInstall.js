@@ -11,15 +11,21 @@ export function usePWAInstall() {
 
   useEffect(() => {
     // Verificar si ya está instalada
-    if (window.matchMedia('(display-mode: standalone)').matches) {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (isStandalone) {
       setIsInstalled(true);
+      return;
     }
 
-    // Escuchar el evento beforeinstallprompt
+    // Si no está en standalone, mostrar el prompt siempre en navegadores móviles/escritorio
+    const dismissed = sessionStorage.getItem('pwa_prompt_dismissed');
+    if (!dismissed) {
+      setIsInstallable(true);
+    }
+
+    // Escuchar el evento nativo beforeinstallprompt si el navegador lo dispara
     const handleBeforeInstallPrompt = (e) => {
-      // Prevenir que Chrome muestre el prompt automático
       e.preventDefault();
-      // Guardar el evento para usarlo después
       setDeferredPrompt(e);
       setIsInstallable(true);
     };
@@ -29,6 +35,7 @@ export function usePWAInstall() {
       setDeferredPrompt(null);
       setIsInstallable(false);
       setIsInstalled(true);
+      sessionStorage.removeItem('pwa_prompt_dismissed');
       console.log('[PWA] App instalada correctamente');
     };
 
@@ -42,34 +49,29 @@ export function usePWAInstall() {
   }, []);
 
   const promptInstall = useCallback(async () => {
-    if (!deferredPrompt) {
-      return { success: false, error: 'No hay prompt de instalación disponible' };
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        setIsInstallable(false);
+        return { success: true };
+      } else {
+        return { success: false, error: 'Instalación cancelada' };
+      }
     }
-
-    // Mostrar el prompt de instalación
-    deferredPrompt.prompt();
-
-    // Esperar la respuesta del usuario
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      console.log('[PWA] Usuario aceptó la instalación');
-      setDeferredPrompt(null);
-      setIsInstallable(false);
-      return { success: true };
-    } else {
-      console.log('[PWA] Usuario rechazó la instalación');
-      return { success: false, error: 'Instalación cancelada por el usuario' };
-    }
+    return { success: false, manual: true };
   }, [deferredPrompt]);
 
   const dismissInstall = useCallback(() => {
+    sessionStorage.setItem('pwa_prompt_dismissed', 'true');
     setIsInstallable(false);
   }, []);
 
   return {
     isInstallable,
     isInstalled,
+    hasNativePrompt: !!deferredPrompt,
     promptInstall,
     dismissInstall
   };

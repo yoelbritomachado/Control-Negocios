@@ -16,11 +16,15 @@ import {
     ShoppingBag,
     AlertCircle,
     RotateCcw,
-    Save
+    Save,
+    QrCode,
+    Camera
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartProvider';
+import QRScannerModal from '../components/QRScannerModal';
+import api from '../api';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -168,6 +172,8 @@ export default function HistorySalesPage() {
     const { currentInventory, cart, setCart, setSavedSales } = useCart();
     const [sales, setSales] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [qrScannerOpen, setQrScannerOpen] = useState(false);
+    const [qrConfirmationModal, setQrConfirmationModal] = useState(null); // { type, checkResult, qrData }
     const [searchQuery, setSearchQuery] = useState('');
     const [dateFilter, setDateFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
@@ -189,6 +195,55 @@ export default function HistorySalesPage() {
             setSales([]);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Conciliación de QR de Venta o Cierre desde el Dispositivo del Vendedor
+    const handleScanSaleSuccess = async (qrData) => {
+        setQrScannerOpen(false);
+        try {
+            const checkRes = await api.post('/sales/qr-import', {
+                qrData,
+                action: 'check'
+            });
+
+            const { exists, isModified, difference, currentTotal, newTotal, message } = checkRes.data;
+
+            if (exists && !isModified) {
+                setQrConfirmationModal({
+                    type: 'ALREADY_EXISTS_IDENTICAL',
+                    message: `Esta venta ya fue registrada y cobrada previamente sin ninguna modificación.`,
+                    qrData
+                });
+            } else if (exists && isModified) {
+                setQrConfirmationModal({
+                    type: 'EXISTS_MODIFIED',
+                    message,
+                    difference,
+                    currentTotal,
+                    newTotal,
+                    qrData
+                });
+            } else {
+                // Venta totalmente nueva
+                applySaleFromQR(qrData);
+            }
+        } catch (err) {
+            alert('Error al verificar código QR de venta: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const applySaleFromQR = async (qrData) => {
+        try {
+            const res = await api.post('/sales/qr-import', {
+                qrData,
+                action: 'apply'
+            });
+            alert(res.data.message || 'Venta sincronizada y asentada contablemente.');
+            setQrConfirmationModal(null);
+            fetchSales();
+        } catch (err) {
+            alert('Error al aplicar venta desde QR: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -309,13 +364,23 @@ export default function HistorySalesPage() {
                         </p>
                     </div>
                 </div>
-                <button
-                    onClick={() => navigate('/pos')}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-medium hover:shadow-lg hover:shadow-pink-500/25 transition-all active:scale-95"
-                >
-                    <ShoppingBag className="w-4 h-4" />
-                    Nueva Venta
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setQrScannerOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-medium hover:shadow-lg hover:shadow-cyan-500/25 transition-all active:scale-95 text-sm"
+                        title="Escanear QR de ventas o cierre del vendedor"
+                    >
+                        <Camera className="w-4 h-4" />
+                        Escanear Venta/Cierre QR
+                    </button>
+                    <button
+                        onClick={() => navigate('/pos')}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-pink-500 to-rose-500 text-white font-medium hover:shadow-lg hover:shadow-pink-500/25 transition-all active:scale-95 text-sm"
+                    >
+                        <ShoppingBag className="w-4 h-4" />
+                        Nueva Venta
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
@@ -581,6 +646,96 @@ export default function HistorySalesPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {/* Escáner de QR de Ventas/Cierres */}
+            <QRScannerModal
+                isOpen={qrScannerOpen}
+                onClose={() => setQrScannerOpen(false)}
+                onScanSuccess={handleScanSaleSuccess}
+                title="Escanear Venta / Cierre QR"
+                expectedType="SALE"
+            />
+
+            {/* Modal de Confirmación y Alerta Diferencial ($) */}
+            {qrConfirmationModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+                    <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className={cn(
+                                "p-3 rounded-xl",
+                                qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' 
+                                    ? "bg-cyan-500/20 text-cyan-400" 
+                                    : "bg-amber-500/20 text-amber-400"
+                            )}>
+                                <QrCode className="w-6 h-6" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-white">
+                                    {qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' ? 'Venta Ya Registrada' : 'Venta Modificada'}
+                                </h3>
+                                <p className="text-xs text-slate-400">Conciliación de Ventas QR</p>
+                            </div>
+                        </div>
+
+                        {qrConfirmationModal.difference > 0 && (
+                            <div className="p-4 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-sm space-y-2">
+                                <div className="flex items-center gap-2 font-bold text-amber-400">
+                                    <AlertCircle className="w-5 h-5" />
+                                    <span>¡DIFERENCIA A COBRAR EN EFECTIVO!</span>
+                                </div>
+                                <p>
+                                    La venta aumentó de <strong>${qrConfirmationModal.currentTotal}</strong> a <strong>${qrConfirmationModal.newTotal}</strong>.
+                                </p>
+                                <div className="text-base font-extrabold text-amber-200 bg-amber-500/20 py-1.5 px-3 rounded-lg text-center">
+                                    Cobrar al vendedor: +${qrConfirmationModal.difference.toFixed(2)}
+                                </div>
+                            </div>
+                        )}
+
+                        {qrConfirmationModal.difference < 0 && (
+                            <div className="p-4 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-300 text-sm space-y-2">
+                                <div className="flex items-center gap-2 font-bold text-blue-400">
+                                    <AlertCircle className="w-5 h-5" />
+                                    <span>Venta reducida</span>
+                                </div>
+                                <p>
+                                    La venta bajó de <strong>${qrConfirmationModal.currentTotal}</strong> a <strong>${qrConfirmationModal.newTotal}</strong> (Diferencia: ${Math.abs(qrConfirmationModal.difference).toFixed(2)}).
+                                </p>
+                            </div>
+                        )}
+
+                        <p className="text-sm text-slate-300 leading-relaxed bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60">
+                            {qrConfirmationModal.message}
+                        </p>
+
+                        <div className="flex justify-end gap-3 pt-2">
+                            {qrConfirmationModal.type === 'ALREADY_EXISTS_IDENTICAL' ? (
+                                <button
+                                    onClick={() => setQrConfirmationModal(null)}
+                                    className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white font-medium text-sm transition-colors"
+                                >
+                                    Entendido
+                                </button>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={() => setQrConfirmationModal(null)}
+                                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-colors"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={() => applySaleFromQR(qrConfirmationModal.qrData)}
+                                        className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                                    >
+                                        Asentar y Actualizar Venta
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

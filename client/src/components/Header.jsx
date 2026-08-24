@@ -25,7 +25,9 @@ import {
   Trash2,
   Database,
   Settings,
-  UserCheck
+  UserCheck,
+  RefreshCw,
+  Bot
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -34,6 +36,8 @@ import { useRole, ROLES } from '../hooks/useRole';
 import { useNotifications } from '../hooks/useNotifications';
 import { OfflineStatusBar, SyncButton } from '../offline';
 import ProfileModal from './ProfileModal';
+import UnifiedSyncModal from './UnifiedSyncModal';
+import MichuAssistantModal from './MichuAssistantModal';
 
 const pageTitles = {
   '/': { title: 'Dashboard', subtitle: 'Monitoreo activo de flujos de caja', icon: LayoutDashboard },
@@ -102,6 +106,8 @@ export function Header() {
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [assistantModalOpen, setAssistantModalOpen] = useState(false);
 
   const currentPage = pageTitles[location.pathname] || pageTitles['/'];
   const PageIcon = currentPage.icon;
@@ -163,8 +169,14 @@ export function Header() {
 
         {/* Action icons en móvil alineados a la derecha del header */}
         <div className="flex lg:hidden items-center gap-2">
-          {/* Offline Status */}
-          <OfflineStatusBar />
+          {/* Botón Sincronizar Móvil */}
+          <button
+            onClick={() => setSyncModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-md shadow-blue-600/20 active:scale-95 transition-all"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Sincronizar</span>
+          </button>
         </div>
       </div>
 
@@ -175,12 +187,28 @@ export function Header() {
           <OfflineStatusBar />
         </div>
         
-        {/* Sync Button (solo en móvil o para admin) */}
-        {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
-          <div className="hidden md:block">
-            <SyncButton className="text-sm py-1.5 px-3" />
-          </div>
-        )}
+        {/* Botón Asistente MichuSourcing */}
+        <motion.button
+          onClick={() => setAssistantModalOpen(true)}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/30 text-pink-300 text-xs font-semibold transition-all shadow-sm"
+          title="Asistente de Abastecimiento y Soporte"
+        >
+          <Bot className="w-4 h-4 text-pink-400" />
+          <span className="hidden sm:inline">MichuSourcing</span>
+        </motion.button>
+
+        {/* Sync Button Unificado (Desktop) */}
+        <div className="hidden md:block">
+          <button
+            onClick={() => setSyncModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs sm:text-sm font-semibold shadow-md shadow-blue-600/25 active:scale-95 transition-all"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Sincronizar</span>
+          </button>
+        </div>
         {/* Notifications - Solo para Admin/Dueno */}
         {(currentRole === ROLES.ADMIN.id || currentRole === ROLES.OWNER.id) && (
           <div className="relative">
@@ -415,6 +443,19 @@ export function Header() {
       <ProfileModal 
         isOpen={profileOpen} 
         onClose={() => setProfileOpen(false)} 
+      />
+
+      {/* Centro Unificado de Sincronización */}
+      <UnifiedSyncModal
+        isOpen={syncModalOpen}
+        onClose={() => setSyncModalOpen(false)}
+        isOnline={isOnline}
+      />
+
+      {/* Asistente MichuSourcing */}
+      <MichuAssistantModal
+        isOpen={assistantModalOpen}
+        onClose={() => setAssistantModalOpen(false)}
       />
     </header>
   );

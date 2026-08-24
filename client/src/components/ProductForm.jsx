@@ -659,6 +659,24 @@ const ProductForm = ({ isOpen, onClose, onSubmit, initialData, settings, isUnify
     e.preventDefault();
     if (isSubmitting) return;
 
+    // Alerta de confirmación para modificación manual si ya es un producto existente
+    if (initialData && !isUnifying) {
+      const origQty = initialData.quantity ?? initialData.total_quantity ?? 0;
+      const newQty = Number(formData.quantity) || 0;
+      const isQtyChanged = Number(origQty) !== Number(newQty);
+      const isPriceChanged = Number(initialData.sale_price_manual || 0) !== Number(formData.sale_price_manual || 0);
+
+      if (isQtyChanged || isPriceChanged) {
+        const msg = `⚠️ ATENCIÓN: Estás modificando manualmente los datos del producto:\n` +
+          (isQtyChanged ? `• Stock: ${origQty} ➔ ${newQty}\n` : '') +
+          (isPriceChanged ? `• Precio manual: ${initialData.sale_price_manual || 0} ➔ ${formData.sale_price_manual || 0}\n` : '') +
+          `\n¿Estás seguro de que deseas aplicar este cambio manual?`;
+        if (!window.confirm(msg)) {
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const data = new FormData();
