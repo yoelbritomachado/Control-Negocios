@@ -547,9 +547,11 @@ export default function POSLayout() {
 
     // Cargar fecha del servidor al montarse
     useEffect(() => {
-        api.get('/sessions/status').then(res => {
-            if (res.data.serverDate) setServerDate(res.data.serverDate);
-        }).catch(() => {});
+        if (navigator.onLine) {
+            api.get('/sessions/status', { timeout: 2000 }).then(res => {
+                if (res.data.serverDate) setServerDate(res.data.serverDate);
+            }).catch(() => {});
+        }
     }, []);
 
     // Mobile view state
@@ -1053,9 +1055,22 @@ export default function POSLayout() {
 
     const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash', totalPendingWage = 0) => {
         try {
+            localStorage.setItem('mch_offline_session_open', 'false');
+            
+            if (!navigator.onLine) {
+                setAlertModal({
+                    isOpen: true,
+                    title: 'Turno Finalizado (Offline)',
+                    message: 'El turno se ha cerrado localmente en este dispositivo. Cuando vuelvas a tener conexión se sincronizarán los registros.',
+                    type: 'success',
+                    onClose: () => window.location.reload()
+                });
+                return;
+            }
+
             // Usar endpoint diferente según el rol
             const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
-            const res = await api.post(endpoint, { declared_cash: cash, notes });
+            const res = await api.post(endpoint, { declared_cash: cash, notes }, { timeout: 3000 });
             setCloseSummary(res.data.summary);
             
             // Obtener salario acumulado de la respuesta o usar el pasado al modal
@@ -1197,16 +1212,35 @@ export default function POSLayout() {
     };
 
     const fetchMetricsDirect = async () => {
+        if (!navigator.onLine) {
+            setSessionMetrics({
+                isOpen: true,
+                salesCount: recentSales.length,
+                totalSales: recentSales.reduce((acc, s) => acc + (s.total || 0), 0),
+                totalExpenses: expenses.reduce((acc, e) => acc + (e.amount || 0), 0)
+            });
+            setShowClose(true);
+            return;
+        }
+
         try {
             // Use the new detailed metrics endpoint
-            const res = await api.get('/sessions/metrics');
+            const res = await api.get('/sessions/metrics', { timeout: 2000 });
             setSessionMetrics(res.data);
             setShowClose(true);
         } catch (e) {
             console.error('Error fetching metrics:', e);
             // Fallback to basic status endpoint
-            const res = await api.get('/sessions/status');
-            setSessionMetrics(res.data);
+            try {
+                const res = await api.get('/sessions/status', { timeout: 1500 });
+                setSessionMetrics(res.data);
+            } catch (_) {
+                setSessionMetrics({
+                    isOpen: true,
+                    salesCount: recentSales.length,
+                    totalSales: recentSales.reduce((acc, s) => acc + (s.total || 0), 0)
+                });
+            }
             setShowClose(true);
         }
     };

@@ -52,14 +52,51 @@ export const login = async (username, pin) => {
 
 // --- INVENTORIES (SEDES) ---
 export const fetchInventories = async () => {
-  const res = await api.get('/inventories');
-  return res.data;
+  if (!navigator.onLine) {
+    try {
+      const cached = localStorage.getItem('mch_cached_inventories');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return [
+      { id: 'alm', name: 'Almacén Central', is_default: 1 },
+      { id: 'mch1', name: 'MCH 1', is_default: 0 },
+      { id: 'mch2', name: 'MCH 2', is_default: 0 }
+    ];
+  }
+  try {
+    const res = await api.get('/inventories', { timeout: 2000 });
+    if (Array.isArray(res.data) && res.data.length > 0) {
+      localStorage.setItem('mch_cached_inventories', JSON.stringify(res.data));
+    }
+    return res.data;
+  } catch (err) {
+    try {
+      const cached = localStorage.getItem('mch_cached_inventories');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return [
+      { id: 'alm', name: 'Almacén Central', is_default: 1 },
+      { id: 'mch1', name: 'MCH 1', is_default: 0 },
+      { id: 'mch2', name: 'MCH 2', is_default: 0 }
+    ];
+  }
 };
 
 // --- PRODUCTS ---
 export const fetchProducts = async (search = '') => {
+  // Si estamos offline en el navegador, resolver directo desde IndexedDB sin esperar timeout de red
+  if (!navigator.onLine) {
+    try {
+      const localProducts = await getProductsLocal(search);
+      return localProducts || [];
+    } catch (dbErr) {
+      console.error('[API] Error leyendo IndexedDB local offline:', dbErr);
+      return [];
+    }
+  }
+
   try {
-    const res = await api.get(`/products?search=${encodeURIComponent(search)}`, { timeout: 3500 });
+    const res = await api.get(`/products?search=${encodeURIComponent(search)}`, { timeout: 2500 });
     const products = res.data;
     // Si la búsqueda vino vacía o completa, persistir catálogo local en segundo plano
     if (!search && Array.isArray(products) && products.length > 0) {
@@ -76,7 +113,7 @@ export const fetchProducts = async (search = '') => {
     } catch (dbErr) {
       console.error('[API] Error leyendo IndexedDB local:', dbErr);
     }
-    throw error;
+    return [];
   }
 };
 
@@ -106,8 +143,38 @@ export const fetchDashboardStats = async (params = {}) => {
 };
 
 export const fetchSettings = async () => {
-  const res = await api.get('/settings');
-  return res.data;
+  if (!navigator.onLine) {
+    try {
+      const cached = localStorage.getItem('mch_cached_settings');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return {
+      PRIMARY_CURRENCY: 'MXN',
+      RATE_USD_MN: 550,
+      RATE_MXN_USD: 19,
+      RATE_EUR_MN: 590,
+      MARGIN_MULTIPLIER: 3.5
+    };
+  }
+  try {
+    const res = await api.get('/settings', { timeout: 2000 });
+    if (res.data) {
+      localStorage.setItem('mch_cached_settings', JSON.stringify(res.data));
+    }
+    return res.data;
+  } catch (err) {
+    try {
+      const cached = localStorage.getItem('mch_cached_settings');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return {
+      PRIMARY_CURRENCY: 'MXN',
+      RATE_USD_MN: 550,
+      RATE_MXN_USD: 19,
+      RATE_EUR_MN: 590,
+      MARGIN_MULTIPLIER: 3.5
+    };
+  }
 };
 
 // --- INVENTORY CRUD ---

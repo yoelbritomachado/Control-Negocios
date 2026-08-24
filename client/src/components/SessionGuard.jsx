@@ -17,14 +17,23 @@ export default function SessionGuard({ children }) {
     }, []);
 
     const checkSession = async () => {
+        if (!navigator.onLine) {
+            // En modo offline, verificar si hay un estado de sesión local guardado
+            const localSession = localStorage.getItem('mch_offline_session_open');
+            setStatus(localSession === 'true');
+            setLoading(false);
+            return;
+        }
+
         try {
-            const res = await api.get('/sessions/status');
+            const res = await api.get('/sessions/status', { timeout: 2000 });
             setStatus(res.data.isOpen);
+            localStorage.setItem('mch_offline_session_open', res.data.isOpen ? 'true' : 'false');
         } catch (e) {
-            // Si hay error (401, 403, etc.), asumir que no hay sesión abierta
-            // pero NO redirigir - solo mostrar pantalla de iniciar turno
-            console.warn("Session check failed (expected without auth):", e.response?.status);
-            setStatus(false);
+            // Si hay error de red o timeout, consultar estado local
+            console.warn("Session check fallback to local offline mode:", e.message);
+            const localSession = localStorage.getItem('mch_offline_session_open');
+            setStatus(localSession === 'true');
         } finally {
             setLoading(false);
         }
@@ -36,8 +45,16 @@ export default function SessionGuard({ children }) {
         try {
             // Limpiar editing_session al abrir nueva sesión (no es edición, es venta nueva)
             localStorage.removeItem('editing_session');
-            await api.post('/sessions/open', { initial_cash: parseFloat(initialCash) || 0 });
-            await checkSession(); // Refresh status
+            localStorage.setItem('mch_offline_session_open', 'true');
+            
+            if (navigator.onLine) {
+                try {
+                    await api.post('/sessions/open', { initial_cash: parseFloat(initialCash) || 0 }, { timeout: 2500 });
+                } catch (netErr) {
+                    console.warn("No se pudo registrar apertura en el servidor (modo offline):", netErr.message);
+                }
+            }
+            setStatus(true);
         } catch (e) {
             alert(e.response?.data?.error || "Error al abrir sesión");
         } finally {

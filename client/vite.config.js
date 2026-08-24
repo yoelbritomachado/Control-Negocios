@@ -50,10 +50,24 @@ export default defineConfig(async () => {
           ]
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,webmanifest}'],
           navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
           runtimeCaching: [
+            {
+              urlPattern: /\.(?:html|js|css)$/,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'app-shell',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 30 * 24 * 60 * 60
+                }
+              }
+            },
             {
               urlPattern: /^https?:\/\/localhost:(3002|5173)\/api\/.*/,
               handler: 'NetworkFirst',
