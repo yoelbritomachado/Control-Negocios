@@ -9,17 +9,18 @@ import SearchDropdown from './SearchDropdown'; // Mantenido para compatibilidad
 import ConfirmModal from './ConfirmModal';
 import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
+import CurrencyPurchaseModal from './CurrencyPurchaseModal';
 import { useRole } from '../hooks/useRole';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
     Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
-    CreditCard, Calendar, QrCode
-} from 'lucide-react';
+    CreditCard, Calendar, QrCode, PlusCircle, Coins, Info
+    } from 'lucide-react';
 import QRGeneratorModal from './QRGeneratorModal';
 import { prepareSaleQRPayload } from '../lib/qrOfflineService';
-import { savePendingSale } from '../lib/localDB';
+import { savePendingSale, getPendingSales } from '../lib/localDB';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
@@ -59,6 +60,85 @@ const ModalOverlay = ({ children, onClose, className }) => (
         </motion.div>
     </div>
 );
+
+// Modal de Inyección de Efectivo (aporte al turno, separado de ventas)
+const InjectionModal = ({ onClose, onSave }) => {
+    const [amount, setAmount] = useState('');
+    const [concept, setConcept] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        const value = parseFloat(amount);
+        if (!value || value <= 0) return;
+        setSubmitting(true);
+        try {
+            await onSave({ amount: value, concept: concept.trim() || 'Inyección de fondo' });
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <ModalOverlay onClose={onClose}>
+            <div className="p-6 space-y-6">
+                <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                        <PlusCircle className="w-6 h-6 text-emerald-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-white">Inyectar Efectivo</h3>
+                        <p className="text-sm text-muted-foreground">Aporte de dinero a la caja del turno (no es venta)</p>
+                    </div>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Monto</label>
+                        <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                placeholder="0.00"
+                                value={amount}
+                                onChange={e => setAmount(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all font-mono text-lg"
+                                autoFocus
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Concepto (opcional)</label>
+                        <input
+                            type="text"
+                            placeholder="Ej: Fondo adicional, cambio, aporte..."
+                            value={concept}
+                            onChange={e => setConcept(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 outline-none transition-all"
+                        />
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                        <button type="button" onClick={onClose} className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 transition-all font-semibold">
+                            Cancelar
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={submitting}
+                            className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold hover:bg-emerald-400 transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><PlusCircle className="w-5 h-5" /> Inyectar</>}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </ModalOverlay>
+    );
+};
 
 const ExpenseModal = ({ onClose, onSave }) => {
     const [type, setType] = useState('');
@@ -243,15 +323,16 @@ const ExpenseModal = ({ onClose, onSave }) => {
 
 const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const [cash, setCash] = useState('');
-    const [notes, setNotes] = useState('');
-    const [requestWagePayment, setRequestWagePayment] = useState(false);
-    const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
-    const isSeller = role === 'seller';
+        const [notes, setNotes] = useState('');
+        const [requestWagePayment, setRequestWagePayment] = useState(false);
+        const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
+        const isSeller = role === 'seller';
 
-    // Support both old format (summary) and new format (metrics.current)
-    const data = metrics?.current || summary || {};
-    const accumulated = metrics?.accumulated || {};
-    const finalData = metrics?.final || {};
+        // Support both old format (summary) and new format (metrics.current)
+        const data = metrics?.current || summary || {};
+        const accumulated = metrics?.accumulated || {};
+        const finalData = metrics?.final || {};
+        const sessionFund = (parseFloat(metrics?.session?.initial_cash) || 0);
     
     // Extract values from the correct format
     const cashSales = data.sales?.cash || 0;
@@ -344,8 +425,13 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                     )}
 
                     {/* Totales a Entregar */}
-                    <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
-                        <div className="text-xs text-violet-400 uppercase tracking-wider mb-2 font-semibold">Total a Entregar</div>
+                                        <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
+                                            <div className="text-xs text-violet-400 uppercase tracking-wider mb-2 font-semibold">Total a Entregar</div>
+                                            {sessionFund > 0 && (
+                                                <div className="mb-2 text-xs text-slate-400">
+                                                    Fondo de apertura: <span className="text-emerald-400 font-mono font-bold">${sessionFund.toFixed(2)}</span>
+                                                </div>
+                                            )}
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <div className="text-xs text-slate-400">Efectivo Neto</div>
@@ -520,6 +606,8 @@ export default function POSLayout() {
     const [showClose, setShowClose] = useState(false);
     const [showPayment, setShowPayment] = useState(false);
     const [showSaveTicketModal, setShowSaveTicketModal] = useState(false);
+    const [showInjection, setShowInjection] = useState(false);
+    const [showCurrency, setShowCurrency] = useState(false); // Modal de compra de divisas
     const [ticketCustomName, setTicketCustomName] = useState('');
     // Ticket que se está editando: al guardarlo conserva el mismo nombre e ID.
     const [editingSavedSale, setEditingSavedSale] = useState(null);
@@ -543,16 +631,27 @@ export default function POSLayout() {
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [expenses, setExpenses] = useState([]); // Gastos del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
+    const [closingSessionLoading, setClosingSessionLoading] = useState(false);
     const [serverDate, setServerDate] = useState(null); // Fecha del servidor (no del dispositivo)
+    const [sessionFund, setSessionFund] = useState(0); // Fondo inicial + inyecciones del turno
+    const [initialCash, setInitialCash] = useState(0); // Fondo de apertura
+    const [injectionTotal, setInjectionTotal] = useState(0); // Inyecciones acumuladas
 
     // Cargar fecha del servidor al montarse
-    useEffect(() => {
-        if (navigator.onLine) {
-            api.get('/sessions/status', { timeout: 2000 }).then(res => {
-                if (res.data.serverDate) setServerDate(res.data.serverDate);
-            }).catch(() => {});
-        }
-    }, []);
+        useEffect(() => {
+                    if (navigator.onLine) {
+                        api.get('/sessions/status', { timeout: 2000 }).then(res => {
+                            if (res.data.serverDate) setServerDate(res.data.serverDate);
+                            // Fondo inicial de apertura de caja
+                            const ic = parseFloat(res.data.session?.initial_cash) || 0;
+                            setInitialCash(ic);
+                        }).catch(() => {});
+                        // Inyecciones acumuladas del turno
+                        api.get('/sessions/injections', { timeout: 2000 }).then(res => {
+                            if (res.data.success) setInjectionTotal(res.data.total || 0);
+                        }).catch(() => {});
+                    }
+                }, []);
 
     // Mobile view state
     const [mobileView, setMobileView] = useState('cart'); // 'cart' | 'tickets'
@@ -568,10 +667,10 @@ export default function POSLayout() {
         }
         setLoadingProduct(true);
         try {
-            const products = await fetchProducts(query);
+            const products = await fetchProducts(query, currentInventory);
             // Filter products that have stock in current inventory
             const availableProducts = products.filter(p => {
-                const stock = p.inventory?.[currentInventory] || 0;
+                const stock = p.inventory?.[currentInventory] || p.quantity || 0;
                 return stock > 0;
             });
             setSearchResults(availableProducts);
@@ -589,10 +688,10 @@ export default function POSLayout() {
             setShowSearchDropdown(false);
             setLoadingProduct(true);
             try {
-                const products = await fetchProducts(search.trim());
+                const products = await fetchProducts(search.trim(), currentInventory);
                 if (products && products.length > 0) {
                     const p = products[0];
-                    const stock = p.inventory?.[currentInventory] || 0;
+                    const stock = p.inventory?.[currentInventory] || p.quantity || 0;
                     if (stock > 0) {
                         addToCart(p);
                         setSearch('');
@@ -940,6 +1039,7 @@ export default function POSLayout() {
     const handleCheckoutClick = () => { if (cart.length > 0) setShowPayment(true); };
 
     const processPayment = async (paymentData) => {
+        if (checkoutProcessing) return;
         setCheckoutProcessing(true);
         try {
             // Validar que todos los items tengan ID válido (no temporal)
@@ -982,8 +1082,9 @@ export default function POSLayout() {
                     change: paymentData.change,
                     inventoryId: currentInventory,
                     cashAmount: paymentData.cashAmount,
-                    transferAmount: paymentData.transferAmount
-                }, { timeout: 3500 });
+                    transferAmount: paymentData.transferAmount,
+                    idempotencyKey: paymentData.idempotencyKey
+                }, { timeout: 3000 });
             } catch (networkError) {
                 console.warn('[POS] Sin conexión al servidor, guardando venta localmente (Offline)...');
                 const offlineRecord = await savePendingSale({
@@ -995,6 +1096,7 @@ export default function POSLayout() {
                     inventory_id: currentInventory,
                     cash_amount: paymentData.cashAmount,
                     transfer_amount: paymentData.transferAmount,
+                    idempotency_key: paymentData.idempotencyKey,
                     created_at: new Date().toISOString()
                 });
                 isOfflineRecorded = true;
@@ -1212,36 +1314,115 @@ export default function POSLayout() {
     };
 
     const fetchMetricsDirect = async () => {
-        if (!navigator.onLine) {
-            setSessionMetrics({
-                isOpen: true,
-                salesCount: recentSales.length,
-                totalSales: recentSales.reduce((acc, s) => acc + (s.total || 0), 0),
-                totalExpenses: expenses.reduce((acc, e) => acc + (e.amount || 0), 0)
-            });
-            setShowClose(true);
-            return;
-        }
-
+        setClosingSessionLoading(true);
         try {
-            // Use the new detailed metrics endpoint
-            const res = await api.get('/sessions/metrics', { timeout: 2000 });
-            setSessionMetrics(res.data);
-            setShowClose(true);
-        } catch (e) {
-            console.error('Error fetching metrics:', e);
-            // Fallback to basic status endpoint
-            try {
-                const res = await api.get('/sessions/status', { timeout: 1500 });
-                setSessionMetrics(res.data);
-            } catch (_) {
+            if (!navigator.onLine) {
+                // Modo Offline puro: Calcular métricas directamente de IndexedDB + ventas locales en memoria
+                const offlinePending = await getPendingSales();
+                
+                // Unificar ventas offline pendientes y las cobradas en la sesión activa
+                const allSales = [...offlinePending];
+                const seenIds = new Set(allSales.map(s => s.local_id || s.id));
+                recentSales.forEach(s => {
+                    if (!seenIds.has(s.id)) {
+                        allSales.push({
+                            id: s.id,
+                            total: s.total,
+                            cash_amount: s.cashAmount || (s.method === 'cash' ? s.total : 0),
+                            transfer_amount: s.transferAmount || (s.method === 'transfer' ? s.total : 0),
+                            items: s.items || []
+                        });
+                    }
+                });
+
+                const totalSales = allSales.reduce((acc, s) => acc + (Number(s.total) || 0), 0);
+                const cashSales = allSales.reduce((acc, s) => acc + (Number(s.cash_amount || s.cashAmount) || (s.payment_method === 'cash' || s.method === 'cash' ? Number(s.total) : 0)), 0);
+                const transferSales = allSales.reduce((acc, s) => acc + (Number(s.transfer_amount || s.transferAmount) || (s.payment_method === 'transfer' || s.method === 'transfer' ? Number(s.total) : 0)), 0);
+                
+                let totalCost = 0;
+                allSales.forEach(s => {
+                    (s.items || []).forEach(it => {
+                        totalCost += (Number(it.cost || it.cost_mn || it.cost_price) || 0) * (Number(it.quantity || it.qty) || 1);
+                    });
+                });
+
+                const cashExpenses = expenses.filter(e => (e.paymentMethod || e.method) === 'cash' || !e.method).reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+                const transferExpenses = expenses.filter(e => (e.paymentMethod || e.method) === 'transfer').reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+                const totalExpenses = cashExpenses + transferExpenses;
+
+                const profit = Math.max(0, totalSales - totalCost);
+                const wage = profit * 0.05;
+                const finalCash = cashSales - cashExpenses;
+                const finalTransfer = transferSales - transferExpenses;
+
                 setSessionMetrics({
                     isOpen: true,
-                    salesCount: recentSales.length,
-                    totalSales: recentSales.reduce((acc, s) => acc + (s.total || 0), 0)
+                    current: {
+                        sales: {
+                            total: totalSales,
+                            cash: cashSales,
+                            transfer: transferSales,
+                            other: 0
+                        },
+                        cost: { total: totalCost },
+                        expenses: {
+                            total: totalExpenses,
+                            cash: cashExpenses,
+                            transfer: transferExpenses
+                        },
+                        profit,
+                        wage
+                    },
+                    final: {
+                        cash: finalCash,
+                        transfer: finalTransfer,
+                        total: finalCash + finalTransfer
+                    },
+                    accumulated: {
+                        current_session_wage: wage,
+                        previous_sessions_wage: 0,
+                        total_pending_wage: wage,
+                        pending_sessions_count: 1
+                    }
                 });
+                setShowClose(true);
+                return;
             }
-            setShowClose(true);
+
+            // Conexión activa: Consultar backend central
+            try {
+                const res = await api.get('/sessions/metrics', { timeout: 2500 });
+                setSessionMetrics(res.data);
+                setShowClose(true);
+            } catch (e) {
+                console.error('Error fetching metrics from backend, using local fallback:', e);
+                // Fallback local en caso de error de red con el backend
+                const offlinePending = await getPendingSales();
+                const totalSales = offlinePending.reduce((acc, s) => acc + (Number(s.total) || 0), 0) + recentSales.reduce((acc, s) => acc + (Number(s.total) || 0), 0);
+                const cashSales = offlinePending.reduce((acc, s) => acc + (Number(s.cash_amount) || 0), 0) + recentSales.reduce((acc, s) => acc + (Number(s.cashAmount) || 0), 0);
+                const transferSales = offlinePending.reduce((acc, s) => acc + (Number(s.transfer_amount) || 0), 0) + recentSales.reduce((acc, s) => acc + (Number(s.transferAmount) || 0), 0);
+                
+                const finalCash = cashSales;
+                const finalTransfer = transferSales;
+                const profit = totalSales;
+                const wage = profit * 0.05;
+
+                setSessionMetrics({
+                    isOpen: true,
+                    current: {
+                        sales: { total: totalSales, cash: cashSales, transfer: transferSales, other: 0 },
+                        cost: { total: 0 },
+                        expenses: { total: 0, cash: 0, transfer: 0 },
+                        profit,
+                        wage
+                    },
+                    final: { cash: finalCash, transfer: finalTransfer, total: finalCash + finalTransfer },
+                    accumulated: { current_session_wage: wage, previous_sessions_wage: 0, total_pending_wage: wage, pending_sessions_count: 1 }
+                });
+                setShowClose(true);
+            }
+        } finally {
+            setClosingSessionLoading(false);
         }
     };
 
@@ -1525,20 +1706,38 @@ export default function POSLayout() {
                         {/* Session Info */}
                         <div className="h-14 flex-none px-4 border-b border-border/50 flex items-center justify-between bg-card/50">
                             <div className="flex items-center gap-2">
-                                <History className="w-4 h-4 text-muted-foreground" />
-                                <span className="text-sm font-semibold text-muted-foreground">Tickets y ventas del turno</span>
-                            </div>
+                                                            <History className="w-4 h-4 text-muted-foreground" />
+                                                            <span className="text-sm font-semibold text-muted-foreground">Tickets y ventas del turno</span>
+                                                            {(initialCash > 0 || injectionTotal > 0) && (
+                                                                <span
+                                                                    className="ml-2 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold font-mono"
+                                                                    title="Fondo de apertura + inyecciones del turno"
+                                                                >
+                                                                    Fondo: ${(initialCash + injectionTotal).toFixed(2)}
+                                                                </span>
+                                                            )}
+                                                        </div>
                             <button
                                 onClick={fetchMetrics}
+                                disabled={closingSessionLoading}
                                 className={cn(
-                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 disabled:opacity-50",
                                     isSeller
                                         ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"
                                         : "bg-rose-500/10 border border-rose-500/20 text-rose-400 hover:bg-rose-500/20"
                                 )}
                             >
-                                <LogOut className="w-3 h-3" />
-                                {isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}
+                                {closingSessionLoading ? (
+                                    <>
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                        <span>Calculando...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <LogOut className="w-3 h-3" />
+                                        <span>{isSeller ? 'Enviar Sesión' : 'Cerrar Sesión'}</span>
+                                    </>
+                                )}
                             </button>
                         </div>
 
@@ -1685,8 +1884,8 @@ export default function POSLayout() {
                         </div>
 
                         {/* Quick Actions */}
-                        <div className="h-20 flex-none p-3 border-t border-border/50 bg-card/50">
-                            <div className="grid grid-cols-2 gap-2 h-full">
+                        <div className="flex-none p-3 border-t border-border/50 bg-card/50">
+                            <div className="grid grid-cols-4 gap-2">
                                 <button
                                     onClick={() => setShowExpense(true)}
                                     className="flex items-center gap-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20 transition-all group"
@@ -1697,6 +1896,19 @@ export default function POSLayout() {
                                     <div className="text-left">
                                         <div className="font-semibold text-sm">Gastos</div>
                                         <div className="text-[10px] text-amber-400/70">Registrar</div>
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => setShowInjection(true)}
+                                    className="flex items-center gap-2 px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20 transition-all group"
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <PlusCircle className="w-4 h-4" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-semibold text-sm">Inyectar</div>
+                                        <div className="text-[10px] text-emerald-400/70">Efectivo</div>
                                     </div>
                                 </button>
 
@@ -1712,6 +1924,23 @@ export default function POSLayout() {
                                         <div className="text-[10px] text-rose-400/70">Procesar</div>
                                     </div>
                                 </button>
+
+                                <button
+                                    onClick={() => setShowCurrency(true)}
+                                    className="flex items-center gap-2 px-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-500 hover:bg-cyan-500/20 transition-all group"
+                                >
+                                    <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <Coins className="w-4 h-4" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="font-semibold text-sm">Divisas</div>
+                                        <div className="text-[10px] text-cyan-400/70">Compra</div>
+                                    </div>
+                                </button>
+                            </div>
+                            <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-rose-400/80">
+                                <Info className="w-3 h-3 shrink-0" />
+                                <span>La devolución descuenta del efectivo del turno</span>
                             </div>
                         </div>
                     </div>
@@ -1746,6 +1975,67 @@ export default function POSLayout() {
                                         type: 'danger'
                                     });
                                 }
+                            }}
+                        />
+                    )}
+                    {showInjection && (
+                        <InjectionModal
+                            key="injection-modal"
+                            onClose={() => setShowInjection(false)}
+                            onSave={async (data) => {
+                                try {
+                                    if (navigator.onLine) {
+                                        await api.post('/sessions/inject-cash', data);
+                                        // Refrescar total de inyecciones del turno
+                                        api.get('/sessions/injections', { timeout: 2000 }).then(r2 => {
+                                            if (r2.data.success) setInjectionTotal(r2.data.total || 0);
+                                        }).catch(() => {});
+                                    } else {
+                                        // Offline: guardar en IndexedDB (store meta) para sincronizar luego
+                                        const { getMetaLocal, setMetaLocal } = await import('../lib/localDB');
+                                        const queue = (await getMetaLocal('pending_injections'))?.queue || [];
+                                        queue.push({ ...data, created_at: new Date().toISOString(), local_id: `inj-${Date.now()}` });
+                                        await setMetaLocal('pending_injections', { queue });
+                                    }
+                                    setAlertModal({
+                                        isOpen: true,
+                                        title: 'Efectivo inyectado',
+                                        message: `Se agregaron $${data.amount.toFixed(2)} a la caja del turno.`,
+                                        type: 'success'
+                                    });
+                                    setShowInjection(false);
+                                } catch (e) {
+                                    setAlertModal({
+                                        isOpen: true,
+                                        title: 'Error',
+                                        message: e.response?.data?.error || "Error al inyectar el efectivo",
+                                        type: 'danger'
+                                    });
+                                }
+                            }}
+                        />
+                    )}
+                    {showCurrency && (
+                        <CurrencyPurchaseModal
+                            key="currency-purchase-modal"
+                            open={showCurrency}
+                            onClose={() => setShowCurrency(false)}
+                            onSaved={async () => {
+                                try {
+                                    // Refrescar fondo del turno tras compra de divisas
+                                    if (navigator.onLine) {
+                                        const [statusRes, injRes] = await Promise.all([
+                                            api.get('/sessions/status', { timeout: 2500 }),
+                                            api.get('/sessions/injections', { timeout: 2500 })
+                                        ]);
+                                        const ic = parseFloat(statusRes.data.session?.initial_cash) || 0;
+                                        setInitialCash(ic);
+                                        if (injRes.data.success) setInjectionTotal(injRes.data.total || 0);
+                                    }
+                                } catch (e) {
+                                    console.error('Error refrescando fondo tras compra de divisas:', e);
+                                }
+                                setShowCurrency(false);
                             }}
                         />
                     )}
@@ -1805,7 +2095,8 @@ export default function POSLayout() {
                         <PaymentModal
                             key="payment-modal"
                             total={total}
-                            onClose={() => setShowPayment(false)}
+                            isProcessing={checkoutProcessing}
+                            onClose={() => !checkoutProcessing && setShowPayment(false)}
                             onConfirm={processPayment}
                         />
                     )}

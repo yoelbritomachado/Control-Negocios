@@ -5,8 +5,8 @@ export function getAdaptiveImageUrl(url, qualityOverride = null) {
   if (!url || typeof url !== 'string') return '';
   if (url.startsWith('blob:') || url.startsWith('data:')) return url;
 
-  // Determine base url
-  const baseUrl = url.startsWith('http') ? url : `http://localhost:3002${url.startsWith('/') ? '' : '/'}${url}`;
+  // Si viene como ruta relativa /uploads/..., mantenerla relativa para que funcione tanto en HTTPS, Tailscale o local
+  const baseUrl = url.startsWith('http') ? url : (url.startsWith('/') ? url : `/${url}`);
 
   let quality = qualityOverride;
   if (!quality) {
@@ -27,9 +27,9 @@ export function getAdaptiveImageUrl(url, qualityOverride = null) {
   if (!quality) return baseUrl;
 
   try {
-    const urlObj = new URL(baseUrl);
+    const urlObj = new URL(baseUrl, window.location.origin);
     urlObj.searchParams.set('quality', quality);
-    return urlObj.toString();
+    return baseUrl.startsWith('http') ? urlObj.toString() : (urlObj.pathname + urlObj.search);
   } catch (e) {
     const sep = baseUrl.includes('?') ? '&' : '?';
     return `${baseUrl}${sep}quality=${quality}`;
