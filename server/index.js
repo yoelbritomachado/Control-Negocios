@@ -199,6 +199,18 @@ const requireEditor = (req, res, next) => {
 };
 
 // --- AUTHENTICATION MIDDLEWARE ---
+const getFallbackUser = () => {
+    try {
+        const ownerOrAdmin = db.prepare("SELECT * FROM users WHERE role IN ('owner', 'admin') AND is_archived = 0 ORDER BY id ASC LIMIT 1").get();
+        if (ownerOrAdmin) return ownerOrAdmin;
+        const anyUser = db.prepare("SELECT * FROM users WHERE is_archived = 0 ORDER BY id ASC LIMIT 1").get();
+        if (anyUser) return anyUser;
+    } catch (e) {
+        console.error("Error finding fallback user:", e);
+    }
+    return { id: 4, username: 'yoelbritomachado', role: 'owner', email: 'owner@misschulerias.cu', can_edit: 1 };
+};
+
 const authenticate = (req, res, next) => {
     // Allow public access to login/register/auth
     if (req.path.startsWith('/api/login') || req.path.startsWith('/api/register') || req.path.startsWith('/api/auth')) {
@@ -217,27 +229,15 @@ const authenticate = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    // If no token, create a default user (system works without login)
+    // If no token, create a default user with a valid existing ID
     if (!token) {
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
+        req.user = getFallbackUser();
         return next();
     }
 
     const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
     if (!user) {
-        req.user = {
-            id: 1,
-            username: 'default',
-            role: 'admin',
-            email: 'default@system.local',
-            can_edit: 1
-        };
+        req.user = getFallbackUser();
         return next();
     }
 
@@ -257,34 +257,15 @@ app.use((req, res, next) => {
     }
 
     // If req.user is not set (no auth middleware applied yet), set default user
-    if (!req.user) {
+    if (!req.user || !req.user.id) {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
 
         if (!token) {
-            // No token - use default user with full permissions
-            req.user = {
-                id: 1,
-                username: 'default',
-                role: 'admin',
-                email: 'default@system.local',
-                can_edit: 1
-            };
+            req.user = getFallbackUser();
         } else {
-            // Try to get user from token
             const user = db.prepare('SELECT * FROM users WHERE session_token = ?').get(token);
-            if (user) {
-                req.user = user;
-            } else {
-                // Invalid token - use default user with full permissions
-                req.user = {
-                    id: 1,
-                    username: 'default',
-                    role: 'admin',
-                    email: 'default@system.local',
-                    can_edit: 1
-                };
-            }
+            req.user = user || getFallbackUser();
         }
     }
     next();
@@ -1682,24 +1663,53 @@ app.use((req, res, next) => {
 // 3. Create Sale (Checkout) - Updated for Sessions
 app.post('/api/sales', (req, res) => { // Auth checked by middleware
     try {
-        const { items, total, paymentMethod, inventoryId, cashAmount, transferAmount, amountReceived, change } = req.body;
+        const { items, total, paymentMethod, amountReceived, change, inventoryId, cashAmount, transferAmount, isOfflineSync, offlineId, idempotencyKey } = req.body;
+        const opId = offlineId || idempotencyKey;
 
         if (!items || items.length === 0) return res.status(400).json({ error: "Carrito vacío" });
 
+        const validUserId = req.user?.id || getFallbackUser().id;
+
         // VERIFY SESSION
-        const session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
+        let session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(validUserId);
         if (!session) {
-            return res.status(403).json({ error: "No hay sesión de venta abierta. Por favor inicie turno." });
+            if (isOfflineSync) {
+                // Para sincronizaciones offline automáticas, buscar la última sesión del usuario o crear una sesión automática del sistema
+                const lastSession = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? ORDER BY id DESC LIMIT 1").get(validUserId);
+                if (lastSession) {
+                    session = lastSession;
+                } else {
+                    const newSess = db.prepare(`
+                        INSERT INTO sales_sessions (user_id, status, initial_cash, start_time)
+                        VALUES (?, 'open', 0, datetime('now'))
+                    `).run(validUserId);
+                    session = { id: newSess.lastInsertRowid };
+                }
+            } else {
+                return res.status(403).json({ error: "No hay sesión de venta abierta. Por favor inicie turno." });
+            }
         }
 
         const saleDate = new Date().toISOString();
 
         // Transaction
         const transaction = db.transaction(() => {
+            // Verificar si esta venta ya se había insertado antes (idempotencia opId / offlineId / idempotencyKey)
+            // POS-02: guard anti-doble-clic — exact match por índice (antes LIKE %…% = full scan)
+            if (opId) {
+                const existing = db.prepare("SELECT id FROM sales WHERE idempotency_key = ?").get(String(opId));
+                if (existing) {
+                    return existing.id;
+                }
+            }
+
+            const saleNotes = opId ? `[OFFLINE_REF:${opId}]` : null;
+
             // 1. Insert Sale Record
+            // POS-02: idempotency_key columna dedicada con índice único — el 2º POST con la misma clave falla silenciosamente y devuelve la venta original
             const sale = db.prepare(`
-                INSERT INTO sales (total, items_count, payment_method, cash_amount, transfer_amount, amount_received, change_amount, date, user_id, inventory_id, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO sales (total, items_count, payment_method, cash_amount, transfer_amount, amount_received, change_amount, date, user_id, inventory_id, session_id, notes, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
                 total,
                 items.length,
@@ -1709,14 +1719,17 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
                 Number(amountReceived) || 0,
                 Number(change) || 0,
                 saleDate,
-                req.user.id,
+                validUserId,
                 inventoryId || 'mch1',
-                session.id
+                session.id,
+                saleNotes,
+                opId ? String(opId) : null
             );
 
             const saleId = sale.lastInsertRowid;
 
             // 2. Process Items & Update Stock
+            // POS-01 (perf): statements preparados UNA sola vez fuera del loop (antes se re-preparaban por ítem = cuello de botella en tickets grandes)
             const insertItem = db.prepare(`
                 INSERT INTO sale_items (sale_id, product_id, quantity, price, cost)
                 VALUES (?, ?, ?, ?, ?)
@@ -1732,46 +1745,87 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
                 SELECT quantity FROM product_inventory WHERE product_id = ? AND inventory_id = ?
             `);
 
+            const getProductById = db.prepare('SELECT id FROM products WHERE id = ?');
+            const getProductByCode = db.prepare('SELECT id FROM products WHERE (code IS NOT NULL AND code != \'\' AND code = ?) OR (name IS NOT NULL AND LOWER(TRIM(name)) = LOWER(TRIM(?))) LIMIT 1');
+            const insFallbackProduct = db.prepare(`
+                INSERT INTO products (name, code, barcode, quantity, cost_mx, sale_price_manual)
+                VALUES (?, ?, ?, 0, ?, ?)
+            `);
+            const insInventoryRow = db.prepare('INSERT OR IGNORE INTO product_inventory (product_id, inventory_id, quantity) VALUES (?, ?, 0)');
+
             items.forEach(item => {
                 const targetInv = inventoryId || 'mch1';
-                // Validar que el ID del producto sea numérico (los IDs temporales como "hist-item-..." no existen en la DB)
-                if (typeof item.id !== 'number' || isNaN(item.id)) {
-                    throw new Error(`Producto "${item.name || item.id}" tiene un ID inválido (temporal). Eliminelo del carrito y agréguelo nuevamente desde el catálogo.`);
-                }
-                const current = checkStock.get(item.id, targetInv);
-                if (!current || current.quantity < item.quantity) {
-                    const productName = db.prepare('SELECT name FROM products WHERE id = ?').get(item.id);
-                    const name = productName?.name || `ID ${item.id}`;
-                    const avail = current?.quantity ?? 0;
-                    throw new Error(`Stock insuficiente para "${name}" en ${targetInv}. Disponible: ${avail}, Solicitado: ${item.quantity}`);
+                // Resolver el ID real del producto si viene anidado o numérico
+                let realProductId = item.id || item.product_id;
+                
+                // Si el ID no es un número directo (ej: viene como string numérico), convertirlo
+                if (typeof realProductId === 'string' && /^\d+$/.test(realProductId)) {
+                    realProductId = parseInt(realProductId, 10);
                 }
 
-                updateStock.run(item.quantity, item.id, targetInv);
-                insertItem.run(saleId, item.id, item.quantity, item.sale_price_manual || 0, item.cost_mn || 0);
+                let prodExists = (typeof realProductId === 'number' && !isNaN(realProductId))
+                    ? getProductById.get(realProductId)
+                    : null;
+
+                if (!prodExists && (item.code || item.barcode || item.name)) {
+                    prodExists = getProductByCode.get(item.code || '', item.name || '');
+                }
+
+                if (!prodExists) {
+                    // Si el producto no existía en el servidor, crearlo para satisfacer clave foránea y no fallar la venta
+                    const fallbackName = item.name || `Producto #${realProductId || 'S/N'}`;
+                    const insProd = insFallbackProduct.run(fallbackName, item.code || '', item.barcode || '', Number(item.cost_mn || item.cost || 0), Number(item.sale_price_manual || item.price || 0));
+                    realProductId = insProd.lastInsertRowid;
+                } else {
+                    realProductId = prodExists.id;
+                }
+
+                // Descontar inventario de forma segura
+                const current = checkStock.get(realProductId, targetInv);
+                if (!current) {
+                    // Si no existe el registro de inventario para esta sede, inicializarlo
+                    insInventoryRow.run(realProductId, targetInv);
+                }
+                updateStock.run(item.quantity, realProductId, targetInv);
+
+                insertItem.run(saleId, realProductId, item.quantity, item.sale_price_manual || item.price || 0, item.cost_mn || item.cost || 0);
             });
 
             return saleId;
         });
 
-        const newSaleId = transaction();
+        let newSaleId;
+        try {
+            newSaleId = transaction();
+        } catch (txErr) {
+            // POS-02: carrera de doble clic/doble sync — si el índice único de idempotencia rechaza, devolver la venta original
+            if (opId && /UNIQUE constraint failed: sales\.idempotency_key/i.test(txErr.message)) {
+                const dup = db.prepare("SELECT id FROM sales WHERE idempotency_key = ?").get(String(opId));
+                if (dup) {
+                    console.log(`Sale #${dup.id} deduplicated by idempotency key`);
+                    return res.json({ success: true, saleId: dup.id, deduplicated: true });
+                }
+            }
+            throw txErr;
+        }
         console.log(`Sale #${newSaleId} completed in Session #${session.id}`);
 
         // Fetch the complete sale with items for the response
-                const saleItems = db.prepare(`
-                    SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
-                    FROM sale_items si
-                    JOIN products p ON si.product_id = p.id
-                    WHERE si.sale_id = ?
-                `).all(newSaleId);
+        const saleItems = db.prepare(`
+            SELECT si.product_id, si.quantity, si.price, si.cost, p.name, p.code
+            FROM sale_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id = ?
+        `).all(newSaleId);
 
-                // Sincronizar Nexus en tiempo real (stock/ventas de la sede)
-                refreshNexusInventoryMetrics(inventoryId || 'mch1');
+        // Sincronizar Nexus en tiempo real (stock/ventas de la sede)
+        refreshNexusInventoryMetrics(inventoryId || 'mch1');
 
-                res.json({
-                    success: true,
-                    saleId: newSaleId,
-                    items: saleItems
-                });
+        res.json({
+            success: true,
+            saleId: newSaleId,
+            items: saleItems
+        });
 
                 } catch (e) {
                 console.error("Sale Error:", e);
@@ -1933,6 +1987,44 @@ app.post('/api/sessions/open', (req, res) => {
     }
 });
 
+// Cash Injection: aporte de dinero durante el turno (no es venta)
+app.post('/api/sessions/inject-cash', (req, res) => {
+    try {
+        const { amount, concept } = req.body;
+        const userId = req.user.id;
+        if (!amount || amount <= 0) return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+
+        const session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
+
+        const info = db.prepare(`
+            INSERT INTO cash_injections (session_id, user_id, amount, concept)
+            VALUES (?, ?, ?, ?)
+        `).run(session.id, userId, amount, concept || 'Inyección de fondo');
+
+        const total = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(session.id).t;
+
+        res.json({ success: true, injectionId: info.lastInsertRowid, session_injections_total: total });
+    } catch (e) {
+        logError("Inject Cash", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get injections of the current session
+app.get('/api/sessions/injections', (req, res) => {
+    try {
+        const session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
+        if (!session) return res.json({ success: true, injections: [], total: 0 });
+        const injections = db.prepare("SELECT * FROM cash_injections WHERE session_id = ? ORDER BY id DESC").all(session.id);
+        const total = injections.reduce((a, i) => a + i.amount, 0);
+        res.json({ success: true, injections, total });
+    } catch (e) {
+        logError("Get Injections", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Close Session & Calculate Wages
 app.post('/api/sessions/close', (req, res) => {
     try {
@@ -1997,7 +2089,19 @@ app.post('/api/sessions/close', (req, res) => {
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
         
-        const finalCash = cashSales - cashExpenses;
+        // Injections (aportes al turno, separados de ventas)
+        const injectionsData = db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM cash_injections WHERE session_id = ?").get(session.id);
+        const totalInjections = injectionsData.total || 0;
+
+        // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+
+        // Compras de divisas del turno (dinero MN entregado a cambio de divisas)
+        const cashCurrencyPurchases = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(session.id)?.t || 0;
+
+        // finalCash = Fondo inicial + Inyecciones + Ventas efectivo - Gastos efectivo - Devoluciones - Compras de divisas
+        // (consistente con GET /api/sessions/available-cash)
+        const finalCash = (session.initial_cash || 0) + totalInjections + cashSales - cashExpenses - cashReturns - cashCurrencyPurchases;
         const finalTransfer = transferSales - transferExpenses;
 
         // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
@@ -2006,7 +2110,7 @@ app.post('/api/sessions/close', (req, res) => {
                 COALESCE(SUM(wage_amount), 0) as total_pending_wage,
                 COUNT(*) as pending_sessions
             FROM sales_sessions 
-            WHERE user_id = ? 
+            WHERE user_id = ?
                 AND (status = 'closed' OR status = 'pending_review')
                 AND wage_payment_id IS NULL
         `).get(userId);
@@ -2056,6 +2160,9 @@ app.post('/api/sessions/close', (req, res) => {
                     total: expensesData.total_expenses,
                     cash: cashExpenses,
                     transfer: transferExpenses
+                },
+                injections: {
+                    total: totalInjections
                 },
                 final: {
                     cash: finalCash,
@@ -2133,8 +2240,11 @@ app.post('/api/sessions/send-for-review', (req, res) => {
         const transferSales = paymentTotals.transfer_total || 0;
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
-        
-        const finalCash = cashSales - cashExpenses;
+
+        // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+
+        const finalCash = cashSales - cashExpenses - cashReturns;
         const finalTransfer = transferSales - transferExpenses;
 
         // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
@@ -2614,8 +2724,11 @@ app.get('/api/sessions/metrics', (req, res) => {
         const otherSales = salesByMethod.find(s => s.payment_method !== 'cash' && s.payment_method !== 'transfer')?.total || 0;
         const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
-        
-        const finalCash = cashSales - cashExpenses;
+
+        // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+
+        const finalCash = cashSales - cashExpenses - cashReturns;
         const finalTransfer = transferSales - transferExpenses;
 
         // Calculate ACCUMULATED WAGE (all unpaid sessions)
@@ -2698,7 +2811,7 @@ app.post('/api/expenses', (req, res) => {
 // Create Return (with Image)
 app.post('/api/returns', upload.single('evidence'), (req, res) => {
     try {
-        const { type, amount, product_id, sale_id, reason, action } = req.body;
+        const { type, amount, product_id, sale_id, reason, action, payment_method } = req.body;
         // type: 'broken_business', 'taste', 'broken_client'
         // action: 'restock', 'discard'
 
@@ -2708,8 +2821,8 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 
         const returnInfo = db.transaction(() => {
             const result = db.prepare(`
-                INSERT INTO returns (sale_id, product_id, session_id, user_id, type, amount_returned, stock_restored, evidence_url, date, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                INSERT INTO returns (sale_id, product_id, session_id, user_id, type, amount_returned, stock_restored, evidence_url, date, status, payment_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
             `).run(
                 sale_id || null,
                 product_id,
@@ -2719,7 +2832,8 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
                 amount || 0,
                 action === 'restock' ? 1 : 0,
                 '/uploads/returns/' + req.file.filename,
-                new Date().toISOString()
+                new Date().toISOString(),
+                payment_method || 'cash'
             );
 
             // Restock if applicable
@@ -2739,6 +2853,97 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
 
     } catch (e) {
         logError("Return", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- CURRENCY EXCHANGE (Compra de Divisas) ---
+
+// Get available cash for the current open session (fondo + ventas efectivo - gastos efectivo - devoluciones)
+app.get('/api/sessions/available-cash', authenticate, (req, res) => {
+    try {
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
+        if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
+
+        const paymentTotals = db.prepare(`
+            SELECT COALESCE(SUM(cash_amount), 0) AS cash_total FROM sales WHERE session_id = ?
+        `).get(session.id);
+        const cashSales = paymentTotals.cash_total || 0;
+
+        const cashExpenses = db.prepare(`
+            SELECT COALESCE(SUM(amount), 0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'
+        `).get(session.id).t || 0;
+
+        const cashReturns = db.prepare(`
+                    SELECT COALESCE(SUM(amount_returned), 0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'
+                `).get(session.id)?.t || 0;
+
+                const cashPurchases = db.prepare(`
+                    SELECT COALESCE(SUM(amount_mn), 0) AS t FROM currency_purchases WHERE session_id = ?
+                `).get(session.id)?.t || 0;
+
+                // Inyecciones de efectivo: el admin puede dar más fondo durante el turno (cuentan como ingreso de la sesión)
+                const injections = db.prepare(`
+                    SELECT COALESCE(SUM(amount), 0) AS t FROM cash_injections WHERE session_id = ?
+                `).get(session.id)?.t || 0;
+
+                // Disponible = Fondo inicial + Inyecciones + Ventas efectivo - Gastos - Devoluciones - Compras de divisas
+                const available = (session.initial_cash || 0) + injections + cashSales - cashExpenses - cashReturns - cashPurchases;
+                res.json({ success: true, available, breakdown: {
+                    initial_cash: session.initial_cash || 0,
+                    injections: injections,
+                    cash_sales: cashSales,
+                    cash_expenses: cashExpenses,
+                    cash_returns: cashReturns,
+                    currency_purchases: cashPurchases
+                }});
+    } catch (e) {
+        logError("Available Cash", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Register currency purchase (compra de divisas) - descuenta del efectivo del turno
+app.post('/api/currency-purchase', authenticate, (req, res) => {
+    try {
+        const { amount_divisas, cost_per_divisa, currency, payment_method } = req.body;
+        const userId = req.user.id;
+        const amountDivisas = parseFloat(amount_divisas) || 0;
+        const unitCost = parseFloat(cost_per_divisa) || 0;
+        if (amountDivisas <= 0 || unitCost <= 0) return res.status(400).json({ error: "Cantidad y costo de la divisa deben ser mayores a 0." });
+
+        const totalMn = amountDivisas * unitCost;
+
+        const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
+        if (!session) return res.status(400).json({ error: "No hay sesión abierta." });
+
+        // Validate available cash
+        const paymentTotals = db.prepare("SELECT COALESCE(SUM(cash_amount),0) AS t FROM sales WHERE session_id = ?").get(session.id);
+        const cashSales = paymentTotals.t || 0;
+        const cashExpenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'").get(session.id).t || 0;
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+        const cashPurchases = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(session.id)?.t || 0;
+                const sessionInjections = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(session.id)?.t || 0;
+                const available = (session.initial_cash || 0) + sessionInjections + cashSales - cashExpenses - cashReturns - cashPurchases;
+
+        if (totalMn > available) {
+            return res.status(400).json({ error: `Efectivo insuficiente. Disponible: $${available.toFixed(2)} MN, la compra requiere $${totalMn.toFixed(2)} MN.` });
+        }
+
+        const info = db.prepare(`
+            INSERT INTO currency_purchases (session_id, user_id, currency, amount_divisas, cost_per_divisa, amount_mn, payment_method, date, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')
+        `).run(session.id, userId, currency || 'USD', amountDivisas, unitCost, totalMn, payment_method || 'cash', new Date().toISOString());
+
+        // Notify admins
+        const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+        const notifData = JSON.stringify({ purchase_id: info.lastInsertRowid, seller_id: userId, total_mn: totalMn, currency: currency || 'USD', amount_divisas: amountDivisas });
+        const insertNotif = db.prepare("INSERT INTO notifications (user_id, type, title, message, data, is_read, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)");
+        admins.forEach(a => insertNotif.run(a.id, 'currency_purchase', 'Compra de Divisas', `Compra de ${amountDivisas} ${currency || 'USD'} por $${totalMn.toFixed(2)} MN pendiente de revisión.`, notifData, new Date().toISOString()));
+
+        res.json({ success: true, id: info.lastInsertRowid, total_mn: totalMn, available_after: available - totalMn });
+    } catch (e) {
+        logError("Currency Purchase", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2797,6 +3002,30 @@ db.exec(`
 `);
 
 // MIGRATION & TRIGGERS
+try {
+  const salesCols = db.prepare("PRAGMA table_info(sales)").all();
+  if (!salesCols.some(c => c.name === 'notes')) {
+    db.exec("ALTER TABLE sales ADD COLUMN notes TEXT");
+  }
+  // POS-02: columna dedicada + índice único para idempotencia (anti-doble-clic / anti-doble-sync)
+  if (!salesCols.some(c => c.name === 'idempotency_key')) {
+    db.exec("ALTER TABLE sales ADD COLUMN idempotency_key TEXT");
+  }
+  // Columna barcode en products (la usan imports offline/QR y búsquedas de checkout)
+  if (!salesCols.some(c => c.name === 'barcode')) {
+    try { db.exec("ALTER TABLE products ADD COLUMN barcode TEXT"); } catch (e) { console.warn('barcode col:', e.message); }
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_idempotency ON sales(idempotency_key) WHERE idempotency_key IS NOT NULL");
+  // Backfill: migrar referencias históricas [OFFLINE_REF:x] de notes a la columna nueva
+  const backfill = db.prepare("SELECT id, notes FROM sales WHERE idempotency_key IS NULL AND notes LIKE '%[OFFLINE_REF:%'").all();
+  const updKey = db.prepare("UPDATE sales SET idempotency_key = ? WHERE id = ?");
+  for (const row of backfill) {
+    const m = row.notes && row.notes.match(/\[OFFLINE_REF:([^\]]+)\]/);
+    if (m) updKey.run(m[1], row.id);
+  }
+} catch (e) {
+  console.warn("Migration notes/idempotency in sales:", e.message);
+}
 try {
     const pragma = db.prepare("PRAGMA table_info(inventories)").all();
     const columns = pragma.map(c => c.name);
@@ -2996,12 +3225,22 @@ try {
         db.exec("ALTER TABLE users ADD COLUMN inventory_id TEXT DEFAULT 'alm'");
     }
 
+    if (!columns.includes('two_factor_enabled')) {
+        console.log("Migrating: Adding two_factor_enabled to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN two_factor_enabled INTEGER DEFAULT 0");
+    }
+
+    if (!columns.includes('trusted_devices')) {
+        console.log("Migrating: Adding trusted_devices to users table...");
+        db.exec("ALTER TABLE users ADD COLUMN trusted_devices TEXT DEFAULT '[]'");
+    }
+
     // Set Admin role
     const updatedInfo = db.prepare("PRAGMA table_info(users)").all();
     const updatedCols = updatedInfo.map(c => c.name);
 
     if (updatedCols.includes('role') && updatedCols.includes('can_edit')) {
-        db.prepare("UPDATE users SET role = 'admin', can_edit = 1 WHERE email = ?").run(ADMIN_EMAIL);
+        db.prepare("UPDATE users SET role = 'owner', can_edit = 1 WHERE email = ?").run(ADMIN_EMAIL);
     }
 
 } catch (e) { console.error("Migration error (users):", e); }
@@ -3168,6 +3407,38 @@ db.exec(`
   )
 `);
 
+// Currency Purchases table (compra de divisas del turno)
+console.log("Creating currency_purchases table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS currency_purchases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER,
+    user_id INTEGER,
+    currency TEXT DEFAULT 'USD',
+    amount_divisas REAL NOT NULL,
+    cost_per_divisa REAL NOT NULL,
+    amount_mn REAL NOT NULL,
+    payment_method TEXT DEFAULT 'cash',
+    date TEXT,
+    status TEXT DEFAULT 'pending_review'
+  )
+`);
+
+// Cash Injections table (aportes de dinero al turno, separados de ventas)
+console.log("Creating cash_injections table...");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cash_injections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    concept TEXT DEFAULT 'Inyección de fondo',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(session_id) REFERENCES sales_sessions(id),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )
+`);
+
 // Expense Types table for predefined expenses
 console.log("Creating expense types table...");
 db.exec(`
@@ -3200,6 +3471,16 @@ try {
         db.exec("ALTER TABLE expenses ADD COLUMN payment_method TEXT DEFAULT 'cash'");
     }
 } catch (e) { console.log("Migration check (expenses):", e.message); }
+
+// Migration: Add payment_method to returns if not exists
+try {
+    const returnCols = db.prepare("PRAGMA table_info(returns)").all();
+    const returnsCols = returnCols.map(c => c.name);
+    if (!returnsCols.includes('payment_method')) {
+        console.log("Migrating: Adding payment_method to returns...");
+        db.exec("ALTER TABLE returns ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+} catch (e) { console.log("Migration check (returns):", e.message); }
 
 // Insert default expense types if none exist
 const expenseTypesCount = db.prepare('SELECT COUNT(*) as count FROM expense_types').get();
@@ -3591,10 +3872,10 @@ app.get('/api/transfers/:id', authenticate, (req, res) => {
     }
 });
 
-// Create new transfer (admin/owner only)
+// Create new transfer (admin/owner, or seller during offline sync)
 app.post('/api/transfers', authenticate, (req, res) => {
     try {
-        const { source_inventory, target_inventory, items, notes } = req.body;
+        const { source_inventory, target_inventory, items, notes, isOfflineSync, offlineId } = req.body;
         
         if (!source_inventory || !target_inventory || !items || items.length === 0) {
             return res.status(400).json({ error: 'Datos incompletos' });
@@ -3606,11 +3887,23 @@ app.post('/api/transfers', authenticate, (req, res) => {
         
         // Start transaction
         const transaction = db.transaction(() => {
+            // Verificar si este traslado ya se había insertado antes (idempotencia por offlineId)
+            if (offlineId) {
+                const existing = db.prepare("SELECT id FROM transfers WHERE notes LIKE ?").get(`%[OFFLINE_REF:${offlineId}]%`);
+                if (existing) {
+                    return existing.id;
+                }
+            }
+
+            const trfNotes = (notes || '') + (offlineId ? ` [OFFLINE_REF:${offlineId}]` : '');
+
+            const validUserId = req.user?.id || getFallbackUser().id;
+
             // Create transfer
             const transferResult = db.prepare(`
                 INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes)
                 VALUES (?, ?, ?, 'pending', ?)
-            `).run(source_inventory, target_inventory, req.user?.id || 1, notes || '');
+            `).run(source_inventory, target_inventory, validUserId, trfNotes);
             
             const transferId = transferResult.lastInsertRowid;
             
@@ -3621,20 +3914,51 @@ app.post('/api/transfers', authenticate, (req, res) => {
             `);
             
             for (const item of items) {
-                insertItem.run(transferId, item.product_id, item.quantity);
+                let pid = item.product_id || item.pid || item.id;
+                const qty = Number(item.quantity || item.qty || 1);
+
+                // Resolver ID numérico si viene como string
+                if (typeof pid === 'string' && /^\d+$/.test(pid)) {
+                    pid = parseInt(pid, 10);
+                }
+
+                // Verificar si existe el producto en BD central por id
+                let prodExists = (typeof pid === 'number' && !isNaN(pid))
+                    ? db.prepare('SELECT id FROM products WHERE id = ?').get(pid)
+                    : null;
+
+                // Si no existe por ID, intentar resolver por código / barcode / nombre
+                if (!prodExists && (item.code || item.barcode || item.name)) {
+                    prodExists = db.prepare('SELECT id FROM products WHERE code = ? OR barcode = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1')
+                        .get(item.code || '', item.barcode || '', item.name || '');
+                }
+
+                // Si el producto no existe en BD, crear un registro mínimo para no romper la FK
+                if (!prodExists) {
+                    const fallbackName = item.name || `Producto #${pid || 'S/N'}`;
+                    const insProd = db.prepare(`
+                        INSERT INTO products (name, code, barcode, quantity, cost_mx, sale_price_manual)
+                        VALUES (?, ?, ?, 0, ?, ?)
+                    `).run(fallbackName, item.code || '', item.barcode || '', Number(item.cost_price || item.cost || 0), Number(item.sale_price || item.price || 0));
+                    pid = insProd.lastInsertRowid;
+                } else {
+                    pid = prodExists.id;
+                }
+
+                insertItem.run(transferId, pid, qty);
                 
                 // Asegurar que exista la fila en product_inventory para el origen
                 db.prepare(`
                     INSERT OR IGNORE INTO product_inventory (product_id, inventory_id, quantity)
                     VALUES (?, ?, 0)
-                `).run(item.product_id, source_inventory);
+                `).run(pid, source_inventory);
                 
-                // Deduct stock from source inventory (permite contingencia si se traslada mercadería recién llegada)
+                // Deduct stock from source inventory
                 db.prepare(`
                     UPDATE product_inventory 
                     SET quantity = quantity - ? 
                     WHERE product_id = ? AND inventory_id = ?
-                `).run(item.quantity, item.product_id, source_inventory);
+                `).run(qty, pid, source_inventory);
             }
             
             return transferId;
@@ -4141,11 +4465,12 @@ app.post('/api/transfers/:id/revert', authenticate, requireAdmin, (req, res) => 
         const deltas = transaction();
 
         // Notify
+        const creatorId = transfer.created_by || getFallbackUser().id;
         db.prepare(`
             INSERT INTO notifications (user_id, type, title, message, data)
             VALUES (?, 'transfer_reverted', ?, ?, ?)
         `).run(
-            transfer.created_by || 1,
+            creatorId,
             'Traslado revertido / cancelado',
             `El traslado #${id} (${transfer.source_inventory} -> ${transfer.target_inventory}) fue revertido.`,
             JSON.stringify({ transfer_id: id, deltas })
@@ -4197,11 +4522,12 @@ app.post('/api/transfers/:id/reject', authenticate, (req, res) => {
         transaction();
         
         // Notify creator
+        const creatorId = transfer.created_by || getFallbackUser().id;
         db.prepare(`
             INSERT INTO notifications (user_id, type, title, message, data)
             VALUES (?, 'transfer_rejected', ?, ?, ?)
         `).run(
-            transfer.created_by,
+            creatorId,
             'Traslado rechazado',
             `El traslado #${id} fue rechazado en ${transfer.target_inventory}. Motivo: ${reason || 'Sin motivo'}`,
             JSON.stringify({ transfer_id: id })
@@ -4221,14 +4547,19 @@ app.post('/api/transfers/qr-import', authenticate, (req, res) => {
             return res.status(400).json({ error: 'Datos de QR de traslado incompletos' });
         }
 
-        const rawId = qrData.id;
+        const rawId = qrData.id || qrData.local_id;
         // Si el id es numérico o empieza con TRF-
         let existingTransfer = null;
         if (typeof rawId === 'number' || /^\d+$/.test(rawId)) {
             existingTransfer = db.prepare('SELECT * FROM transfers WHERE id = ?').get(rawId);
-        } else {
-            // Buscar en notas si tiene referencia previa al ID de QR
-            existingTransfer = db.prepare("SELECT * FROM transfers WHERE notes LIKE ?").get(`%[QR_REF:${rawId}]%`);
+        }
+        
+        if (!existingTransfer && rawId) {
+            // Buscar en notas si tiene referencia previa al ID de QR u offline
+            existingTransfer = db.prepare("SELECT * FROM transfers WHERE notes LIKE ? LIMIT 1").get(`%[QR_REF:${rawId}]%`);
+            if (!existingTransfer) {
+                existingTransfer = db.prepare("SELECT * FROM transfers WHERE notes LIKE ? LIMIT 1").get(`%[OFFLINE_REF:${rawId}]%`);
+            }
         }
 
         if (action === 'check') {
@@ -4285,8 +4616,33 @@ app.post('/api/transfers/qr-import', authenticate, (req, res) => {
                 const insertItem = db.prepare('INSERT INTO transfer_items (transfer_id, product_id, quantity) VALUES (?, ?, ?)');
 
                 for (const item of qrData.items) {
-                    const pid = item.pid || item.product_id;
+                    let pid = item.pid || item.product_id || item.id;
                     const qty = Number(item.qty || item.quantity || 0);
+
+                    if (typeof pid === 'string' && /^\d+$/.test(pid)) {
+                        pid = parseInt(pid, 10);
+                    }
+
+                    let prodExists = (typeof pid === 'number' && !isNaN(pid))
+                        ? db.prepare('SELECT id FROM products WHERE id = ?').get(pid)
+                        : null;
+
+                    if (!prodExists && (item.code || item.barcode || item.name)) {
+                        prodExists = db.prepare('SELECT id FROM products WHERE code = ? OR barcode = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1')
+                            .get(item.code || '', item.barcode || '', item.name || '');
+                    }
+
+                    if (!prodExists) {
+                        const fallbackName = item.name || `Producto #${pid || 'S/N'}`;
+                        const insProd = db.prepare(`
+                            INSERT INTO products (name, code, barcode, quantity, cost_mx, sale_price_manual)
+                            VALUES (?, ?, ?, 0, ?, ?)
+                        `).run(fallbackName, item.code || '', item.barcode || '', Number(item.cost_price || item.cost || 0), Number(item.sale_price || item.price || 0));
+                        pid = insProd.lastInsertRowid;
+                    } else {
+                        pid = prodExists.id;
+                    }
+
                     insertItem.run(targetTransferId, pid, qty);
 
                     // Asegurar stock en destino
@@ -4299,22 +4655,48 @@ app.post('/api/transfers/qr-import', authenticate, (req, res) => {
                 }
             } else {
                 // Crear y recibir directamente
+                const validUserId = req.user?.id || getFallbackUser().id;
                 const resTrans = db.prepare(`
                     INSERT INTO transfers (source_inventory, target_inventory, created_by, status, notes, received_at, received_by)
                     VALUES (?, ?, ?, 'received', ?, datetime('now'), ?)
                 `).run(
                     qrData.src || 'alm',
                     qrData.tgt || 'mch1',
-                    req.user.id,
+                    validUserId,
                     (qrData.notes || '') + ` [QR_REF:${rawId}]`,
-                    req.user.id
+                    validUserId
                 );
                 targetTransferId = resTrans.lastInsertRowid;
 
                 const insertItem = db.prepare('INSERT INTO transfer_items (transfer_id, product_id, quantity) VALUES (?, ?, ?)');
                 for (const item of qrData.items) {
-                    const pid = item.pid || item.product_id;
+                    let pid = item.pid || item.product_id || item.id;
                     const qty = Number(item.qty || item.quantity || 0);
+
+                    if (typeof pid === 'string' && /^\d+$/.test(pid)) {
+                        pid = parseInt(pid, 10);
+                    }
+
+                    let prodExists = (typeof pid === 'number' && !isNaN(pid))
+                        ? db.prepare('SELECT id FROM products WHERE id = ?').get(pid)
+                        : null;
+
+                    if (!prodExists && (item.code || item.barcode || item.name)) {
+                        prodExists = db.prepare('SELECT id FROM products WHERE code = ? OR barcode = ? OR LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1')
+                            .get(item.code || '', item.barcode || '', item.name || '');
+                    }
+
+                    if (!prodExists) {
+                        const fallbackName = item.name || `Producto #${pid || 'S/N'}`;
+                        const insProd = db.prepare(`
+                            INSERT INTO products (name, code, barcode, quantity, cost_mx, sale_price_manual)
+                            VALUES (?, ?, ?, 0, ?, ?)
+                        `).run(fallbackName, item.code || '', item.barcode || '', Number(item.cost_price || item.cost || 0), Number(item.sale_price || item.price || 0));
+                        pid = insProd.lastInsertRowid;
+                    } else {
+                        pid = prodExists.id;
+                    }
+
                     insertItem.run(targetTransferId, pid, qty);
 
                     const exists = db.prepare('SELECT 1 FROM product_inventory WHERE product_id = ? AND inventory_id = ?').get(pid, qrData.tgt || 'mch1');
@@ -4342,39 +4724,399 @@ app.post('/api/transfers/qr-import', authenticate, (req, res) => {
 
 // ------------------
 
-// Login endpoint
-app.post('/api/login', (req, res) => {
+// --- AUTH / OTP & MAILER HELPERS ---
+const getMailer = () => {
+    const host = getSystemConfig('smtp_host') || process.env.SMTP_HOST || 'smtp.gmail.com';
+    const port = parseInt(getSystemConfig('smtp_port') || process.env.SMTP_PORT || '465', 10);
+    const user = getSystemConfig('smtp_user') || process.env.SMTP_USER || 'yoelbritomachado@gmail.com';
+    const pass = getSystemConfig('smtp_pass') || process.env.SMTP_PASS || '';
+    const secure = port === 465;
+
+    if (!user || !pass) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+        tls: { rejectUnauthorized: false }
+    });
+};
+
+const sendOTPEmail = async (toEmail, otpCode, username) => {
+    const transporter = getMailer();
+    const fromUser = getSystemConfig('smtp_user') || process.env.SMTP_USER || 'yoelbritomachado@gmail.com';
+    
+    const htmlContent = `
+        <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 500px; margin: 0 auto; background: #0f172a; border-radius: 16px; overflow: hidden; border: 1px solid #1e293b; color: #f8fafc;">
+            <div style="background: linear-gradient(135deg, #ec4899, #f43f5e); padding: 24px; text-align: center;">
+                <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 800; letter-spacing: 1px;">MISS CHULERÍAS CRM</h1>
+                <p style="margin: 4px 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">Verificación de Inicio de Sesión</p>
+            </div>
+            <div style="padding: 28px 24px;">
+                <p style="font-size: 15px; color: #cbd5e1; margin-top: 0;">Hola <strong>${username || 'Usuario'}</strong>,</p>
+                <p style="font-size: 14px; color: #94a3b8; line-height: 1.5;">Tu código de seguridad temporal para acceder a tu cuenta es:</p>
+                <div style="margin: 24px 0; text-align: center;">
+                    <span style="display: inline-block; background: #1e293b; border: 2px dashed #ec4899; border-radius: 12px; padding: 14px 28px; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #f472b6; font-family: monospace;">
+                        ${otpCode}
+                    </span>
+                </div>
+                <p style="font-size: 12px; color: #64748b; line-height: 1.4; text-align: center;">
+                    Este código expira en <strong>10 minutos</strong>. Si no solicitaste este acceso, podés ignorar este mensaje con seguridad.
+                </p>
+            </div>
+            <div style="background: #090d16; padding: 14px; text-align: center; border-top: 1px solid #1e293b;">
+                <p style="margin: 0; font-size: 11px; color: #475569;">Miss Chulerías • Sistema de Gestión Seguro</p>
+            </div>
+        </div>
+    `;
+
+    if (!transporter) {
+        console.error(`[AUTH] No hay credenciales SMTP configuradas para enviar correos a ${toEmail}`);
+        return { sent: false, error: 'Servicio de correo no configurado. Configurá las credenciales SMTP en el servidor.' };
+    }
+
     try {
-        const { username, pin } = req.body;
+        await transporter.sendMail({
+            from: `"Miss Chulerías CRM" <${fromUser}>`,
+            to: toEmail,
+            subject: `🔐 Tu código de acceso Miss Chulerías: ${otpCode}`,
+            text: `Tu código de verificación para Miss Chulerías CRM es: ${otpCode} (expira en 10 minutos).`,
+            html: htmlContent
+        });
+        console.log(`[AUTH] Correo OTP enviado con éxito a ${toEmail}`);
+        return { sent: true };
+    } catch (err) {
+        console.error(`[AUTH] Error enviando correo OTP a ${toEmail}:`, err.message);
+        return { sent: false, error: err.message, devCode: otpCode };
+    }
+};
+
+// --- AUTH ENDPOINTS ---
+
+// 1. Obtener usuario de la sesión actual
+app.get('/api/auth/me', (req, res) => {
+    try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ authenticated: false, error: 'No hay token' });
+        }
+
+        const user = db.prepare(`
+            SELECT id, username, email, role, can_edit, avatar_url, phone, address, 
+                   inventory_id, permissions, authorized_to_work, is_verified, two_factor_enabled 
+            FROM users WHERE session_token = ?
+        `).get(token);
+
+        if (!user) {
+            return res.status(401).json({ authenticated: false, error: 'Sesión inválida o expirada' });
+        }
+
+        // Respetar el rol real asignado en la base de datos
+        res.json({
+            authenticated: true,
+            user: {
+                ...user,
+                role: user.role || (isOwner ? 'owner' : 'seller'),
+                permissions: typeof user.permissions === 'string' ? JSON.parse(user.permissions || '{}') : user.permissions
+            }
+        });
+    } catch (e) {
+        logError('GET /api/auth/me', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 2. Solicitar Código OTP por Email
+app.post('/api/auth/send-otp', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email || !String(email).trim()) {
+            return res.status(400).json({ error: 'Debes ingresar un correo electrónico válido' });
+        }
+
+        const cleanEmail = String(email).trim().toLowerCase();
+        let user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?').get(cleanEmail, cleanEmail);
+
+        // Lista blanca estricta: Si el usuario no existe previamente en la base de datos,
+        // SOLO el correo del Dueño (ADMIN_EMAIL) puede auto-registrarse. Cualquier otro correo queda bloqueado.
+        if (!user) {
+            const isOwner = cleanEmail === ADMIN_EMAIL.toLowerCase();
+            if (!isOwner) {
+                console.warn(`[Seguridad] Intento de acceso no autorizado con correo no registrado: ${cleanEmail}`);
+                return res.status(403).json({ 
+                    error: 'Acceso Denegado: Este correo no está autorizado en el sistema de Miss Chulerías. Contacta al Dueño para que dé de alta tu usuario.' 
+                });
+            }
+
+            const ins = db.prepare(`
+                INSERT INTO users (username, email, pin, role, can_edit, is_verified, authorized_to_work, two_factor_enabled)
+                VALUES (?, ?, '1234', 'owner', 1, 1, 1, 0)
+            `).run(cleanEmail.split('@')[0], cleanEmail);
+            user = db.prepare('SELECT * FROM users WHERE id = ?').get(ins.lastInsertRowid);
+        }
+
+        if (user.is_banned === 1) {
+            return res.status(403).json({ error: 'Esta cuenta ha sido suspendida por el administrador.' });
+        }
+
+        // Generar código numérico de 6 dígitos
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutos
+
+        db.prepare('UPDATE users SET otp_code = ?, otp_expires = ? WHERE id = ?').run(otpCode, otpExpires, user.id);
+
+        const targetEmail = user.email || cleanEmail;
+        const sendResult = await sendOTPEmail(targetEmail, otpCode, user.username);
+
+        if (!sendResult.sent) {
+            return res.status(500).json({ error: sendResult.error || 'No se pudo enviar el correo de verificación' });
+        }
+
+        res.json({
+            success: true,
+            message: `Código enviado a ${targetEmail}`,
+            email: targetEmail,
+            requiresPin: user.two_factor_enabled === 1
+        });
+    } catch (e) {
+        logError('POST /api/auth/send-otp', e);
+        res.status(500).json({ error: 'Error al procesar solicitud: ' + e.message });
+    }
+});
+
+// 3. Login con Código OTP (+ PIN si 2FA está activo)
+app.post('/api/auth/verify-otp', (req, res) => {
+    try {
+        const { email, code, pin, deviceId } = req.body;
+        if (!email || !code) {
+            return res.status(400).json({ error: 'Correo y código de verificación son obligatorios' });
+        }
+
+        const cleanEmail = String(email).trim().toLowerCase();
+        const cleanCode = String(code).trim();
+        const user = db.prepare('SELECT * FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?').get(cleanEmail, cleanEmail);
+
+        if (!user) {
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        if (!user.otp_code || user.otp_code !== cleanCode) {
+            return res.status(400).json({ error: 'El código ingresado es incorrecto o no coincide' });
+        }
+
+        if (user.otp_expires && Date.now() > user.otp_expires) {
+            return res.status(400).json({ error: 'El código de verificación ha expirado. Por favor solicita uno nuevo.' });
+        }
+
+        // Si tiene 2FA habilitado, validar además el PIN
+        if (user.two_factor_enabled === 1) {
+            if (!pin || String(pin).trim() !== String(user.pin).trim()) {
+                return res.status(401).json({ error: 'Doble Factor Requerido: El PIN ingresado es incorrecto.', requiresPin: true });
+            }
+        }
+
+        // Guardar dispositivo de confianza al verificar código exitosamente
+        let trustedList = [];
+        try {
+            trustedList = JSON.parse(user.trusted_devices || '[]');
+        } catch (_) {}
+
+        if (deviceId && !trustedList.includes(deviceId)) {
+            trustedList.push(deviceId);
+            // Mantener últimos 10 dispositivos confiables
+            if (trustedList.length > 10) trustedList.shift();
+            db.prepare('UPDATE users SET trusted_devices = ? WHERE id = ?').run(JSON.stringify(trustedList), user.id);
+        }
+
+        // Limpiar OTP usado
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+        const isOwner = user.email && (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+        const token = Math.random().toString(36).substring(2) + Date.now().toString(36) + Math.random().toString(36).substring(2);
+
+        db.prepare(`
+          UPDATE users 
+          SET otp_code = NULL, otp_expires = NULL, session_token = ?, last_ip = ?, is_verified = 1,
+              first_login_at = COALESCE(first_login_at, datetime('now')),
+              last_login_at = datetime('now')
+          WHERE id = ?
+        `).run(token, clientIp, user.id);
+
+        const userRole = isOwner ? 'owner' : (user.role || 'seller');
+        const userCanEdit = isOwner ? 1 : (user.can_edit || 0);
+
+        res.json({
+            success: true,
+            token,
+            user: {
+                id: user.id,
+                username: user.username,
+                email: user.email,
+                role: userRole,
+                can_edit: userCanEdit,
+                two_factor_enabled: user.two_factor_enabled === 1
+            }
+        });
+    } catch (e) {
+        logError('POST /api/auth/verify-otp', e);
+        res.status(500).json({ error: 'Error al verificar código: ' + e.message });
+    }
+});
+
+// 4. Configurar Seguridad / SMTP (Admin / Dueño)
+app.get('/api/auth/security-config', authenticate, (req, res) => {
+    try {
+        const smtp_host = getSystemConfig('smtp_host') || 'smtp.gmail.com';
+        const smtp_port = getSystemConfig('smtp_port') || '465';
+        const smtp_user = getSystemConfig('smtp_user') || 'yoelbritomachado@gmail.com';
+        const has_pass = !!getSystemConfig('smtp_pass');
+        const default_2fa = getSystemConfig('default_2fa') === '1';
+
+        res.json({
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            has_pass,
+            default_2fa
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/security-config', authenticate, requireAdmin, (req, res) => {
+    try {
+        const { smtp_host, smtp_port, smtp_user, smtp_pass, default_2fa } = req.body;
+        const setConfig = (key, val) => {
+            if (val !== undefined) {
+                db.prepare('INSERT INTO system_config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(val));
+            }
+        };
+
+        if (smtp_host) setConfig('smtp_host', smtp_host);
+        if (smtp_port) setConfig('smtp_port', smtp_port);
+        if (smtp_user) setConfig('smtp_user', smtp_user);
+        if (smtp_pass) setConfig('smtp_pass', smtp_pass);
+        if (default_2fa !== undefined) setConfig('default_2fa', default_2fa ? '1' : '0');
+
+        res.json({ success: true, message: 'Configuración de seguridad y correo guardada con éxito.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 5. Alternar Doble Factor (2FA) para el usuario propio
+app.patch('/api/auth/2fa', authenticate, (req, res) => {
+    try {
+        const { enabled, pin } = req.body;
+        const userId = req.user.id;
+        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        if (enabled && (!user.pin || user.pin.length < 4)) {
+            if (!pin || pin.length < 4) {
+                return res.status(400).json({ error: 'Debes definir un PIN de al menos 4 dígitos para activar el Doble Factor.' });
+            }
+            db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(String(pin).trim(), userId);
+        }
+
+        const nextVal = enabled ? 1 : 0;
+        db.prepare('UPDATE users SET two_factor_enabled = ? WHERE id = ?').run(nextVal, userId);
+
+        res.json({ success: true, two_factor_enabled: nextVal === 1, message: nextVal === 1 ? 'Doble Factor Activado' : 'Doble Factor Desactivado' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Login endpoint estándar (Username / Email + PIN)
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, pin, deviceId } = req.body;
         if (!username || !pin) {
             return res.status(400).json({ error: 'Faltan credenciales (usuario o PIN)' });
         }
 
         const lowerUsername = username.trim().toLowerCase();
-        const user = db.prepare('SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(lowerUsername, lowerUsername);
+        let user = db.prepare('SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(lowerUsername, lowerUsername);
+
+        const isOwner = lowerUsername === ADMIN_EMAIL.toLowerCase();
+
+        // Si es el dueño y aún no existe en BD, crearlo automáticamente
+        if (!user && isOwner) {
+            const ins = db.prepare(`
+                INSERT INTO users (username, email, pin, role, can_edit, is_verified, authorized_to_work, two_factor_enabled)
+                VALUES (?, ?, ?, 'owner', 1, 1, 1, 0)
+            `).run('Yoel Brito', ADMIN_EMAIL, pin.trim());
+            user = db.prepare('SELECT * FROM users WHERE id = ?').get(ins.lastInsertRowid);
+        }
 
         if (!user) {
-            const isOwner = lowerUsername === ADMIN_EMAIL.toLowerCase();
             const errorMsg = isOwner
                 ? "Su cuenta de administrador no existe. Por favor, regístrese con su correo para activarla."
-                : "El usuario no existe.";
+                : "El usuario o correo no existe.";
             return res.status(404).json({ success: false, error: errorMsg });
         }
 
         const cleanPin = pin.trim();
         if (user.pin !== cleanPin) {
             console.log(`Login Failed: PIN Mismatch. User: ${lowerUsername}`);
-            return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+            return res.status(401).json({ success: false, message: 'Contraseña o PIN incorrecto' });
+        }
+
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+
+        // Evaluar confianza de dispositivo e IP
+        let trustedList = [];
+        try {
+            trustedList = JSON.parse(user.trusted_devices || '[]');
+        } catch (_) {}
+
+        const isDeviceTrusted = deviceId && trustedList.includes(deviceId);
+        const isSameIp = user.last_ip && (user.last_ip === clientIp);
+        const isLocalHost = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'localhost';
+
+        // Disparar verificación OTP si:
+        // 1. Tiene 2FA activado manualmente
+        // 2. O si ingresa desde un dispositivo NUEVO / IP desconocida y no es localhost ni dispositivo recordado
+        const isSuspicious = !isDeviceTrusted && !isSameIp && !isLocalHost;
+        const requiresOtp = user.two_factor_enabled === 1 || isSuspicious;
+
+        if (requiresOtp) {
+            // Generar y enviar código automáticamente
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+            const otpExpires = Date.now() + 10 * 60 * 1000;
+            db.prepare('UPDATE users SET otp_code = ?, otp_expires = ? WHERE id = ?').run(otpCode, otpExpires, user.id);
+            await sendOTPEmail(user.email, otpCode, user.username).catch(() => {});
+
+            return res.json({
+                success: true,
+                requiresOtp: true,
+                email: user.email,
+                reason: isSuspicious ? 'nuevo_dispositivo' : '2fa',
+                message: isSuspicious 
+                    ? 'Detectamos un acceso desde un dispositivo o IP diferente. Te enviamos un código de verificación a tu Gmail para confirmar tu identidad.'
+                    : 'PIN correcto. Te enviamos un código de verificación a tu correo para completar el Doble Factor.'
+            });
+        }
+
+        // Si es dispositivo de confianza o misma IP, registrar dispositivo si no estaba
+        if (deviceId && !trustedList.includes(deviceId)) {
+            trustedList.push(deviceId);
+            if (trustedList.length > 10) trustedList.shift();
+            db.prepare('UPDATE users SET trusted_devices = ? WHERE id = ?').run(JSON.stringify(trustedList), user.id);
         }
 
         console.log(`Login Success: ${lowerUsername}`);
-        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-        const isOwner = user.email && (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
 
         if (isOwner) {
-            if (user.role !== 'admin' || user.can_edit !== 1) {
-                db.prepare("UPDATE users SET role = 'admin', can_edit = 1 WHERE id = ?").run(user.id);
-                user.role = 'admin';
+            if (user.role !== 'owner' && user.role !== 'admin') {
+                db.prepare("UPDATE users SET role = 'owner', can_edit = 1 WHERE id = ?").run(user.id);
+                user.role = 'owner';
                 user.can_edit = 1;
             }
             if (user.is_verified === 0) {
@@ -4390,11 +5132,17 @@ app.post('/api/login', (req, res) => {
             return res.status(403).json({ error: 'Tu cuenta ha sido suspendida.' });
         }
 
-        const token = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        db.prepare('UPDATE users SET session_token = ?, last_ip = ? WHERE id = ?').run(token, clientIp, user.id);
+        const token = Math.random().toString(36).substring(2) + Date.now().toString(36) + Math.random().toString(36).substring(2);
+        db.prepare(`
+          UPDATE users 
+          SET session_token = ?, last_ip = ?,
+              first_login_at = COALESCE(first_login_at, datetime('now')),
+              last_login_at = datetime('now')
+          WHERE id = ?
+        `).run(token, clientIp, user.id);
 
-        const userRole = isOwner ? 'admin' : (user.role || 'viewer');
-        const userCanEdit = isOwner ? 1 : (user.can_edit || 0);
+        const userRole = user.role || (isOwner ? 'owner' : 'viewer');
+        const userCanEdit = user.can_edit !== undefined ? user.can_edit : (isOwner ? 1 : 0);
 
         res.json({
             success: true,
@@ -4404,7 +5152,8 @@ app.post('/api/login', (req, res) => {
                 username: user.username,
                 email: user.email,
                 role: userRole,
-                can_edit: userCanEdit
+                can_edit: userCanEdit,
+                two_factor_enabled: user.two_factor_enabled === 1
             }
         });
 
@@ -4417,50 +5166,63 @@ app.post('/api/login', (req, res) => {
 // Register Endpoint
 app.post('/api/register', async (req, res) => {
     try {
-        const isOwner = req.body.email === ADMIN_EMAIL;
+        const { username, email, pin } = req.body;
+        if (!username || !email || !pin) {
+            return res.status(400).json({ error: 'Todos los campos son obligatorios (usuario, correo y PIN/contraseña)' });
+        }
+
+        const cleanUsername = String(username).trim();
+        const cleanEmail = String(email).trim().toLowerCase();
+        const cleanPin = String(pin).trim();
+
+        if (cleanPin.length < 4) {
+            return res.status(400).json({ error: 'El PIN o contraseña debe tener al menos 4 caracteres/dígitos' });
+        }
+
+        const isOwner = cleanEmail === ADMIN_EMAIL.toLowerCase();
         const allowed = getSystemConfig('allow_registration') !== 'false';
 
         if (!allowed && !isOwner) {
-            return res.status(403).json({ error: 'El registro de nuevos usuarios está cerrado por el administrador.' });
+            return res.status(403).json({ error: 'El registro de nuevos usuarios está temporalmente cerrado por el administrador.' });
         }
-
-        const { username, email, pin } = req.body;
-        if (!username || !email || !pin) return res.status(400).json({ error: 'Todos los campos son obligatorios' });
-
-        const cleanUsername = username.trim();
-        const cleanEmail = email.trim().toLowerCase();
-        const cleanPin = pin.trim();
 
         const isBlacklisted = db.prepare('SELECT * FROM blacklisted_emails WHERE email = ?').get(cleanEmail);
         if (isBlacklisted) {
-            return res.status(403).json({ error: 'Este correo ha sido bloqueado permanentemente por el administrador.' });
+            return res.status(403).json({ error: 'Este correo ha sido bloqueado por seguridad.' });
         }
 
         const existing = db.prepare('SELECT * FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(cleanUsername.toLowerCase(), cleanEmail);
-        if (existing) return res.status(400).json({ error: 'El usuario o correo ya existe' });
-
-        console.log("Attempting to insert user:", { cleanUsername, cleanEmail, isOwner });
-        const verifiedStatus = isOwner ? 1 : 0;
-        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-        try {
-            const info = db.prepare('INSERT INTO users (username, email, pin, is_verified, last_ip) VALUES (?, ?, ?, ?, ?)').run(cleanUsername, cleanEmail, cleanPin, verifiedStatus, clientIp);
-            const userId = info.lastInsertRowid;
-            console.log("User inserted with ID:", userId);
-
-            if (isOwner) {
-                return res.json({ success: true, message: 'Cuenta de administrador creada y autorizada automáticamente.' });
-            }
-
-            // Skip email for now in dev
-            res.json({ success: true, requireVerification: false, email, warning: 'Modo dev: verificado auto' });
-
-        } catch (dbError) {
-            console.error("Registration Error:", dbError);
-            return res.status(500).json({ error: 'Error al registrar: ' + dbError.message });
+        if (existing) {
+            return res.status(400).json({ error: 'Ya existe una cuenta con ese nombre de usuario o correo electrónico.' });
         }
+
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+        const role = isOwner ? 'owner' : 'seller';
+        const canEdit = isOwner ? 1 : 0;
+
+        // Generar código OTP para verificar el correo
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutos
+
+        const info = db.prepare(`
+            INSERT INTO users (username, email, pin, role, can_edit, is_verified, authorized_to_work, two_factor_enabled, otp_code, otp_expires, last_ip)
+            VALUES (?, ?, ?, ?, ?, 0, 1, 0, ?, ?, ?)
+        `).run(cleanUsername, cleanEmail, cleanPin, role, canEdit, otpCode, otpExpires, clientIp);
+
+        // Enviar correo real con el código OTP
+        const sendResult = await sendOTPEmail(cleanEmail, otpCode, cleanUsername);
+        if (!sendResult.sent) {
+            return res.status(500).json({ error: sendResult.error || 'No se pudo enviar el correo de verificación' });
+        }
+
+        res.json({
+            success: true,
+            requireVerification: true,
+            email: cleanEmail,
+            message: `¡Cuenta creada! Enviamos un código de verificación a ${cleanEmail}`
+        });
     } catch (outerError) {
-        console.error("Registration Critical Error:", outerError);
+        logError("Registration Critical Error", outerError);
         res.status(500).json({ error: 'Error crítico en registro: ' + outerError.message });
     }
 });
@@ -4653,18 +5415,37 @@ const nexusResponse = row => {
 };
 const auditNexus = (nodeId, action, req, payload = {}) => db.prepare('INSERT INTO nexus_audit_log (node_id, action, actor_user_id, payload) VALUES (?, ?, ?, ?)').run(nodeId, action, req.user?.id || null, JSON.stringify(payload));
 const syncNexusFromCRM = () => {
-  const ownerId = 'nexus_owner_miss_chulerias';
   const companyId = 'nexus_company_miss_chulerias';
   const upsert = db.prepare(`INSERT INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, children, position_x, position_y, archived_at)
     VALUES (?, 1, ?, ?, 'online', ?, ?, ?, '[]', ?, ?, NULL)
     ON CONFLICT(id) DO UPDATE SET type=excluded.type, name=excluded.name, status=excluded.status, description=excluded.description, metrics=excluded.metrics, updated_at=CURRENT_TIMESTAMP`);
   const ids = [];
   
-  // 1. Dueño (Cúspide, nivel 0)
-  upsert.run(ownerId, 'dueño', 'Dueño · Miss Chulerías', 'Autoridad principal del negocio.', JSON.stringify({ empresas: 1 }), null, 380, 30); 
+  // 1. Dueño (Cúspide, nivel 0) - Vinculado al usuario con rol 'owner' en la DB
+  const ownerUser = db.prepare("SELECT id, username, email, role, is_archived, authorized_to_work, first_login_at, last_login_at FROM users WHERE is_archived = 0 AND role = 'owner' LIMIT 1").get();
+  const ownerId = ownerUser ? `nexus_user_${ownerUser.id}` : 'nexus_owner_miss_chulerias';
+  const ownerHasLoggedIn = ownerUser ? Boolean(ownerUser.first_login_at || ownerUser.last_login_at) : true;
+  
+  upsert.run(
+    ownerId, 
+    'dueño', 
+    ownerUser ? (ownerUser.username || 'Dueño') : 'Dueño · Miss Chulerías', 
+    'Autoridad principal y dueño del negocio.', 
+    JSON.stringify({ 
+      userId: ownerUser ? ownerUser.id : null,
+      username: ownerUser ? ownerUser.username : 'Dueño',
+      role: 'Dueño',
+      empresas: 1,
+      hasLoggedIn: ownerHasLoggedIn,
+      authorized_to_work: ownerUser ? ownerUser.authorized_to_work : 1
+    }), 
+    null, 
+    380, 
+    30
+  ); 
   ids.push(ownerId);
 
-  // 2. Empresa (Hija de Dueño)
+  // 2. Empresa (Hija directa del Dueño)
   upsert.run(companyId, 'empresa', 'Miss Chulerías', 'Empresa principal del CRM.', JSON.stringify({ sedes: 3 }), ownerId, 380, 230); 
   ids.push(companyId);
 
@@ -4721,14 +5502,22 @@ const syncNexusFromCRM = () => {
   }
 
   // 4. Administradores (Hijos de Empresa, nivel 2 lateral derecho)
-  for (const user of db.prepare('SELECT id, username, email, role, is_banned FROM users WHERE is_banned = 0 AND role IN (\'admin\', \'administrator\', \'administrador\') ORDER BY id').all()) {
+  for (const user of db.prepare('SELECT id, username, email, role, is_banned, is_archived, authorized_to_work, first_login_at, last_login_at FROM users WHERE is_archived = 0 AND role IN (\'admin\', \'administrator\', \'administrador\') ORDER BY id').all()) {
     const id = `nexus_user_${user.id}`;
+    const hasLoggedIn = Boolean(user.first_login_at || user.last_login_at);
     upsert.run(
       id,
       'administrador',
       user.username || user.email || `Admin ${user.id}`,
       'Gestión y administración operativa de la empresa.',
-      JSON.stringify({ userId: user.id, username: user.username, role: 'Administrador', acceso: 'Total' }),
+      JSON.stringify({ 
+        userId: user.id, 
+        username: user.username, 
+        role: 'Administrador', 
+        acceso: 'Total',
+        hasLoggedIn,
+        authorized_to_work: user.authorized_to_work
+      }),
       companyId,
       640,
       450
@@ -4764,15 +5553,23 @@ const syncNexusFromCRM = () => {
   // 6. Vendedores (Nivel 4, Y=1100 para ubicarse debajo de los puntos de venta)
   const defaultSellerParent = posNodeIds[0] || warehouseNodeId || companyId;
   let sellerIndex = 0;
-  for (const user of db.prepare('SELECT id, username, email, role, is_banned FROM users WHERE is_banned = 0 AND role IN (\'seller\', \'vendedor\') ORDER BY id').all()) {
+  for (const user of db.prepare('SELECT id, username, email, role, is_banned, is_archived, authorized_to_work, first_login_at, last_login_at FROM users WHERE is_archived = 0 AND role IN (\'seller\', \'vendedor\') ORDER BY id').all()) {
     const id = `nexus_user_${user.id}`;
     const posX = 80 + sellerIndex * 300;
+    const hasLoggedIn = Boolean(user.first_login_at || user.last_login_at);
     upsert.run(
       id,
       'vendedor',
       user.username || user.email || `Vendedor ${user.id}`,
       'Vendedor en punto de venta.',
-      JSON.stringify({ userId: user.id, username: user.username, role: 'Vendedor', ventasHoy: 0 }),
+      JSON.stringify({ 
+        userId: user.id, 
+        username: user.username, 
+        role: 'Vendedor', 
+        ventasHoy: 0,
+        hasLoggedIn,
+        authorized_to_work: user.authorized_to_work
+      }),
       defaultSellerParent,
       posX,
       1100
@@ -4784,14 +5581,23 @@ const syncNexusFromCRM = () => {
   }
 
   const rows = db.prepare('SELECT id, parent_id FROM nexus_nodes WHERE archived_at IS NULL').all();
+  // Limpiar nodos activos obsoletos que no formen parte del sync actual ni sean nodos personalizados
+  const activeSyncedIds = new Set(ids);
+  for (const r of rows) {
+    if (r.id === 'nexus_owner_miss_chulerias' || (r.id.startsWith('nexus_user_') && !activeSyncedIds.has(r.id))) {
+      db.prepare('DELETE FROM nexus_nodes WHERE id = ?').run(r.id);
+    }
+  }
+
+  const updatedRows = db.prepare('SELECT id, parent_id FROM nexus_nodes WHERE archived_at IS NULL').all();
   const children = new Map(); 
-  rows.forEach(r => { 
+  updatedRows.forEach(r => { 
     if (r.parent_id) children.set(r.parent_id, [...(children.get(r.parent_id) || []), r.id]); 
   });
   const setChildren = db.prepare('UPDATE nexus_nodes SET children = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
   for (const id of ids) setChildren.run(JSON.stringify(children.get(id) || []), id);
-    return ids.length;
-  };
+  return ids.length;
+};
 
   // Helper: recalcula las métricas financieras en vivo de un nodo de sede (almacén o punto de venta)
   const refreshNexusInventoryMetrics = (inventoryId) => {
@@ -4838,8 +5644,8 @@ const syncNexusFromCRM = () => {
 app.get('/api/nexus/nodes', (req, res) => {
   try {
     if (req.query.archived !== 'true') {
-      const activeCount = db.prepare('SELECT COUNT(*) as c FROM nexus_nodes WHERE archived_at IS NULL').get()?.c || 0;
-      if (activeCount === 0) syncNexusFromCRM();
+      // Sincronizar siempre para reflejar cambios reales de usuarios, logins y estados
+      syncNexusFromCRM();
     }
     const archived = req.query.archived === 'true';
     const rows = db.prepare(`SELECT * FROM nexus_nodes WHERE company_id = ? AND ${archived ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'} ORDER BY position_y, position_x, name`).all(Number(req.query.company_id || 1)); 
@@ -4928,6 +5734,28 @@ app.patch('/api/nexus/nodes/:id', checkAdmin, (req, res) => {
       if (b.parentId === undefined) {
         fields.push('parent_id = ?');
         vals.push(b.parentIds.length > 0 ? b.parentIds[0] : null);
+      }
+    }
+
+    // Si es un nodo de usuario (vendedor/admin) y se desconecta de todo padre -> desautorizar
+    if (b.parentId !== undefined || b.parentIds !== undefined) {
+      const pId = b.parentId !== undefined ? b.parentId : (b.parentIds && b.parentIds.length > 0 ? b.parentIds[0] : null);
+      const targetNode = db.prepare('SELECT id, type, name, metrics FROM nexus_nodes WHERE id = ?').get(req.params.id);
+      if (targetNode && ['vendedor', 'administrador', 'dueño'].includes(targetNode.type)) {
+        const hasNoParents = (!pId || pId === null) && (!b.parentIds || b.parentIds.length === 0);
+        let uId = null;
+        try { uId = JSON.parse(targetNode.metrics || '{}').userId; } catch (_) {}
+        if (!uId && targetNode.id.startsWith('nexus_user_')) uId = Number(targetNode.id.replace('nexus_user_', ''));
+        
+        if (uId && uId !== 1) {
+          if (hasNoParents) {
+            db.prepare('UPDATE users SET authorized_to_work = 0 WHERE id = ?').run(uId);
+            fields.push("status = 'maintenance'");
+          } else {
+            db.prepare('UPDATE users SET authorized_to_work = 1 WHERE id = ?').run(uId);
+            fields.push("status = 'online'");
+          }
+        }
       }
     }
     if (b.metrics !== undefined) { 
@@ -5110,17 +5938,29 @@ const getDefaultPermissionsForRole = (role) => {
 app.get('/api/users', authenticate, (req, res) => {
   try {
     const isOwner = req.user.role === 'owner';
+    const showArchived = req.query.archived === 'true' || req.query.archived === '1';
     let query = `
       SELECT id, username, email, pin, role, can_edit, is_banned, is_verified, 
-             authorized_to_work, permissions, created_at, last_ip,
+             authorized_to_work, is_archived, first_login_at, last_login_at,
+             two_factor_enabled, permissions, created_at, last_ip,
              avatar_url, dni_number, dni_front, dni_back, phone, address
       FROM users
     `;
     const params = [];
+    const whereClauses = [];
     
-    // Si no es dueño (es admin o vendedor), filtrar solo roles no-dueño o su propio alcance
+    if (showArchived) {
+      whereClauses.push(`is_archived = 1`);
+    } else {
+      whereClauses.push(`(is_archived = 0 OR is_archived IS NULL)`);
+    }
+
     if (!isOwner) {
-      query += ` WHERE role != 'owner'`;
+      whereClauses.push(`role != 'owner'`);
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
     }
     query += ` ORDER BY id ASC`;
 
@@ -5132,10 +5972,13 @@ app.get('/api/users', authenticate, (req, res) => {
         parsedPerms = JSON.parse(u.permissions || '{}');
       } catch (_) {}
       const defaultPerms = getDefaultPermissionsForRole(u.role);
+      const isLoggedBefore = Boolean(u.first_login_at || u.last_login_at);
       return {
         ...u,
         pin: u.pin ? '••••' : '',
         authorized_to_work: u.authorized_to_work !== 0,
+        is_archived: u.is_archived === 1,
+        is_logged_before: isLoggedBefore,
         is_banned: u.is_banned === 1,
         permissions: { ...defaultPerms, ...parsedPerms }
       };
@@ -5153,7 +5996,7 @@ app.get('/api/users/:id', authenticate, (req, res) => {
   try {
     const user = db.prepare(`
       SELECT id, username, email, pin, role, can_edit, is_banned, is_verified, 
-             authorized_to_work, permissions, created_at, last_ip,
+             authorized_to_work, two_factor_enabled, permissions, created_at, last_ip,
              avatar_url, dni_number, dni_front, dni_back, phone, address
       FROM users 
       WHERE id = ?
@@ -5182,7 +6025,7 @@ app.get('/api/users/:id', authenticate, (req, res) => {
 // POST /api/users - Create a new user and sync with Nexus node if seller/admin
 app.post('/api/users', checkAdmin, (req, res) => {
   try {
-    const { username, email, pin, role, authorized_to_work, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url } = req.body || {};
+    const { username, email, pin, role, authorized_to_work, two_factor_enabled, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url } = req.body || {};
     if (!username || !String(username).trim()) {
       return res.status(400).json({ error: 'El nombre de usuario es requerido.' });
     }
@@ -5195,25 +6038,34 @@ app.post('/api/users', checkAdmin, (req, res) => {
         ? 'admin' 
         : 'seller';
 
-    // Verificar unicidad
-    const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(cleanUsername.toLowerCase(), cleanEmail.toLowerCase());
+    // Verificar si ya existe un usuario con ese nombre o email (incluyendo archivados)
+    const existing = db.prepare('SELECT id, is_archived, username, email FROM users WHERE LOWER(username) = ? OR LOWER(email) = ?').get(cleanUsername.toLowerCase(), cleanEmail.toLowerCase());
     if (existing) {
+      if (existing.is_archived === 1) {
+        return res.status(409).json({ 
+          error: `El usuario o correo "${existing.email}" se encuentra archivado. Puedes desarchivarlo desde la sección de Archivados.`,
+          isArchived: true,
+          userId: existing.id
+        });
+      }
       return res.status(400).json({ error: 'Ya existe un usuario con ese nombre o email.' });
     }
 
     const permsObj = permissions || getDefaultPermissionsForRole(cleanRole);
     const authToWork = authorized_to_work === false ? 0 : 1;
+    const twoFactorVal = two_factor_enabled ? 1 : 0;
 
     const info = db.prepare(`
-      INSERT INTO users (username, email, pin, role, can_edit, is_verified, is_banned, authorized_to_work, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url, created_at) 
-      VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO users (username, email, pin, role, can_edit, is_verified, is_banned, is_archived, authorized_to_work, two_factor_enabled, permissions, dni_number, phone, address, dni_front, dni_back, avatar_url, first_login_at, last_login_at, created_at) 
+      VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, datetime('now'))
     `).run(
-      cleanUsername,
-      cleanEmail,
-      pin ? String(pin).trim() : '1234',
-      cleanRole,
-      cleanRole === 'seller' ? 0 : 1,
+      cleanUsername, 
+      cleanEmail, 
+      pin ? String(pin).trim() : '1234', 
+      cleanRole, 
+      cleanRole === 'admin' || cleanRole === 'owner' ? 1 : 0, 
       authToWork,
+      twoFactorVal,
       JSON.stringify(permsObj),
       dni_number || null,
       phone || null,
@@ -5308,6 +6160,27 @@ app.patch('/api/users/:id', checkAdmin, (req, res) => {
       fields.push('authorized_to_work = ?');
       vals.push(b.authorized_to_work ? 1 : 0);
     }
+    if (b.is_archived !== undefined) {
+      fields.push('is_archived = ?');
+      vals.push(b.is_archived ? 1 : 0);
+      if (b.is_archived) {
+        // Al archivar, revocar sesión activa y resetear histórico para cuando vuelva
+        fields.push('session_token = NULL');
+        fields.push('authorized_to_work = 0');
+        fields.push('first_login_at = NULL');
+        fields.push('last_login_at = NULL');
+      } else {
+        // Al desarchivar, resetear fecha de login para que quede en espera (blanco y negro)
+        // hasta que el usuario vuelva a loguearse por primera vez tras su reactivación
+        fields.push('first_login_at = NULL');
+        fields.push('last_login_at = NULL');
+        fields.push('authorized_to_work = 1');
+      }
+    }
+    if (b.two_factor_enabled !== undefined) {
+      fields.push('two_factor_enabled = ?');
+      vals.push(b.two_factor_enabled ? 1 : 0);
+    }
     if (b.is_banned !== undefined) {
       fields.push('is_banned = ?');
       vals.push(b.is_banned ? 1 : 0);
@@ -5348,26 +6221,32 @@ app.patch('/api/users/:id', checkAdmin, (req, res) => {
 
     // Actualizar nodo Nexus en tiempo real: nombre, tipo, estado y padre
     const nexusId = `nexus_user_${userId}`;
-    const finalRole = b.role !== undefined
-      ? (['owner', 'dueño'].includes(String(b.role).toLowerCase()) ? 'owner'
-          : ['admin', 'administrador'].includes(String(b.role).toLowerCase()) ? 'admin' : 'seller')
+    const finalRole = (fields.some(f => f.startsWith('role =')) && vals.length > 0)
+      ? (['owner', 'dueño'].includes(String(req.body.role || '').toLowerCase()) ? 'owner'
+          : ['admin', 'administrador'].includes(String(req.body.role || '').toLowerCase()) ? 'admin' : 'seller')
       : existing.role;
     // Estado desde authorized_to_work / is_banned
     const authStatus = (b.authorized_to_work !== undefined ? (b.authorized_to_work ? 1 : 0) : existing.authorized_to_work);
     const banned = b.is_banned !== undefined ? (b.is_banned ? 1 : 0) : existing.is_banned;
     const nodeStatus = banned === 1 ? 'maintenance' : (authStatus === 0 ? 'warning' : 'online');
     const nodeType = finalRole === 'owner' ? 'dueño' : finalRole === 'admin' ? 'administrador' : 'vendedor';
-    const nodeParent = finalRole === 'admin' ? 'nexus_company_miss_chulerias' : 'nexus_inventory_mch1';
+    const nodeParent = finalRole === 'owner' ? null : (finalRole === 'admin' ? 'nexus_company_miss_chulerias' : 'nexus_inventory_mch1');
     const newName = b.username !== undefined ? String(b.username).trim() : existing.username;
     try {
+      const hasLoggedIn = Boolean(existing.first_login_at || existing.last_login_at);
       db.prepare(`
-        INSERT OR REPLACE INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, position_x, position_y)
+        INSERT INTO nexus_nodes (id, company_id, type, name, status, description, metrics, parent_id, position_x, position_y)
         VALUES (?, 1, ?, ?, ?, ?, ?, ?, 120, 920)
+        ON CONFLICT(id) DO UPDATE SET type=excluded.type, name=excluded.name, status=excluded.status, description=excluded.description, metrics=excluded.metrics, parent_id=excluded.parent_id, updated_at=CURRENT_TIMESTAMP
       `).run(
         nexusId, nodeType, newName, nodeStatus,
-        JSON.stringify({ userId, username: newName, role: finalRole }),
+        finalRole === 'owner' ? 'Autoridad principal y dueño del negocio.' : (finalRole === 'admin' ? 'Administrador de sistema.' : 'Vendedor de punto de venta.'),
+        JSON.stringify({ userId, username: newName, role: finalRole, hasLoggedIn, authorized_to_work: authStatus }),
         nodeParent
       );
+      if (finalRole === 'owner') {
+        db.prepare("UPDATE nexus_nodes SET parent_id = ? WHERE id = 'nexus_company_miss_chulerias'").run(nexusId);
+      }
     } catch (nexusErr) {
       console.warn('Advertencia al sincronizar nodo Nexus en edición:', nexusErr.message);
     }
@@ -5487,11 +6366,11 @@ app.post('/api/users/upload-media', authenticate, userMediaUpload.single('file')
     }
 });
 
-// Actualizar perfil propio (Avatar o PIN/Contraseña)
+// Actualizar perfil propio (Avatar o PIN/Contraseña o 2FA)
 app.patch('/api/users/profile/me', authenticate, (req, res) => {
     try {
         const userId = req.user.id;
-        const { avatar_url, pin, phone, address } = req.body || {};
+        const { avatar_url, pin, phone, address, two_factor_enabled } = req.body || {};
         const fields = [];
         const vals = [];
 
@@ -5511,13 +6390,17 @@ app.patch('/api/users/profile/me', authenticate, (req, res) => {
             fields.push('address = ?');
             vals.push(address);
         }
+        if (two_factor_enabled !== undefined) {
+            fields.push('two_factor_enabled = ?');
+            vals.push(two_factor_enabled ? 1 : 0);
+        }
 
         if (fields.length > 0) {
             vals.push(userId);
             db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
         }
 
-        const updated = db.prepare('SELECT id, username, email, role, avatar_url, phone, address, created_at FROM users WHERE id = ?').get(userId);
+        const updated = db.prepare('SELECT id, username, email, role, avatar_url, phone, address, two_factor_enabled, created_at FROM users WHERE id = ?').get(userId);
         res.json({ success: true, user: updated });
     } catch (e) {
         logError('PATCH /api/users/profile/me', e);
@@ -5525,22 +6408,56 @@ app.patch('/api/users/profile/me', authenticate, (req, res) => {
     }
 });
 
-// DELETE /api/users/:id - Delete user (soft or hard)
+// DELETE /api/users/:id - Delete user (Archivar por defecto o Hard Delete si force=true)
 app.delete('/api/users/:id', checkAdmin, (req, res) => {
   try {
     const userId = Number(req.params.id);
-    if (userId === 1) {
-      return res.status(400).json({ error: 'No se puede eliminar el usuario administrador principal.' });
+    const forceDelete = req.query.force === 'true' || req.query.force === '1';
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    if (user.role === 'owner' || user.email === ADMIN_EMAIL) {
+      return res.status(400).json({ error: 'No se puede eliminar ni archivar la cuenta del Dueño principal.' });
+    }
+
+    if (forceDelete) {
+      // Hard delete permanente: reasignar datos históricos al dueño para no violar FK y preservar estadísticas
+      const owner = db.prepare("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get();
+      const fallbackOwnerId = owner ? owner.id : 4;
+
+      db.pragma('foreign_keys = OFF');
+      for (const t of ['sales_sessions', 'expenses', 'sales', 'purchases', 'losses', 'notifications', 'wage_payments']) {
+        try {
+          db.prepare(`UPDATE ${t} SET user_id = ? WHERE user_id = ?`).run(fallbackOwnerId, userId);
+        } catch (_) {}
+      }
+      db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+      db.pragma('foreign_keys = ON');
+
+      // Remover nodo Nexus
+      try {
+        db.prepare('DELETE FROM nexus_nodes WHERE id = ?').run(`nexus_user_${userId}`);
+      } catch (_) {}
+
+      return res.json({ success: true, message: 'Usuario y credenciales eliminados permanentemente del sistema.' });
+    }
+
+    // Soft delete: Archivar
+    db.prepare(`
+      UPDATE users 
+      SET is_archived = 1, authorized_to_work = 0, session_token = NULL 
+      WHERE id = ?
+    `).run(userId);
     
-    // Archivar / remover nodo Nexus correspondiente
+    // Archivar / marcar nodo Nexus como archivado/offline
     try {
-      db.prepare('DELETE FROM nexus_nodes WHERE id = ?').run(`nexus_user_${userId}`);
+      db.prepare("UPDATE nexus_nodes SET status = 'maintenance' WHERE id = ?").run(`nexus_user_${userId}`);
     } catch (_) {}
 
-    res.json({ success: true, message: 'Usuario eliminado correctamente' });
+    res.json({ success: true, message: 'Usuario archivado correctamente. Toda su data histórica e informes se conservan intactos.' });
   } catch (e) {
     logError('DELETE /api/users/:id', e);
     res.status(500).json({ error: e.message });
@@ -5557,6 +6474,144 @@ app.get('/api/inventories', authenticate, (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// Migration: Ensure is_archived, first_login_at, last_login_at on users
+try {
+    const uCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+    if (!uCols.includes('is_archived')) {
+        db.exec("ALTER TABLE users ADD COLUMN is_archived INTEGER DEFAULT 0");
+    }
+    if (!uCols.includes('first_login_at')) {
+        db.exec("ALTER TABLE users ADD COLUMN first_login_at DATETIME DEFAULT NULL");
+    }
+    if (!uCols.includes('last_login_at')) {
+        db.exec("ALTER TABLE users ADD COLUMN last_login_at DATETIME DEFAULT NULL");
+    }
+} catch (e) {
+    console.warn("Migration is_archived/first_login_at on users:", e.message);
+}
+
+// ----------------------------------------------------
+// CRON / AUTOMATED DAILY BACKUP SERVICE (1x per day, prune > 30 days)
+// ----------------------------------------------------
+const runDailyAutomaticBackup = async () => {
+    try {
+        const now = new Date();
+        const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const backupName = `auto-backup-${timestamp}.zip`;
+        const backupPath = path.join(backupDir, backupName);
+
+        // 1. Checkpoint WAL
+        const backupDbPath = path.join(backupDir, `inventory-auto-${timestamp}.db`);
+        db.pragma('wal_checkpoint(FULL)');
+        fs.copyFileSync(dbPath, backupDbPath);
+
+        // 2. Crear ZIP con DB y uploads
+        const output = fs.createWriteStream(backupPath);
+        const archive = archiver('zip', { zlib: { level: 9 } });
+
+        output.on('close', () => {
+            try { fs.unlinkSync(backupDbPath); } catch (_) {}
+            console.log(`[AutoBackup] Respaldo diario completado exitosamente: ${backupName} (${(fs.statSync(backupPath).size / 1024 / 1024).toFixed(2)} MB)`);
+            pruneOldBackups();
+        });
+
+        archive.on('error', (err) => {
+            console.error('[AutoBackup] Error en compresión ZIP:', err.message);
+        });
+
+        archive.pipe(output);
+        archive.file(backupDbPath, { name: 'inventory.db' });
+        if (fs.existsSync(uploadDir)) {
+            archive.directory(uploadDir, 'uploads');
+        }
+        archive.finalize();
+    } catch (err) {
+        console.error('[AutoBackup] Error generando respaldo diario:', err.message);
+    }
+};
+
+const pruneOldBackups = () => {
+    try {
+        if (!fs.existsSync(backupDir)) return;
+        const now = Date.now();
+        const maxAgeMs = 30 * 24 * 60 * 60 * 1000; // 30 días
+        const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.zip'));
+
+        files.forEach(file => {
+            const filePath = path.join(backupDir, file);
+            const stats = fs.statSync(filePath);
+            if (now - stats.mtimeMs > maxAgeMs) {
+                fs.unlinkSync(filePath);
+                console.log(`[AutoBackup] Backup purgado por antigüedad (>30 días): ${file}`);
+            }
+        });
+    } catch (e) {
+        console.warn('[AutoBackup] Error al purgar backups antiguos:', e.message);
+    }
+};
+
+// Ejecutar backup diario cada 24 horas y al arrancar si no hay reciente
+setInterval(() => {
+    runDailyAutomaticBackup();
+}, 24 * 60 * 60 * 1000);
+
+// Comprobar si hace falta respaldo al inicio (si pasaron más de 24h desde el último)
+setTimeout(() => {
+    try {
+        if (fs.existsSync(backupDir)) {
+            const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.zip'));
+            if (files.length === 0) {
+                runDailyAutomaticBackup();
+            } else {
+                const latest = files.map(f => fs.statSync(path.join(backupDir, f)).mtimeMs).sort((a,b) => b - a)[0];
+                if (Date.now() - latest > 24 * 60 * 60 * 1000) {
+                    runDailyAutomaticBackup();
+                }
+            }
+        }
+    } catch (_) {}
+}, 10000);
+try {
+    const pCols = db.prepare("PRAGMA table_info(products)").all();
+    if (!pCols.some(c => c.name === 'updated_at')) {
+        db.exec("ALTER TABLE products ADD COLUMN updated_at DATETIME");
+        db.exec("UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL");
+    }
+} catch (e) {
+    console.warn("Migration updated_at on products:", e.message);
+}
+
+try {
+    const piCols = db.prepare("PRAGMA table_info(product_inventory)").all();
+    if (!piCols.some(c => c.name === 'updated_at')) {
+        db.exec("ALTER TABLE product_inventory ADD COLUMN updated_at DATETIME");
+        db.exec("UPDATE product_inventory SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL");
+    }
+} catch (e) {
+    console.warn("Migration updated_at on product_inventory:", e.message);
+}
+
+// TRIGGERS to update updated_at automatically on products & stock changes
+try {
+    db.exec(`
+        CREATE TRIGGER IF NOT EXISTS update_product_timestamp 
+        AFTER UPDATE ON products
+        BEGIN
+            UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+        END;
+    `);
+    db.exec(`
+        CREATE TRIGGER IF NOT EXISTS update_product_inventory_timestamp 
+        AFTER UPDATE ON product_inventory
+        BEGIN
+            UPDATE product_inventory SET updated_at = CURRENT_TIMESTAMP WHERE product_id = OLD.product_id AND inventory_id = OLD.inventory_id;
+            UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.product_id;
+        END;
+    `);
+} catch (e) {
+    console.warn("Triggers on products/product_inventory:", e.message);
+}
 
 // 2. Get Products (With Stock Aggregation)
 app.get('/api/products', authenticate, (req, res) => {
@@ -5654,6 +6709,94 @@ app.get('/api/products', authenticate, (req, res) => {
 
     } catch (e) {
         logError("GET /api/products", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 2.1 Sync Products Incremental (Delta Sync)
+app.get('/api/products/sync', authenticate, (req, res) => {
+    try {
+        const { since, inventoryId } = req.query;
+        const settingsRows = db.prepare("SELECT key, value FROM settings").all();
+        const settingsMap = settingsRows.reduce((acc, row) => ({ ...acc, [row.key]: row.value }), {});
+
+        let query = "SELECT * FROM products";
+        const params = [];
+
+        if (since) {
+            query += " WHERE updated_at > ?";
+            params.push(since);
+        }
+
+        query += " ORDER BY updated_at ASC";
+        const productsList = db.prepare(query).all(...params);
+
+        const getStocks = db.prepare("SELECT inventory_id, quantity FROM product_inventory WHERE product_id = ?");
+        const getImages = db.prepare("SELECT url, size_type FROM product_images WHERE product_id = ?");
+
+        const productsWithStock = productsList.map(p => {
+            const stocks = getStocks.all(p.id);
+            const inventoryMap = {};
+            let totalStock = 0;
+            let specificStock = 0;
+
+            stocks.forEach(s => {
+                inventoryMap[s.inventory_id] = s.quantity;
+                totalStock += s.quantity;
+                if (inventoryId && (s.inventory_id == inventoryId || s.inventory_id === inventoryId)) {
+                    specificStock = s.quantity;
+                }
+            });
+
+            const images = getImages.all(p.id);
+            const imageVersions = {
+                original: images.filter(img => img.size_type === 'original').map(img => img.url),
+                medium: images.filter(img => img.size_type === 'medium').map(img => img.url),
+                small: images.filter(img => img.size_type === 'small').map(img => img.url),
+                thumbnail: images.filter(img => img.size_type === 'thumbnail').map(img => img.url)
+            };
+            const allImages = images.map(img => img.url);
+
+            const cost_mx = p.cost_mx || 0;
+            const sale_price_manual = p.sale_price_manual || 0;
+            const currentQty = inventoryId ? specificStock : totalStock;
+
+            const rate_usd_mn = settingsMap.RATE_USD_MN || 550;
+            const rate_mxn_usd = settingsMap.RATE_MXN_USD || 19;
+            const margin_multiplier = settingsMap.MARGIN_MULTIPLIER || 3.5;
+
+            const cost_mn = (cost_mx / rate_mxn_usd) * rate_usd_mn;
+            const cost_usd = rate_usd_mn > 0 ? (cost_mn / rate_usd_mn) : 0;
+            const sale_unit_mn_suggested = cost_mn * margin_multiplier;
+            const actual_sale_price = sale_price_manual > 0 ? sale_price_manual : sale_unit_mn_suggested;
+            const margin_percent = actual_sale_price > 0 ? ((actual_sale_price - cost_mn) / actual_sale_price) * 100 : 0;
+
+            return {
+                ...p,
+                inventory: inventoryMap,
+                total_quantity: totalStock,
+                quantity: currentQty,
+                images: allImages,
+                image_versions: imageVersions,
+                cost_usd: parseFloat(cost_usd.toFixed(2)),
+                cost_mn: parseFloat(cost_mn.toFixed(2)),
+                sale_unit_mn_suggested: parseFloat(sale_unit_mn_suggested.toFixed(2)),
+                actual_sale_price: parseFloat(actual_sale_price.toFixed(2)),
+                total_cost_mn: parseFloat((cost_mn * currentQty).toFixed(2)),
+                total_sale_mn: parseFloat((actual_sale_price * currentQty).toFixed(2)),
+                margin_percent: parseFloat(margin_percent.toFixed(1))
+            };
+        });
+
+        res.json({
+            since: since || null,
+            server_time: new Date().toISOString(),
+            count: productsWithStock.length,
+            products: productsWithStock
+        });
+
+    } catch (e) {
+        logError("GET /api/products/sync", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -6856,7 +7999,14 @@ const clientDistPath = path.join(__dirname, '../client/dist');
 
 if (fs.existsSync(clientDistPath)) {
     console.log('[Server] Serving static PWA frontend from:', clientDistPath);
-    app.use(express.static(clientDistPath));
+    app.use(express.static(clientDistPath, {
+        setHeaders: (res, filePath) => {
+            if (filePath.endsWith('sw.js') || filePath.endsWith('manifest.webmanifest')) {
+                res.setHeader('Service-Worker-Allowed', '/');
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+            }
+        }
+    }));
     
     // SPA fallback - serve index.html for all non-API routes
     app.use((req, res, next) => {
