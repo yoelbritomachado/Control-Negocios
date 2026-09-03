@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, KeyRound, Shield, X, Check, RefreshCw, Lock } from 'lucide-react';
+import { User, KeyRound, Shield, X, Check, RefreshCw, Lock, ShieldCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useRole } from '../hooks/useRole';
 import ImagePickerWithCamera from './ImagePickerWithCamera';
@@ -12,6 +12,7 @@ export default function ProfileModal({ isOpen, onClose, onUpdated }) {
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(user?.two_factor_enabled === 1 || user?.two_factor_enabled === true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
@@ -36,7 +37,8 @@ export default function ProfileModal({ isOpen, onClose, onUpdated }) {
     setLoading(true);
     try {
       const payload = {
-        avatar_url: avatarUrl
+        avatar_url: avatarUrl,
+        two_factor_enabled: twoFactorEnabled
       };
       if (newPin) {
         payload.pin = newPin;
@@ -77,7 +79,7 @@ export default function ProfileModal({ isOpen, onClose, onUpdated }) {
             </div>
             <div>
               <h2 className="text-base font-bold text-white">Mi Perfil</h2>
-              <p className="text-xs text-slate-400">Personalizá tu foto y PIN de acceso</p>
+              <p className="text-xs text-slate-400">Personalizá tu foto, PIN y Doble Factor</p>
             </div>
           </div>
 
@@ -109,7 +111,7 @@ export default function ProfileModal({ isOpen, onClose, onUpdated }) {
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/40 border border-slate-800">
             <div>
               <p className="text-[10px] uppercase font-bold text-slate-500">Usuario Asignado</p>
-              <p className="text-sm font-bold text-white">{user?.username || 'Usuario'}</p>
+              <p className="text-sm font-bold text-white">{user?.username || user?.email || 'Yoel Brito'}</p>
             </div>
             <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
               {roleLabel}
@@ -126,6 +128,40 @@ export default function ProfileModal({ isOpen, onClose, onUpdated }) {
             onChange={(url) => setAvatarUrl(url)}
             onRemove={() => setAvatarUrl('')}
           />
+
+          {/* Doble Factor (2FA) */}
+          <div className="p-4 rounded-xl bg-slate-950/40 border border-slate-800 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "w-9 h-9 rounded-lg flex items-center justify-center border",
+                twoFactorEnabled 
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                  : "bg-slate-800 border-slate-700 text-slate-400"
+              )}>
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-white">Doble Factor de Autenticación (2FA)</p>
+                <p className="text-[11px] text-slate-400">Exigir código OTP por Gmail al iniciar con PIN</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+              className={cn(
+                "relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                twoFactorEnabled ? "bg-cyan-500" : "bg-slate-700"
+              )}
+            >
+              <span
+                className={cn(
+                  "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                  twoFactorEnabled ? "translate-x-5" : "translate-x-0"
+                )}
+              />
+            </button>
+          </div>
 
           {/* Cambio de PIN / Clave */}
           <div className="p-4 rounded-xl bg-slate-950/30 border border-slate-800 space-y-3">

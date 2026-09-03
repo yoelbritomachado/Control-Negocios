@@ -14,18 +14,21 @@ const MAX_CHUNK_SIZE = 500;
 export function compressPayload(data) {
   try {
     const jsonStr = JSON.stringify(data);
-    const compressed = pako.deflate(jsonStr, { level: 9 });
-    // Convertir Uint8Array a binario string para btoa
+    const utf8Bytes = new TextEncoder().encode(jsonStr);
+    const compressed = pako.deflate(utf8Bytes, { level: 9 });
+    
+    // Convertir Uint8Array a binario string de manera segura por chunks
     let binary = '';
-    const len = compressed.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(compressed[i]);
+    const chunkSize = 8192;
+    for (let i = 0; i < compressed.length; i += chunkSize) {
+      const sub = compressed.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, sub);
     }
     return btoa(binary);
   } catch (err) {
     console.error('Error comprimiendo payload QR:', err);
-    // Fallback a base64 simple
-    return btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    // Fallback a base64 simple UTF-8
+    return btoa(encodeURIComponent(JSON.stringify(data)));
   }
 }
 
@@ -39,14 +42,19 @@ export function decompressPayload(base64Str) {
     for (let i = 0; i < binary.length; i++) {
       bytes[i] = binary.charCodeAt(i);
     }
-    const decompressed = pako.inflate(bytes, { to: 'string' });
-    return JSON.parse(decompressed);
+    const inflated = pako.inflate(bytes);
+    const jsonStr = new TextDecoder().decode(inflated);
+    return JSON.parse(jsonStr);
   } catch (err) {
     try {
-      // Intento con fallback sin pako
-      return JSON.parse(decodeURIComponent(escape(atob(base64Str))));
+      // Intento con fallback sin pako (JSON directo codificado en base64)
+      return JSON.parse(decodeURIComponent(atob(base64Str)));
     } catch (e2) {
-      throw new Error('Formato de código QR inválido o dañado');
+      try {
+        return JSON.parse(decodeURIComponent(escape(atob(base64Str))));
+      } catch (e3) {
+        throw new Error('Formato de código QR inválido o dañado');
+      }
     }
   }
 }
@@ -201,23 +209,25 @@ export class MultiQRReceiver {
 /**
  * Empaqueta un traslado en formato ultra ligero (omitiendo fotos)
  */
-export function prepareTransferQRPayload(transfer, items) {
+export function prepareTransferQRPayload(transfer, items = null) {
+  if (!transfer) return null;
+  const rawItems = items || transfer.items || [];
   return {
-    id: transfer.id || transfer.transfer_id,
-    src: transfer.source_inventory || transfer.source_location,
-    tgt: transfer.target_inventory || transfer.target_location,
-    date: transfer.date || new Date().toISOString(),
+    id: transfer.id || transfer.transfer_id || transfer.local_id || `TRF-${Date.now()}`,
+    src: transfer.source_inventory || transfer.source_location || 'alm',
+    tgt: transfer.target_inventory || transfer.target_location || 'mch1',
+    date: transfer.date || transfer.created_at || new Date().toISOString(),
     notes: transfer.notes || '',
     user: transfer.created_by || transfer.user_name || 'Admin',
-    total_cost: transfer.total_cost || 0,
-    total_sale: transfer.total_sale || 0,
-    items: (items || []).map(item => ({
+    total_cost: Number(transfer.total_cost || 0),
+    total_sale: Number(transfer.total_sale || 0),
+    items: rawItems.map(item => ({
       pid: item.product_id || item.id,
       sku: item.sku || '',
-      name: item.name || item.product_name,
+      name: item.name || item.product_name || '',
       qty: Number(item.quantity || item.qty || 0),
-      cost: Number(item.cost_price || item.cost || 0),
-      price: Number(item.sale_price || item.price || 0)
+      cost: Number(item.cost_price || item.cost || item.cost_mn || 0),
+      price: Number(item.sale_price || item.price || item.sale_price_manual || 0)
     }))
   };
 }
@@ -225,25 +235,27 @@ export function prepareTransferQRPayload(transfer, items) {
 /**
  * Empaqueta una venta en formato ultra ligero
  */
-export function prepareSaleQRPayload(sale, items) {
+export function prepareSaleQRPayload(sale, items = null) {
+  if (!sale) return null;
+  const rawItems = items || sale.items || [];
   return {
-    id: sale.id || sale.sale_id,
-    code: sale.ticket_code || sale.code || `VTA-${sale.id}`,
-    inv: sale.inventory_id || sale.location_id,
+    id: sale.id || sale.sale_id || sale.local_id || `VTA-${Date.now()}`,
+    code: sale.ticket_code || sale.code || `VTA-${sale.id || sale.local_id || Date.now()}`,
+    inv: sale.inventory_id || sale.location_id || 'mch1',
     date: sale.created_at || sale.date || new Date().toISOString(),
     seller: sale.seller_name || sale.user_name || 'Vendedor',
     total: Number(sale.total_amount || sale.total || 0),
-    method: sale.payment_method || 'cash',
-    cash_paid: Number(sale.cash_received || sale.cash_paid || sale.total || 0),
-    trans_paid: Number(sale.transfer_received || sale.trans_paid || 0),
+    method: sale.payment_method || sale.method || 'cash',
+    cash_paid: Number(sale.cash_received || sale.cash_paid || sale.cash_amount || sale.total || 0),
+    trans_paid: Number(sale.transfer_received || sale.trans_paid || sale.transfer_amount || 0),
     notes: sale.notes || '',
-    items: (items || []).map(item => ({
+    items: rawItems.map(item => ({
       pid: item.product_id || item.id,
       sku: item.sku || '',
-      name: item.product_name || item.name,
+      name: item.product_name || item.name || '',
       qty: Number(item.quantity || item.qty || 0),
-      price: Number(item.unit_price || item.price || 0),
-      total: Number(item.total_price || item.total || 0)
+      price: Number(item.unit_price || item.sale_price_manual || item.price || 0),
+      total: Number(item.total_price || (Number(item.quantity || 1) * Number(item.sale_price_manual || item.price || 0)))
     }))
   };
 }

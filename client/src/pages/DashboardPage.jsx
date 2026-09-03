@@ -42,6 +42,7 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [data, setData] = useState(null);
+    const [fromCache, setFromCache] = useState(false);
 
     // Sincronizar selector local si cambia el inventario global de la barra superior
     useEffect(() => {
@@ -71,6 +72,7 @@ export default function DashboardPage() {
             }
             const res = await fetchDashboardStats(params);
             setData(res);
+            setFromCache(Boolean(res?._fromCache));
         } catch (err) {
             console.error("Error cargando dashboard:", err);
             setError(err.response?.data?.error || err.message || 'Error al obtener datos');
@@ -114,6 +116,11 @@ export default function DashboardPage() {
                     <p className="text-xs text-slate-400 mt-1">
                         Estadísticas operativas para <strong className="text-cyan-400">{getInventoryName(selectedInventory)}</strong>
                     </p>
+                    {fromCache && (
+                        <p className="text-[11px] text-amber-400/90 mt-1">
+                            Mostrando últimos datos guardados (sin conexión con el servidor)
+                        </p>
+                    )}
                 </div>
 
                 {/* Filters */}

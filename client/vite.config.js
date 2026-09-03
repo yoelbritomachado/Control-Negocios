@@ -13,13 +13,14 @@ export default defineConfig(async () => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
+          id: '/',
           name: 'Miss Chulerías POS',
           short_name: 'Miss Chulerías',
           description: 'Sistema de Inventario y Punto de Venta - Miss Chulerías',
-          theme_color: '#ffffff',
-          background_color: '#ffffff',
+          theme_color: '#0f172a',
+          background_color: '#0f172a',
           display: 'standalone',
-          orientation: 'portrait',
+          orientation: 'any',
           scope: '/',
           start_url: '/',
           icons: [
@@ -50,13 +51,29 @@ export default defineConfig(async () => {
           ]
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,webmanifest}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,webmanifest,wasm}'],
           navigateFallback: '/index.html',
+          navigateFallbackAllowlist: [/^(?!\/(api|uploads)).*$/],
           navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
           runtimeCaching: [
+            {
+              urlPattern: ({ request }) => request.mode === 'navigate',
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'html-cache',
+                plugins: [
+                  {
+                    cacheWillUpdate: async ({ response }) => {
+                      if (response && response.status === 200) return response;
+                      return null;
+                    }
+                  }
+                ]
+              }
+            },
             {
               urlPattern: /\.(?:html|js|css)$/,
               handler: 'StaleWhileRevalidate',
@@ -69,28 +86,16 @@ export default defineConfig(async () => {
               }
             },
             {
-              urlPattern: /^https?:\/\/localhost:(3002|5173)\/api\/.*/,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                networkTimeoutSeconds: 3,
-                expiration: {
-                  maxEntries: 100,
-                  maxAgeSeconds: 24 * 60 * 60 // 24 horas
-                },
-                cacheableResponse: {
-                  statuses: [0, 200]
-                }
-              }
-            },
-            {
-              urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/,
+              urlPattern: /^\/uploads\/.*|\.(?:png|jpg|jpeg|svg|gif|webp)$/,
               handler: 'CacheFirst',
               options: {
                 cacheName: 'images-cache',
                 expiration: {
-                  maxEntries: 200,
+                  maxEntries: 300,
                   maxAgeSeconds: 30 * 24 * 60 * 60 // 30 días
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
                 }
               }
             },
@@ -140,7 +145,11 @@ export default defineConfig(async () => {
       }
     },
     optimizeDeps: {
-      exclude: ['wa-sqlite']
+      exclude: ['wa-sqlite'],
+      include: ['react', 'react-dom', 'react-router-dom']
+    },
+    resolve: {
+      dedupe: ['react', 'react-dom']
     },
     build: {
       target: 'esnext',

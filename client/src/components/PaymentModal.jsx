@@ -3,29 +3,60 @@ import { Calculator, Banknote, CreditCard, CheckCircle2, X, Loader2, AlertCircle
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 
-export default function PaymentModal({ total, onClose, onConfirm }) {
+export default function PaymentModal({ total, onClose, onConfirm, isProcessing = false }) {
     const [cashAmount, setCashAmount] = useState(total.toFixed(2));
     const [transferAmount, setTransferAmount] = useState('');
     const [activeInput, setActiveInput] = useState('cash'); // 'cash', 'transfer', 'both'
+    const [submitting, setSubmitting] = useState(false);
     const inputRef = useRef(null);
 
     const totalCash = parseFloat(cashAmount) || 0;
     const totalTransfer = parseFloat(transferAmount) || 0;
     const totalReceived = totalCash + totalTransfer;
-    const remaining = total - totalReceived;
-    const change = totalReceived > total ? totalReceived - total : 0;
+    
+    // Reglas de negocio:
+    // 1. El vuelto/cambio solo se da en efectivo si el usuario entregó más efectivo del restante.
+    // 2. Si la transferencia cubre parte o todo, el efectivo requerido baja.
+    // 3. El cambio es exactamente el exceso de efectivo entregado sobre lo que faltaba pagar en efectivo.
+    const remainingToPay = Math.max(0, total - totalTransfer);
+    const change = totalCash > remainingToPay ? (totalCash - remainingToPay) : 0;
+    const missing = totalReceived < total ? (total - totalReceived) : 0;
 
     useEffect(() => {
         if (inputRef.current) inputRef.current.focus();
     }, [activeInput]);
 
+    // Cuando el usuario escribe una transferencia:
+    // Se resta automáticamente del efectivo.
+    // Si la transferencia cubre el total (ej: 1500 de 1500), el efectivo pasa a 0.
+    const handleTransferChange = (val) => {
+        setTransferAmount(val);
+        const parsedTransfer = parseFloat(val) || 0;
+        if (parsedTransfer <= 0) {
+            setCashAmount(total.toFixed(2));
+        } else if (parsedTransfer >= total) {
+            setCashAmount('0');
+        } else {
+            const rest = Math.max(0, total - parsedTransfer);
+            setCashAmount(rest.toFixed(2));
+        }
+    };
+
+    // Cuando el usuario modifica manualmente el efectivo:
+    // Se conserva el valor tipeado para calcular vuelto si entregó de más.
+    const handleCashChange = (val) => {
+        setCashAmount(val);
+    };
+
     const handleConfirm = (e) => {
         e.preventDefault();
+        if (submitting || isProcessing) return;
         if (totalReceived < total) {
             alert('El monto recibido es menor al total a pagar');
             return;
         }
         
+        setSubmitting(true);
         let method = 'cash';
         if (totalCash > 0 && totalTransfer > 0) {
             method = 'mixed';
@@ -33,12 +64,15 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
             method = 'transfer';
         }
 
+        const idempotencyKey = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
         onConfirm({
             method,
             cashAmount: totalCash,
             transferAmount: totalTransfer,
             amountReceived: totalReceived,
-            change: change
+            change: change,
+            idempotencyKey
         });
     };
 
@@ -48,7 +82,7 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
             setTransferAmount('');
         } else {
             setTransferAmount(total.toFixed(2));
-            setCashAmount('');
+            setCashAmount('0');
         }
     };
 
@@ -85,12 +119,12 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
                     </div>
 
                     {/* Alerta si falta dinero */}
-                    {remaining > 0 && (
-                        <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center gap-2">
-                            <AlertCircle className="w-4 h-4 text-rose-400" />
-                            <span className="text-rose-400 text-sm">Faltan ${remaining.toFixed(2)}</span>
-                        </div>
-                    )}
+                                        {missing > 0 && (
+                                            <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center gap-2">
+                                                <AlertCircle className="w-4 h-4 text-rose-400" />
+                                                <span className="text-rose-400 text-sm">Faltan ${missing.toFixed(2)}</span>
+                                            </div>
+                                        )}
 
                     {/* Alerta si sobra dinero */}
                     {change > 0 && (
@@ -129,7 +163,7 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
                                     step="0.01"
                                     placeholder="0.00"
                                     value={cashAmount}
-                                    onChange={(e) => setCashAmount(e.target.value)}
+                                    onChange={(e) => handleCashChange(e.target.value)}
                                     className="w-full bg-secondary/30 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xl font-bold text-white focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition-all"
                                 />
                             </div>
@@ -162,7 +196,7 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
                                     step="0.01"
                                     placeholder="0.00"
                                     value={transferAmount}
-                                    onChange={(e) => setTransferAmount(e.target.value)}
+                                    onChange={(e) => handleTransferChange(e.target.value)}
                                     className="w-full bg-secondary/30 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-xl font-bold text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
                                 />
                             </div>
@@ -191,22 +225,32 @@ export default function PaymentModal({ total, onClose, onConfirm }) {
                             <button
                                 type="button"
                                 onClick={clearAll}
-                                className="flex-1 py-3 rounded-xl bg-secondary/50 text-muted-foreground font-semibold hover:bg-secondary hover:text-white transition-all"
+                                disabled={submitting || isProcessing}
+                                className="flex-1 py-3 rounded-xl bg-secondary/50 text-muted-foreground font-semibold hover:bg-secondary hover:text-white transition-all disabled:opacity-50"
                             >
                                 Limpiar
                             </button>
                             <button
                                 type="submit"
-                                disabled={totalReceived < total}
+                                disabled={totalReceived < total || submitting || isProcessing}
                                 className={cn(
                                     "flex-[2] py-3 rounded-xl font-bold text-lg flex items-center justify-center gap-2 transition-all",
-                                    totalReceived >= total
+                                    (totalReceived >= total && !submitting && !isProcessing)
                                         ? "bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40"
-                                        : "bg-secondary/50 text-muted-foreground cursor-not-allowed"
+                                        : "bg-secondary/50 text-muted-foreground cursor-not-allowed opacity-75"
                                 )}
                             >
-                                <CheckCircle2 className="w-5 h-5" />
-                                CONFIRMAR
+                                {(submitting || isProcessing) ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                        <span>PROCESANDO...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 className="w-5 h-5" />
+                                        <span>CONFIRMAR</span>
+                                    </>
+                                )}
                             </button>
                         </div>
                     </form>

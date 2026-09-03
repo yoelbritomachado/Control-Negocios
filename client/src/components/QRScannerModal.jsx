@@ -11,6 +11,7 @@ import {
   Zap
 } from 'lucide-react';
 import { MultiQRReceiver } from '../lib/qrOfflineService';
+import { recordLog } from '../lib/telemetryLogger';
 
 /**
  * Modal escáner de QR con cámara y soporte de acumulación Multi-QR
@@ -112,16 +113,24 @@ export default function QRScannerModal({
   const handleDecodedText = (text) => {
     if (isFinished) return;
 
+    recordLog('info', 'QR_SCANNER_FRAME', 'Frame QR detectado por cámara', {
+      rawLength: text?.length,
+      preview: text?.substring(0, 30)
+    });
+
     const res = receiverRef.current.feed(text);
 
     if (res.error) {
+      recordLog('warn', 'QR_SCANNER_FEED_ERROR', res.error, { rawString: text?.substring(0, 50) });
       setError(res.error);
       setTimeout(() => setError(null), 3000);
       return;
     }
 
     if (expectedType && res.type && res.type !== expectedType) {
-      setError(`Código incorrecto: se esperaba tipo ${expectedType} pero se leyó ${res.type}`);
+      const typeErr = `Código incorrecto: se esperaba tipo ${expectedType} pero se leyó ${res.type}`;
+      recordLog('warn', 'QR_SCANNER_TYPE_MISMATCH', typeErr, { expected: expectedType, received: res.type });
+      setError(typeErr);
       setTimeout(() => setError(null), 3000);
       return;
     }
@@ -130,11 +139,17 @@ export default function QRScannerModal({
     setChunkStatus({ current: res.current || 1, total: res.total || 1 });
 
     if (res.isComplete) {
+      recordLog('info', 'QR_SCANNER_COMPLETE', 'Paquete QR completado exitosamente', {
+        type: res.type,
+        data: res.data
+      });
       setIsFinished(true);
       triggerHapticSuccess();
       stopCamera();
       if (onScanSuccess) {
         onScanSuccess(res.data, res.type);
+      } else {
+        onClose();
       }
     }
   };

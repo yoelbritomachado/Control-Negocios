@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import api from '../api';
+import { saveNexusNodesLocal, getNexusNodesLocal } from '../lib/localDB';
 import { NODE_TYPES, NODE_STATUS, DEFAULT_METRICS } from './nexus.types';
 
 // Generar ID único
@@ -86,6 +87,9 @@ const INITIAL_NODES = [
   }
 ];
 
+// Llave para persistir posiciones de nodos localmente por dispositivo
+const NEXUS_LOCAL_POSITIONS_KEY = 'mch_nexus_node_positions_v1';
+
 export const useNexus = () => {
   const [nodes, setNodes] = useState([]);
   const [archivedNodes, setArchivedNodes] = useState([]);
@@ -94,20 +98,68 @@ export const useNexus = () => {
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [expandedNodes, setExpandedNodes] = useState(new Set(['empresa_1']));
 
+  // Helper para leer posiciones locales guardadas en este dispositivo
+  const getStoredPositions = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(NEXUS_LOCAL_POSITIONS_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch (_) {
+      return {};
+    }
+  }, []);
+
+  // Helper para aplicar posiciones locales sobre la lista de nodos
+  const applyLocalPositions = useCallback((nodeList) => {
+    const localPositions = getStoredPositions();
+    if (!localPositions || Object.keys(localPositions).length === 0) {
+      return nodeList;
+    }
+    return nodeList.map(n => {
+      if (localPositions[n.id]) {
+        return {
+          ...n,
+          position: { ...n.position, ...localPositions[n.id] }
+        };
+      }
+      return n;
+    });
+  }, [getStoredPositions]);
+
   const loadNodes = useCallback(async () => {
     setLoading(true);
     try {
+      if (!navigator.onLine) {
+        const local = await getNexusNodesLocal();
+        if (local && local.length > 0) {
+          setNodes(applyLocalPositions(local));
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      }
+
       const [activeRes, archivedRes] = await Promise.all([
         api.get('/nexus/nodes?active=true'),
         api.get('/nexus/nodes?archived=true')
       ]);
-      setNodes(activeRes.data || []);
+      const fetchedActive = activeRes.data || [];
+      const withPositions = applyLocalPositions(fetchedActive);
+      setNodes(withPositions);
       setArchivedNodes(archivedRes.data || []);
       setError(null);
+      // Guardar en caché local para uso offline
+      saveNexusNodesLocal(withPositions).catch(() => {});
     } catch (err) {
-      setError(err.response?.data?.error || 'No se pudo cargar Nexus.');
+      console.warn('[Nexus] Fallback local ante error de red:', err.message);
+      const local = await getNexusNodesLocal();
+      if (local && local.length > 0) {
+        setNodes(applyLocalPositions(local));
+        setError(null);
+      } else {
+        setError(err.response?.data?.error || 'No se pudo cargar Nexus.');
+      }
     } finally { setLoading(false); }
-  }, []);
+  }, [applyLocalPositions]);
 
   const restoreNode = useCallback(async (id) => {
     try {
@@ -208,13 +260,36 @@ export const useNexus = () => {
     return newNode;
   }, [nodes, getNodeById, getChildren]);
 
+  // Guardar posición local por dispositivo
+  const saveNodePositionLocal = useCallback((id, position) => {
+    try {
+      const stored = localStorage.getItem(NEXUS_LOCAL_POSITIONS_KEY);
+      const parsed = stored ? JSON.parse(stored) : {};
+      parsed[id] = position;
+      localStorage.setItem(NEXUS_LOCAL_POSITIONS_KEY, JSON.stringify(parsed));
+    } catch (_) {}
+  }, []);
+
+  // Guardar múltiples posiciones locales (usado en auto-layout y drag masivo)
+  const saveMultipleNodePositionsLocal = useCallback((positionsMap) => {
+    try {
+      const stored = localStorage.getItem(NEXUS_LOCAL_POSITIONS_KEY);
+      const parsed = stored ? JSON.parse(stored) : {};
+      const next = { ...parsed, ...positionsMap };
+      localStorage.setItem(NEXUS_LOCAL_POSITIONS_KEY, JSON.stringify(next));
+    } catch (_) {}
+  }, []);
+
   // Actualizar nodo
   const updateNode = useCallback((id, updates) => {
     setNodes(prev => prev.map(n => 
       n.id === id ? { ...n, ...updates } : n
     ));
+    if (updates.position) {
+      saveNodePositionLocal(id, updates.position);
+    }
     api.patch(`/nexus/nodes/${id}`, updates).catch(err => setError(err.response?.data?.error || 'No se pudo actualizar el nodo.'));
-  }, []);
+  }, [saveNodePositionLocal]);
 
   // Archivar nodo (solo si está completamente desconectado)
   const deleteNode = useCallback((id) => {
@@ -420,6 +495,8 @@ export const useNexus = () => {
     disconnectNode,
     selectNode,
     toggleExpand,
+    saveNodePositionLocal,
+    saveMultipleNodePositionsLocal,
     getNodeById,
     getChildren,
     loadNodes

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Bell,
@@ -27,7 +27,8 @@ import {
   Settings,
   UserCheck,
   RefreshCw,
-  Bot
+  Bot,
+  LogOut
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -118,7 +119,7 @@ export function Header() {
 
   const handleRoleChange = (roleId) => {
     const names = {
-      [ROLES.OWNER.id]: 'Dueno',
+      [ROLES.OWNER.id]: 'Dueño',
       [ROLES.ADMIN.id]: 'Administrador', 
       [ROLES.SELLER.id]: 'Vendedor'
     };
@@ -415,9 +416,27 @@ export function Header() {
                   );
                 })}
                 
-                <div className="p-2 border-t border-slate-800 bg-slate-900/50">
+                <div className="p-2 border-t border-slate-800 bg-slate-900/50 space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRoleDropdownOpen(false);
+                      // Cerrar sesión y redirigir
+                      localStorage.removeItem('session_token');
+                      localStorage.removeItem('mch_user_data');
+                      localStorage.removeItem('mch_user_email');
+                      localStorage.removeItem('mch_user_role');
+                      localStorage.removeItem('mch_current_role');
+                      localStorage.removeItem('mch_current_user_name');
+                      window.location.href = '/login';
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors text-xs font-semibold"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Cerrar Sesión</span>
+                  </button>
                   <p className="text-[10px] text-muted-foreground text-center">
-                    Cambiar rol recargara la pagina
+                    Cambiar rol recargará la página
                   </p>
                 </div>
               </motion.div>

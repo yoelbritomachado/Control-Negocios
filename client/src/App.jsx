@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { CartProvider } from './components/CartProvider';
 import { useCart } from './components/CartProvider';
 import MainLayout from './components/MainLayout';
@@ -19,8 +19,26 @@ import HistorySalesPage from './pages/HistorySalesPage';
 import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
 import HistoryMermasPage from './pages/HistoryMermasPage';
 import TrasladosPage from './pages/TrasladosPage';
+import LoginPage from './pages/LoginPage';
 import './index.css';
 import { PWAInstallPrompt } from './offline';
+
+// Componente para proteger rutas privadas
+function AuthGuard({ children }) {
+  const token = localStorage.getItem('session_token');
+  const user = localStorage.getItem('mch_user_data');
+  const location = useLocation();
+
+  // Si no hay sesión iniciada ni token, enviar a login (salvo que sea offline y ya tenga rol cacheado)
+  const isOffline = !navigator.onLine;
+  const hasLocalRole = !!localStorage.getItem('mch_current_role');
+
+  if (!token && !user && (!isOffline || !hasLocalRole)) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return children;
+}
 
 // El almacén central recibe compras y despacha mercancía a los quioscos.
 // El POS solo está disponible dentro de MCH1/MCH2.
@@ -34,8 +52,15 @@ function App() {
     <BrowserRouter>
       <CartProvider>
         <Routes>
-          {/* Rutas con Layout Principal (Sidebar y Header Global) */}
-          <Route path="/" element={<MainLayout />}>
+          {/* Ruta pública de Login */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Rutas Protegidas con Layout Principal (Sidebar y Header Global) */}
+          <Route path="/" element={
+            <AuthGuard>
+              <MainLayout />
+            </AuthGuard>
+          }>
             <Route index element={<DashboardPage />} />
             <Route path="pos" element={<InventoryAwarePOS />} />
             <Route path="entradas" element={<EntradasPage />} />
@@ -58,6 +83,9 @@ function App() {
             <Route path="configuracion" element={<SettingsPage />} />
             <Route path="nexus" element={<NexusManager />} />
           </Route>
+
+          {/* Catch all: volver al inicio */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </CartProvider>
       <PWAInstallPrompt />

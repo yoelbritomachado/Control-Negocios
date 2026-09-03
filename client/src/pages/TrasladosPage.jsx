@@ -22,7 +22,7 @@ import { useCart } from '../components/CartProvider';
 import api from '../api';
 import QRGeneratorModal from '../components/QRGeneratorModal';
 import { prepareTransferQRPayload } from '../lib/qrOfflineService';
-import { getProductsLocal, savePendingTransfer } from '../lib/localDB';
+import { getProductsLocal, savePendingTransfer, applyLocalTransferStock } from '../lib/localDB';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -72,6 +72,8 @@ export default function TrasladosPage() {
         };
         loadInventories();
     }, []);
+
+    const [submitting, setSubmitting] = useState(false);
 
     // Si viene param ?edit=ID, cargar el traslado para edición
     useEffect(() => {
@@ -231,14 +233,23 @@ export default function TrasladosPage() {
             target_inventory: targetInventory,
             items: cart.map(item => ({
                 product_id: item.id,
+                pid: item.id,
                 name: item.name,
-                code: item.code,
-                quantity: item.quantity
+                product_name: item.name,
+                code: item.code || item.sku,
+                sku: item.sku || item.code,
+                quantity: Number(item.quantity) || 1,
+                qty: Number(item.quantity) || 1,
+                cost_price: Number(item.cost_mx || item.cost_mn || item.cost_price || 0),
+                cost: Number(item.cost_mx || item.cost_mn || item.cost_price || 0),
+                sale_price: Number(item.actual_sale_price || item.sale_price_manual || item.sale_price || 0),
+                price: Number(item.actual_sale_price || item.sale_price_manual || item.sale_price || 0)
             })),
             notes
         };
 
         try {
+            setSubmitting(true);
             if (editingTransfer) {
                 // Guardar cambios en traslado existente
                 await api.put(`/transfers/${editingTransfer.id}`, {
@@ -254,20 +265,22 @@ export default function TrasladosPage() {
                 cancelEditing();
                 navigate('/historial/traslados');
             } else {
-                // Intentar enviar al backend con timeout
+                // Intentar enviar al backend con timeout corto
                 try {
-                    await api.post('/transfers', transferData, { timeout: 3500 });
+                    await api.post('/transfers', transferData, { timeout: 2000 });
                     alert('Traslado creado exitosamente en el servidor.');
                 } catch (netErr) {
-                    console.warn('[Traslado] Red offline o falla de servidor. Guardando en local y preparando QR:', netErr.message);
-                    await savePendingTransfer(transferData);
+                    console.warn('[Traslado] Red offline o servidor no disponible. Guardando localmente y generando QR:', netErr.message);
+                    const savedRecord = await savePendingTransfer(transferData);
+                    await applyLocalTransferStock(transferData, false);
                     
                     // Generar QR de contingencia inmediatamente
-                    const payload = prepareTransferQRPayload(transferData);
+                    const payload = prepareTransferQRPayload({
+                        ...transferData,
+                        local_id: savedRecord.local_id
+                    }, transferData.items);
                     setQrPayload(payload);
                     setQrModalOpen(true);
-                    
-                    alert('⚠️ Sin conexión con el servidor. El traslado fue guardado en tu dispositivo localmente. Mostrá el código QR para que la sede destino lo reciba.');
                 }
 
                 // Reset form
@@ -280,6 +293,8 @@ export default function TrasladosPage() {
             fetchProducts();
         } catch (err) {
             alert('Error: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -574,25 +589,30 @@ export default function TrasladosPage() {
                             <div className="space-y-2">
                                 <button
                                     onClick={handleSubmitTransfer}
-                                    disabled={cart.length === 0 || !targetInventory}
+                                    disabled={cart.length === 0 || !targetInventory || submitting}
                                     className={cn(
-                                        "w-full py-4 rounded-xl font-medium transition-all flex items-center justify-center gap-2",
-                                        cart.length > 0 && targetInventory
+                                        "w-full py-4 rounded-xl font-medium transition-all active:scale-[0.98] flex items-center justify-center gap-2 select-none shadow-md",
+                                        cart.length > 0 && targetInventory && !submitting
                                             ? editingTransfer
-                                                ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-orange-500/25"
-                                                : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25"
-                                            : "bg-secondary text-muted-foreground cursor-not-allowed"
+                                                ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-lg hover:shadow-orange-500/25 active:bg-orange-600 cursor-pointer"
+                                                : "bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:shadow-lg hover:shadow-violet-500/25 active:bg-purple-600 cursor-pointer"
+                                            : "bg-secondary text-muted-foreground cursor-not-allowed opacity-60"
                                     )}
                                 >
-                                    {editingTransfer ? (
+                                    {submitting ? (
+                                        <>
+                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            <span>Procesando traslado...</span>
+                                        </>
+                                    ) : editingTransfer ? (
                                         <>
                                             <Save className="w-5 h-5" />
-                                            Guardar Cambios del Traslado
+                                            <span>Guardar Cambios del Traslado</span>
                                         </>
                                     ) : (
                                         <>
                                             <Send className="w-5 h-5" />
-                                            Enviar Traslado
+                                            <span>Enviar Traslado</span>
                                         </>
                                     )}
                                 </button>

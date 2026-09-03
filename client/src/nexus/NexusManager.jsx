@@ -477,11 +477,33 @@ export const NexusManager = () => {
     deletePermanent,
     moveNode,
     connectNodes,
-    disconnectNode
+    disconnectNode,
+    saveNodePositionLocal,
+    saveMultipleNodePositionsLocal
   } = useNexus();
 
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 50, y: 50 });
+  // Estados de zoom y pan con persistencia por dispositivo
+  const [zoom, setZoom] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mch_nexus_viewport_zoom');
+      return saved ? parseFloat(saved) : 1;
+    } catch (_) { return 1; }
+  });
+  const [pan, setPan] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mch_nexus_viewport_pan');
+      return saved ? JSON.parse(saved) : { x: 50, y: 50 };
+    } catch (_) { return { x: 50, y: 50 }; }
+  });
+
+  // Guardar viewport (zoom y pan) en localStorage para este dispositivo
+  const saveViewportLocal = useCallback((newPan, newZoom) => {
+    try {
+      if (newPan) localStorage.setItem('mch_nexus_viewport_pan', JSON.stringify(newPan));
+      if (newZoom !== undefined) localStorage.setItem('mch_nexus_viewport_zoom', String(newZoom));
+    } catch (_) {}
+  }, []);
+
   const [showGrid, setShowGrid] = useState(true);
   const [showArchive, setShowArchive] = useState(false);
   
@@ -528,12 +550,21 @@ export const NexusManager = () => {
   });
 
   // Handlers de zoom
-  const handleZoomIn = () => setZoom(z => Math.min(z * 1.2, 3));
-  const handleZoomOut = () => setZoom(z => Math.max(z / 1.2, 0.3));
+  const handleZoomIn = () => setZoom(z => {
+    const nz = Math.min(z * 1.2, 3);
+    saveViewportLocal(pan, nz);
+    return nz;
+  });
+  const handleZoomOut = () => setZoom(z => {
+    const nz = Math.max(z / 1.2, 0.3);
+    saveViewportLocal(pan, nz);
+    return nz;
+  });
   const handleFitView = useCallback(() => {
     if (nodes.length === 0) {
       setZoom(1);
-      setPan({ x: 0, y: 0 });
+      setPan({ x: 50, y: 50 });
+      saveViewportLocal({ x: 50, y: 50 }, 1);
       return;
     }
 
@@ -543,6 +574,9 @@ export const NexusManager = () => {
     
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
+    
+    // Si el contenedor aún no tiene dimensiones reales en el DOM, no calcular para evitar zoom corrupto
+    if (containerWidth < 50 || containerHeight < 50) return;
     
     // Calcular bounding box de todos los nodos
     let minX = Infinity, minY = Infinity;
@@ -571,12 +605,12 @@ export const NexusManager = () => {
     const contentWidth = maxX - minX;
     const contentHeight = maxY - minY;
     
-    // Calcular zoom para que todo quepa perfectamente
+    // Calcular zoom para que todo quepa perfectamente pero con límites legibles
     const zoomX = containerWidth / (contentWidth || 1);
     const zoomY = containerHeight / (contentHeight || 1);
-    // En pantallas pequeñas permitimos zoom menor para ver el árbol completo
-    const maxZoomLimit = isSmallScreen ? 1.0 : 1.2;
-    const newZoom = Math.max(0.2, Math.min(zoomX, zoomY, maxZoomLimit));
+    const maxZoomLimit = isSmallScreen ? 1.0 : 1.1;
+    // Mínimo de zoom seguro 0.65 para que nunca se renderice enano/ilegible
+    const newZoom = Math.max(0.65, Math.min(zoomX, zoomY, maxZoomLimit));
     
     // Calcular pan para centrar el contenido en el viewport
     const contentCenterX = (minX + maxX) / 2;
@@ -591,28 +625,20 @@ export const NexusManager = () => {
     
     setZoom(newZoom);
     setPan(newPan);
-  }, [nodes]);
+    saveViewportLocal(newPan, newZoom);
+  }, [nodes, saveViewportLocal]);
 
-  // Auto-fit inicial al cargar nodos por primera vez
-  const initialFitDone = useRef(false);
+  // Si es la primera vez que se abre en este dispositivo (sin posiciones ni viewport previos), auto-encuadrar
   useEffect(() => {
-    if (nodes.length > 0 && !initialFitDone.current) {
-      initialFitDone.current = true;
-      const timer = setTimeout(() => {
+    const hasSavedPositions = localStorage.getItem('mch_nexus_node_positions_v1');
+    const hasSavedPan = localStorage.getItem('mch_nexus_viewport_pan');
+    if (!hasSavedPositions && !hasSavedPan && nodes.length > 0) {
+      const initTimer = setTimeout(() => {
         handleFitView();
-      }, 150);
-      return () => clearTimeout(timer);
+      }, 250);
+      return () => clearTimeout(initTimer);
     }
-  }, [nodes, handleFitView]);
-
-  // Si cambia el tamaño de la ventana (resize o rotación móvil), reencuadrar
-  useEffect(() => {
-    const handleResize = () => {
-      handleFitView();
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [handleFitView]);
+  }, [nodes.length, handleFitView]);
 
   // Auto-layout vertical: Eje central con Dueño -> Empresa -> Almacén -> Puntos de Venta -> Vendedores
   const handleAutoLayoutVertical = useCallback(() => {
@@ -649,11 +675,15 @@ export const NexusManager = () => {
       if (nodeList.length === 0) return;
       const totalWidth = (nodeList.length - 1) * HORIZONTAL_GAP;
       const startX = cX - totalWidth / 2;
+      const posMap = {};
       nodeList.forEach((n, idx) => {
+        const newPos = { x: Math.round(startX + idx * HORIZONTAL_GAP), y: Math.round(y) };
+        posMap[n.id] = newPos;
         updateNode(n.id, {
-          position: { x: Math.round(startX + idx * HORIZONTAL_GAP), y: Math.round(y) }
+          position: newPos
         });
       });
+      saveMultipleNodePositionsLocal(posMap);
     };
 
     // 1. Dueño (Nivel 0)
@@ -720,11 +750,15 @@ export const NexusManager = () => {
       if (nodeList.length === 0) return;
       const totalHeight = (nodeList.length - 1) * VERTICAL_GAP;
       const startY = centerY - totalHeight / 2;
+      const posMap = {};
       nodeList.forEach((n, idx) => {
+        const newPos = { x: Math.round(x), y: Math.round(startY + idx * VERTICAL_GAP) };
+        posMap[n.id] = newPos;
         updateNode(n.id, {
-          position: { x: Math.round(x), y: Math.round(startY + idx * VERTICAL_GAP) }
+          position: newPos
         });
       });
+      saveMultipleNodePositionsLocal(posMap);
     };
 
     const orderedGroups = [levels.owner, levels.company, levels.management, levels.pos, levels.seller, levels.other];
@@ -786,11 +820,13 @@ export const NexusManager = () => {
       const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
       const zoomRatio = newZoom / zoom;
       
-      setPan({
+      const newPan = {
         x: centerX - (centerX - pan.x) * zoomRatio,
         y: centerY - (centerY - pan.y) * zoomRatio
-      });
+      };
+      setPan(newPan);
       setZoom(newZoom);
+      saveViewportLocal(newPan, newZoom);
       lastTouchDistance.current = distance;
     } else if (e.touches.length === 1 && isTouchPanning.current && !draggingNode) {
       // Pan con un dedo
@@ -799,10 +835,12 @@ export const NexusManager = () => {
       const dx = touch.clientX - touchStartPos.current.x;
       const dy = touch.clientY - touchStartPos.current.y;
       
-      setPan({
+      const newPan = {
         x: touchStartPan.current.x + dx,
         y: touchStartPan.current.y + dy
-      });
+      };
+      setPan(newPan);
+      saveViewportLocal(newPan, zoom);
     }
   };
 
@@ -905,10 +943,12 @@ export const NexusManager = () => {
     const canvasPos = screenToCanvas(mouseX, mouseY);
 
     if (isPanning) {
-      setPan({
+      const newPan = {
         x: e.clientX - panStart.current.x,
         y: e.clientY - panStart.current.y
-      });
+      };
+      setPan(newPan);
+      saveViewportLocal(newPan, zoom);
     }
 
     if (draggingNode) {
@@ -1196,7 +1236,7 @@ export const NexusManager = () => {
   return (
     <div 
       ref={containerRef}
-      className={`relative w-full flex-1 min-h-[350px] overflow-hidden rounded-xl border select-none touch-none transition-colors duration-300 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}
+      className={`relative w-full h-full flex-1 overflow-hidden rounded-2xl border select-none touch-none transition-colors duration-300 ${isDark ? 'bg-slate-950 border-slate-800 shadow-2xl' : 'bg-slate-50 border-slate-200 shadow-xl'}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -1257,68 +1297,66 @@ export const NexusManager = () => {
         </svg>
 
         {/* Nodos */}
-        <AnimatePresence>
-          {nodes.map(node => (
-            <motion.div
-              key={node.id}
-              ref={(el) => registerNodeRef(node.id, el)}
-              className="absolute"
-              style={{
-                left: node.position.x,
-                top: node.position.y,
-                zIndex: draggingNode?.id === node.id ? 100 : 10
+        {nodes.map(node => (
+          <div
+            key={node.id}
+            ref={(el) => registerNodeRef(node.id, el)}
+            className="absolute"
+            style={{
+              left: node.position.x,
+              top: node.position.y,
+              zIndex: draggingNode?.id === node.id ? 100 : 10
+            }}
+            onMouseDown={(e) => handleNodeDragStart(e, node)}
+          >
+            <NexusNode
+              node={node}
+              isSelected={selectedNodeId === node.id}
+              isConnectingFrom={connectingFrom?.id === node.id}
+              isConnectingMode={isConnectingMode}
+              onConnectionStart={handleConnectionStart}
+              onDoubleClick={() => handleNodeDoubleClick(node)}
+              onDisconnectStart={(e, targetNode) => {
+                e.stopPropagation();
+                const pList = targetNode.parentIds?.length ? targetNode.parentIds : (targetNode.parentId ? [targetNode.parentId] : []);
+                if (pList.length > 0) {
+                  setDisconnectingFrom({ node: targetNode, parentId: pList[pList.length - 1] });
+                }
               }}
-              onMouseDown={(e) => handleNodeDragStart(e, node)}
-            >
-              <NexusNode
-                node={node}
-                isSelected={selectedNodeId === node.id}
-                isConnectingFrom={connectingFrom?.id === node.id}
-                isConnectingMode={isConnectingMode}
-                onConnectionStart={handleConnectionStart}
-                onDoubleClick={() => handleNodeDoubleClick(node)}
-                onDisconnectStart={(e, targetNode) => {
-                  e.stopPropagation();
-                  const pList = targetNode.parentIds?.length ? targetNode.parentIds : (targetNode.parentId ? [targetNode.parentId] : []);
-                  if (pList.length > 0) {
-                    setDisconnectingFrom({ node: targetNode, parentId: pList[pList.length - 1] });
+              onConnectionEnd={(targetNode) => {
+                if (connectingFrom && targetNode && connectingFrom.id !== targetNode.id) {
+                  try {
+                    connectNodes(connectingFrom.id, targetNode.id);
+                  } catch (err) {
+                    console.error('Error connecting nodes:', err);
                   }
-                }}
-                onConnectionEnd={(targetNode) => {
-                  if (connectingFrom && targetNode && connectingFrom.id !== targetNode.id) {
-                    try {
-                      connectNodes(connectingFrom.id, targetNode.id);
-                    } catch (err) {
-                      console.error('Error connecting nodes:', err);
-                    }
+                  setConnectingFrom(null);
+                  setTempLine(null);
+                  setIsConnectingMode(false);
+                }
+              }}
+              onDelete={() => deleteNode(node.id)}
+              onTouchStart={(e) => {
+                if (isConnectingMode) {
+                  e.stopPropagation();
+                  // En modo conexión: primer toque = inicio, segundo toque = fin
+                  if (!connectingFrom) {
+                    setConnectingFrom(node);
+                  } else if (connectingFrom.id !== node.id) {
+                    moveNode(node.id, connectingFrom.id);
                     setConnectingFrom(null);
-                    setTempLine(null);
                     setIsConnectingMode(false);
                   }
-                }}
-                onDelete={() => deleteNode(node.id)}
-                onTouchStart={(e) => {
-                  if (isConnectingMode) {
-                    e.stopPropagation();
-                    // En modo conexión: primer toque = inicio, segundo toque = fin
-                    if (!connectingFrom) {
-                      setConnectingFrom(node);
-                    } else if (connectingFrom.id !== node.id) {
-                      moveNode(node.id, connectingFrom.id);
-                      setConnectingFrom(null);
-                      setIsConnectingMode(false);
-                    }
-                  } else {
-                    handleNodeTouchStart(e, node);
-                  }
-                }}
-                onTouchMove={isConnectingMode ? undefined : handleNodeTouchMove}
-                onTouchEnd={handleTouchEnd}
-                isDark={isDark}
-              />
-            </motion.div>
-          ))}
-        </AnimatePresence>
+                } else {
+                  handleNodeTouchStart(e, node);
+                }
+              }}
+              onTouchMove={isConnectingMode ? undefined : handleNodeTouchMove}
+              onTouchEnd={handleTouchEnd}
+              isDark={isDark}
+            />
+          </div>
+        ))}
       </div>
 
       {/* Floating Action Button (FAB) para Agregar Nodo - Circular con signo + en el centro */}

@@ -26,6 +26,9 @@ import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 import TransferReversalModal from '../components/TransferReversalModal';
 import QRScannerModal from '../components/QRScannerModal';
+import { recordLog } from '../lib/telemetryLogger';
+import { savePendingTransfer, getPendingTransfers, applyLocalTransferStock } from '../lib/localDB';
+import QRScanResultModal from '../components/QRScanResultModal';
 import api from '../api';
 
 export default function HistoryPurchasesPage() {
@@ -39,6 +42,7 @@ export default function HistoryPurchasesPage() {
     const [expandedRowId, setExpandedRowId] = useState(null);
     const [qrScannerOpen, setQrScannerOpen] = useState(false);
     const [qrConfirmationModal, setQrConfirmationModal] = useState(null); // { type, checkResult, qrData }
+    const [scanResultDetails, setScanResultDetails] = useState(null);
 
     const toggleRow = (id) => {
         setExpandedRowId(prev => prev === id ? null : id);
@@ -51,12 +55,87 @@ export default function HistoryPurchasesPage() {
     const fetchPurchases = async () => {
         try {
             setLoading(true);
-            const invParam = currentInventory ? `?inventory_id=${encodeURIComponent(currentInventory)}` : '';
-            const res = await api.get(`/purchases${invParam}`);
-            setPurchases(Array.isArray(res.data) ? res.data : []);
-        } catch (err) {
-            console.error('Error:', err);
-            setPurchases([]);
+            let combined = [];
+
+            // 1. Si hay red, consultar el backend central
+            if (navigator.onLine) {
+                try {
+                    const invParam = currentInventory ? `?inventory_id=${encodeURIComponent(currentInventory)}` : '';
+                    const res = await api.get(`/purchases${invParam}`, { timeout: 2500 });
+                    if (Array.isArray(res.data)) {
+                        combined = [...res.data];
+                    }
+                } catch (netErr) {
+                    console.warn('[Historial Traslados] Fallo al consultar backend:', netErr.message);
+                }
+            }
+
+            // 2. Traer y fusionar SIEMPRE los traslados locales de IndexedDB (pendientes o recibidos offline)
+            try {
+                const pendingTrfs = await getPendingTransfers();
+                const offlineList = pendingTrfs
+                    .filter(t => {
+                        if (!currentInventory) return true;
+                        const src = (t.src || t.source_inventory || t.from_inventory || t.origin || '').toLowerCase();
+                        const tgt = (t.tgt || t.target_inventory || t.to_inventory || t.destination || '').toLowerCase();
+                        const curr = currentInventory.toLowerCase();
+                        return tgt === curr || src === curr;
+                    })
+                    .map(t => {
+                        const src = t.src || t.source_inventory || t.from_inventory || t.origin || 'alm';
+                        const tgt = t.tgt || t.target_inventory || t.to_inventory || t.destination || currentInventory;
+                        const items = t.items || [];
+                        const totalUnits = items.reduce((acc, it) => acc + (Number(it.qty || it.quantity) || 1), 0);
+                        const totalCostVal = Number(t.total_cost || 0) || items.reduce((acc, it) => acc + ((Number(it.cost || it.cost_price) || 0) * (Number(it.qty || it.quantity) || 1)), 0);
+                        const totalSaleVal = Number(t.total_sale || t.total || 0) || items.reduce((acc, it) => acc + ((Number(it.price || it.sale_price) || 0) * (Number(it.qty || it.quantity) || 1)), 0);
+
+                        const invLabel = (id) => id === 'alm' ? 'Almacén MCH' : (id === 'mch1' ? 'MCH 1' : (id === 'mch2' ? 'MCH 2' : (id || '').toUpperCase()));
+                        const isReceiver = currentInventory && tgt.toLowerCase() === currentInventory.toLowerCase();
+                        const supplierLabel = currentInventory 
+                            ? (isReceiver ? `Traslado desde ${invLabel(src)}` : `Traslado enviado a ${invLabel(tgt)}`)
+                            : `${invLabel(src)} ➔ ${invLabel(tgt)}`;
+
+                        return {
+                            id: t.local_id || t.id,
+                            transfer_id: t.id || t.local_id,
+                            type: 'traslado',
+                            record_type: 'transfer',
+                            from_inventory: src,
+                            to_inventory: tgt,
+                            source_inventory: src,
+                            target_inventory: tgt,
+                            supplier: supplierLabel,
+                            status: t.status || (t.is_received ? 'received' : 'pending'),
+                            notes: t.notes || t.note || '',
+                            items: items.map(it => ({
+                                product_id: it.pid || it.product_id || it.id,
+                                product_name: it.name || it.product_name,
+                                sku: it.sku || it.code || '',
+                                quantity: Number(it.qty || it.quantity) || 1,
+                                cost_price: Number(it.cost || it.cost_price) || 0,
+                                sale_price: Number(it.price || it.sale_price) || 0
+                            })),
+                            total_items: totalUnits,
+                            total_cost: totalCostVal,
+                            total: totalSaleVal,
+                            date: t.date || t.created_at || new Date().toISOString(),
+                            created_at: t.date || t.created_at || new Date().toISOString(),
+                            is_offline: true
+                        };
+                    });
+
+                // Integrar traslados locales que aún no estén en el resultado del servidor
+                const existingIds = new Set(combined.map(p => String(p.id || p.transfer_id)));
+                for (const off of offlineList) {
+                    if (!existingIds.has(String(off.id)) && !existingIds.has(String(off.transfer_id))) {
+                        combined.unshift(off);
+                    }
+                }
+            } catch (dbErr) {
+                console.error('Error cargando traslados locales:', dbErr);
+            }
+
+            setPurchases(combined);
         } finally {
             setLoading(false);
         }
@@ -73,13 +152,15 @@ export default function HistoryPurchasesPage() {
     };
 
     // Procesar QR escaneado (Recepción de Traslado)
-    const handleScanTransferSuccess = async (qrData) => {
+    const handleScanTransferSuccess = async (scannedData, rawType = null) => {
         setQrScannerOpen(false);
         try {
+            const qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
+            recordLog('info', 'QR_SCAN_START', 'Iniciando verificación de QR de traslado', { qrData });
             const checkRes = await api.post('/transfers/qr-import', {
                 qrData,
                 action: 'check'
-            });
+            }, { timeout: 3500 });
 
             const { exists, isModified, message } = checkRes.data;
 
@@ -102,7 +183,34 @@ export default function HistoryPurchasesPage() {
                 applyTransferFromQR(qrData);
             }
         } catch (err) {
-            alert('Error al verificar código QR: ' + (err.response?.data?.error || err.message));
+            console.warn('[QR Traslado] Sin conexión central o backend ocupado, absorbiendo localmente:', err.message);
+            recordLog('warn', 'QR_SCAN_OFFLINE_FALLBACK', 'Recepción de traslado offline local', {
+                error: err.message,
+                qrData
+            });
+            try {
+                const trfRecord = {
+                    ...qrData,
+                    status: 'received',
+                    is_received: true
+                };
+                await savePendingTransfer(trfRecord);
+                await applyLocalTransferStock(trfRecord, true);
+                setScanResultDetails({
+                    type: 'TRF',
+                    data: qrData,
+                    isOffline: true,
+                    message: '⚠️ Modo Offline: El traslado fue absorbido y guardado localmente en tu dispositivo. Tu inventario y este historial ya fueron actualizados.'
+                });
+            } catch (locErr) {
+                setScanResultDetails({
+                    type: 'TRF',
+                    data: qrData,
+                    isOffline: true,
+                    message: '⚠️ Modo Offline: El traslado fue recibido localmente.'
+                });
+            }
+            fetchPurchases();
         }
     };
 
@@ -112,7 +220,12 @@ export default function HistoryPurchasesPage() {
                 qrData,
                 action: 'apply'
             });
-            alert(res.data.message || 'Traslado recibido y stock actualizado exitosamente.');
+            setScanResultDetails({
+                type: 'TRF',
+                data: qrData,
+                isOffline: false,
+                message: res.data?.message || '¡Traslado recibido y stock actualizado exitosamente en el servidor central!'
+            });
             setQrConfirmationModal(null);
             fetchPurchases();
         } catch (err) {
@@ -550,6 +663,13 @@ export default function HistoryPurchasesPage() {
                     </div>
                 </div>
             )}
+
+            {/* Modal de Desglose y Resumen Detallado Post-Escaneo */}
+            <QRScanResultModal 
+                isOpen={!!scanResultDetails}
+                onClose={() => setScanResultDetails(null)}
+                scanResult={scanResultDetails}
+            />
         </div>
     );
 }

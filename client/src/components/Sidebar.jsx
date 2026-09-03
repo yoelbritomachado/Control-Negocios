@@ -91,7 +91,6 @@ export function Sidebar({ isDark, toggleTheme }) {
     const handleInventoryChange = (inventoryId) => {
         setCurrentInventory(inventoryId);
         setIsInventoryOpen(false);
-        window.location.reload();
     };
 
     // Botón de hamburguesa para móvil
@@ -145,22 +144,31 @@ export function Sidebar({ isDark, toggleTheme }) {
                 }}
             >
                 {/* Logo Section Desktop */}
-                <div className="p-6 flex items-center justify-between">
+                <div className="p-5 flex items-center justify-between">
                     <motion.div
                         className="flex items-center gap-3"
                         animate={{ opacity: isCollapsed ? 0 : 1 }}
                     >
-                        <div className="relative">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                                <TrendingUp className="w-5 h-5 text-white" />
-                            </div>
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-background" />
+                        <div className="relative shrink-0">
+                            <img 
+                                src="/icons/icon-192x192.png" 
+                                alt="Miss Chulerías" 
+                                className="w-10 h-10 rounded-xl object-contain shadow-md shadow-pink-500/20 bg-slate-900/50 border border-pink-500/20"
+                            />
+                            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-background" />
                         </div>
                         {!isCollapsed && (
-                            <div>
-                                <h1 className="font-bold text-lg tracking-tight">BizControl</h1>
-                                <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-                                    Premium System
+                            <div className="flex flex-col">
+                                <div className="flex items-baseline gap-1.5 leading-none">
+                                    <span className="font-brand-hand text-2xl font-bold text-pink-500 drop-shadow-[0_0_8px_rgba(236,72,153,0.3)] tracking-wide">
+                                        Miss
+                                    </span>
+                                    <span className="font-brand-formal text-base font-extrabold tracking-tight text-foreground uppercase">
+                                        Chulerías
+                                    </span>
+                                </div>
+                                <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-semibold mt-1">
+                                    CRM
                                 </p>
                             </div>
                         )}
@@ -497,16 +505,25 @@ export function Sidebar({ isDark, toggleTheme }) {
                         {/* Logo Section Mobile */}
                         <div className="shrink-0 px-4 py-3 flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="relative">
-                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                                        <TrendingUp className="w-5 h-5 text-white" />
-                                    </div>
-                                    <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-background" />
+                                <div className="relative shrink-0">
+                                    <img 
+                                        src="/icons/icon-192x192.png" 
+                                        alt="Miss Chulerías" 
+                                        className="w-10 h-10 rounded-xl object-contain shadow-md shadow-pink-500/20 bg-slate-900/50 border border-pink-500/20"
+                                    />
+                                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-background" />
                                 </div>
-                                <div>
-                                    <h1 className="font-bold text-lg tracking-tight">BizControl</h1>
-                                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-                                        Premium System
+                                <div className="flex flex-col">
+                                    <div className="flex items-baseline gap-1.5 leading-none">
+                                        <span className="font-brand-hand text-2xl font-bold text-pink-500 drop-shadow-[0_0_8px_rgba(236,72,153,0.3)] tracking-wide">
+                                            Miss
+                                        </span>
+                                        <span className="font-brand-formal text-base font-extrabold tracking-tight text-foreground uppercase">
+                                            Chulerías
+                                        </span>
+                                    </div>
+                                    <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-semibold mt-1">
+                                        CRM
                                     </p>
                                 </div>
                             </div>
@@ -654,7 +671,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     Gestión
                                 </p>
-                                {menuItems.filter(item => item.category === 'management').map((item) => (
+                                {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => (
                                     <NavLink
                                         key={item.id}
                                         to={item.path}
@@ -671,6 +688,36 @@ export function Sidebar({ isDark, toggleTheme }) {
                                                 <item.icon className={cn(
                                                     'w-5 h-5 transition-colors flex-shrink-0',
                                                     isActive && 'text-cyan-400'
+                                                )} />
+                                                <span className="font-medium text-sm">{item.label}</span>
+                                            </>
+                                        )}
+                                    </NavLink>
+                                ))}
+                            </div>
+
+                            {/* Historiales Mobile */}
+                            <div>
+                                <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                                    Historiales
+                                </p>
+                                {historyMenuItems.filter(item => !item.kioskOnly || currentInventory !== 'alm').map((item) => (
+                                    <NavLink
+                                        key={item.id}
+                                        to={item.path}
+                                        onClick={() => setIsMobileOpen(false)}
+                                        className={({ isActive }) => cn(
+                                            'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
+                                            isActive
+                                                ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/10 text-amber-400 border border-amber-500/30'
+                                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                        )}
+                                    >
+                                        {({ isActive }) => (
+                                            <>
+                                                <item.icon className={cn(
+                                                    'w-5 h-5 transition-colors flex-shrink-0',
+                                                    isActive && 'text-amber-400'
                                                 )} />
                                                 <span className="font-medium text-sm">{item.label}</span>
                                             </>

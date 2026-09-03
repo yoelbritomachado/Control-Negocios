@@ -36,6 +36,7 @@ import {
 import { cn } from '../lib/utils';
 import { useRole, ROLES } from '../hooks/useRole';
 import api from '../api';
+import { saveUsersLocal, getUsersLocal } from '../lib/localDB';
 import ImagePickerWithCamera from '../components/ImagePickerWithCamera';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -93,6 +94,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('all');
+  const [activeViewTab, setActiveViewTab] = useState('active'); // 'active' | 'archived'
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -122,10 +124,29 @@ export default function UsersPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await api.get('/users');
-      setUsers(res.data || []);
-      return res.data || [];
+      if (!navigator.onLine) {
+        const local = await getUsersLocal();
+        if (local && local.length > 0) {
+          setUsers(local);
+          setLoading(false);
+          return local;
+        }
+      }
+      const isArchivedView = activeViewTab === 'archived';
+      const res = await api.get(`/users?archived=${isArchivedView ? 'true' : 'false'}`);
+      const data = res.data || [];
+      setUsers(data);
+      if (!isArchivedView) {
+        saveUsersLocal(data).catch(() => {});
+      }
+      return data;
     } catch (err) {
+      console.warn('[Usuarios] Fallback local por error de red:', err.message);
+      const local = await getUsersLocal();
+      if (local && local.length > 0) {
+        setUsers(local);
+        return local;
+      }
       const msg = err.response?.data?.error || err.message;
       setError(msg);
       return [];
@@ -133,6 +154,10 @@ export default function UsersPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadUsers();
+  }, [activeViewTab]);
 
   useEffect(() => {
     loadUsers().then((fetchedUsers) => {
@@ -217,10 +242,60 @@ export default function UsersPage() {
   // Manejar cambio rápido de autorización a trabajar (Toggle Switch en tabla)
   const toggleAuthorize = async (user, e) => {
     e.stopPropagation();
+    const nextStatus = !user.authorized_to_work;
+
+    // Si se va a activar y es vendedor o administrador, asegurar vinculación en Nexus
+    if (nextStatus && user.role !== 'owner') {
+      try {
+        const invRes = await api.get('/inventories');
+        const inventories = invRes.data || [];
+        const isSeller = ['seller', 'vendedor'].includes(user.role?.toLowerCase());
+        
+        let targetOptions = [];
+        if (isSeller) {
+          targetOptions = inventories.filter(i => i.type !== 'warehouse' && i.id !== 'alm');
+          if (targetOptions.length === 0) targetOptions = inventories;
+        } else {
+          targetOptions = inventories.filter(i => i.type === 'warehouse' || i.id === 'alm');
+          if (targetOptions.length === 0) targetOptions = inventories;
+        }
+
+        const promptMsg = isSeller 
+          ? `Selecciona el Punto de Venta para conectar a "${user.username}":\n` + targetOptions.map((inv, idx) => `${idx + 1}. ${inv.name} (${inv.code || inv.id})`).join('\n') + `\n\nIngresa el número:`
+          : `Selecciona el Almacén/Sede para conectar a "${user.username}":\n` + targetOptions.map((inv, idx) => `${idx + 1}. ${inv.name} (${inv.code || inv.id})`).join('\n') + `\n\nIngresa el número:`;
+        
+        const selection = window.prompt(promptMsg, '1');
+        let selectedInv = targetOptions[0];
+        if (selection) {
+          const num = parseInt(selection, 10);
+          if (!isNaN(num) && num >= 1 && num <= targetOptions.length) {
+            selectedInv = targetOptions[num - 1];
+          }
+        }
+
+        const targetNodeId = selectedInv ? `nexus_inventory_${selectedInv.id}` : (isSeller ? 'nexus_inventory_mch1' : 'nexus_company_miss_chulerias');
+        
+        // Conectar el nodo en Nexus
+        await api.patch(`/nexus/nodes/nexus_user_${user.id}`, {
+          parentId: targetNodeId,
+          parentIds: [targetNodeId],
+          status: 'online'
+        }).catch(() => {});
+      } catch (err) {
+        console.warn('No se pudo sincronizar sede en Nexus:', err);
+      }
+    } else if (!nextStatus && user.role !== 'owner') {
+      // Si se desactiva, desconectar de Nexus
+      await api.patch(`/nexus/nodes/nexus_user_${user.id}`, {
+        parentId: null,
+        parentIds: [],
+        status: 'maintenance'
+      }).catch(() => {});
+    }
+
     try {
-      const nextStatus = !user.authorized_to_work;
-      await api.patch(`/users/${user.id}`, { authorized_to_work: nextStatus });
-      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, authorized_to_work: nextStatus } : u));
+      await api.patch(`/users/${user.id}`, { authorized_to_work: nextStatus ? 1 : 0 });
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, authorized_to_work: nextStatus ? 1 : 0 } : u));
     } catch (err) {
       alert('Error: ' + (err.response?.data?.error || err.message));
     }
@@ -274,7 +349,55 @@ export default function UsersPage() {
       }
 
       if (editingUser) {
-        await api.patch(`/users/${editingUser.id}`, payload);
+        const res = await api.patch(`/users/${editingUser.id}`, payload);
+        const updatedUser = res.data;
+
+        // Si el usuario editado es el usuario de la sesión activa, actualizar storage y notificar globalmente
+        const currentStored = localStorage.getItem('mch_user_data');
+        const activeEmail = localStorage.getItem('mch_user_email') || '';
+        const activeName = localStorage.getItem('mch_current_user_name') || '';
+        
+        let isMe = false;
+        let parsed = {};
+        if (currentStored) {
+          try {
+            parsed = JSON.parse(currentStored);
+            if (parsed.id === editingUser.id || parsed.email === editingUser.email || parsed.username === editingUser.username) {
+              isMe = true;
+            }
+          } catch (_) {}
+        }
+        if (!isMe && (activeEmail === editingUser.email || activeName === editingUser.username)) {
+          isMe = true;
+        }
+
+        if (isMe) {
+          try {
+            const newUserData = { ...parsed, ...payload, ...(updatedUser || {}) };
+            localStorage.setItem('mch_user_data', JSON.stringify(newUserData));
+            if (payload.role) {
+              const roleMapping = {
+                'owner': 'owner',
+                'dueño': 'owner',
+                'dueno': 'owner',
+                'admin': 'admin',
+                'administrador': 'admin',
+                'seller': 'seller',
+                'vendedor': 'seller'
+              };
+              const mappedRole = roleMapping[payload.role.toLowerCase()] || 'seller';
+              localStorage.setItem('mch_current_role', mappedRole);
+              localStorage.setItem('mch_user_role', mappedRole);
+            }
+            if (payload.username) {
+              localStorage.setItem('mch_user_name', payload.username);
+              localStorage.setItem('mch_current_user_name', payload.username);
+            }
+            window.dispatchEvent(new Event('mch-role-changed'));
+          } catch (e) {
+            console.error('Error sincronizando storage tras edición de usuario:', e);
+          }
+        }
       } else {
         await api.post('/users', payload);
       }
@@ -288,15 +411,29 @@ export default function UsersPage() {
     }
   };
 
-  // Eliminar usuario
+  // Eliminar usuario o Archivar
   const handleDelete = async (user, e) => {
     e.stopPropagation();
-    if (user.id === 1) {
-      alert('No se puede eliminar el usuario administrador principal.');
+    if (user.role === 'owner') {
+      alert('No se puede eliminar ni archivar al Dueño del sistema.');
       return;
     }
 
-    if (!confirm(`¿Estás seguro de que deseas eliminar al usuario "${user.username}"? Esta acción también removerá su nodo en Nexus.`)) {
+    if (activeViewTab === 'archived') {
+      if (!confirm(`⚠️ ELIMINACIÓN PERMANENTE\n\n¿Deseas eliminar DEFINITIVAMENTE al usuario "${user.username}"?\nSe reasignará su trazabilidad histórica al dueño y se borrarán sus credenciales.`)) {
+        return;
+      }
+      try {
+        await api.delete(`/users/${user.id}?force=true`);
+        loadUsers();
+      } catch (err) {
+        alert('Error: ' + (err.response?.data?.error || err.message));
+      }
+      return;
+    }
+
+    // Archivar
+    if (!confirm(`¿Deseas archivar al usuario "${user.username}"?\n\n• Su acceso quedará desactivado.\n• Toda su estadística, ventas y trazabilidad se conservan intactas.\n• Podrás desarchivarlo cuando desees.`)) {
       return;
     }
 
@@ -305,6 +442,18 @@ export default function UsersPage() {
       loadUsers();
     } catch (err) {
       alert('Error: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Desarchivar usuario
+  const handleUnarchive = async (user, e) => {
+    e.stopPropagation();
+    try {
+      await api.patch(`/users/${user.id}`, { is_archived: 0, authorized_to_work: 1 });
+      alert(`Usuario "${user.username}" desarchivado con éxito. Ahora está listo para ingresar.`);
+      loadUsers();
+    } catch (err) {
+      alert('Error al desarchivar: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -351,6 +500,35 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
+      {/* Selector de Pestaña Principal: Activos vs Archivados */}
+      <div className="flex items-center gap-3 border-b border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveViewTab('active')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all",
+            activeViewTab === 'active'
+              ? "bg-cyan-500 text-white shadow-lg shadow-cyan-500/25"
+              : "text-slate-400 hover:text-white hover:bg-slate-800"
+          )}
+        >
+          <Users className="w-4 h-4" />
+          <span>Personal Activo</span>
+        </button>
+
+        <button
+          onClick={() => setActiveViewTab('archived')}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all",
+            activeViewTab === 'archived'
+              ? "bg-amber-500 text-white shadow-lg shadow-amber-500/25"
+              : "text-slate-400 hover:text-white hover:bg-slate-800"
+          )}
+        >
+          <Layers className="w-4 h-4" />
+          <span>Archivados / Histórico</span>
+        </button>
+      </div>
+
       {/* Barra de Acciones y Filtros */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-900/60 p-4 rounded-2xl border border-slate-800/80 backdrop-blur-md">
         <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -420,7 +598,14 @@ export default function UsersPage() {
             const isUOwner = ['owner', 'dueño'].includes(u.role?.toLowerCase());
             const isUAdmin = ['admin', 'administrador', 'administrator'].includes(u.role?.toLowerCase());
             const roleLabel = isUOwner ? 'Dueño' : isUAdmin ? 'Administrador' : 'Vendedor';
-            const roleColor = isUOwner ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' : isUAdmin ? 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+            
+            // Estado visual de primer ingreso (Whitelist / En Espera vs Activo)
+            const hasLoggedIn = Boolean(u.is_logged_before || u.first_login_at || u.last_login_at);
+
+            const roleColor = !hasLoggedIn
+              ? 'text-slate-400 border-slate-700 bg-slate-800/40'
+              : (isUOwner ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' : isUAdmin ? 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10');
+            
             const RoleIcon = isUOwner ? Crown : isUAdmin ? Shield : ShoppingBag;
 
             // Cantidad de permisos activos
@@ -433,9 +618,11 @@ export default function UsersPage() {
                 whileHover={{ scale: 1.01 }}
                 className={cn(
                   "relative p-5 rounded-2xl border transition-all duration-200 backdrop-blur-md flex flex-col justify-between",
-                  u.authorized_to_work 
-                    ? "bg-slate-900/70 border-slate-800 hover:border-slate-700 shadow-xl" 
-                    : "bg-slate-950/80 border-rose-950/40 opacity-75"
+                  !hasLoggedIn
+                    ? "bg-slate-900/40 border-slate-800/60 grayscale-[0.9] opacity-80"
+                    : (u.authorized_to_work 
+                        ? "bg-slate-900/70 border-slate-800 hover:border-slate-700 shadow-xl" 
+                        : "bg-slate-950/80 border-rose-950/40 opacity-75")
                 )}
               >
                 {/* Header Card */}
@@ -444,7 +631,7 @@ export default function UsersPage() {
                     <div className="flex items-center gap-3 min-w-0">
                       {u.avatar_url ? (
                         <img 
-                          src={u.avatar_url.startsWith('http') ? u.avatar_url : `http://localhost:3002${u.avatar_url}`}
+                          src={u.avatar_url.startsWith('http') || u.avatar_url.startsWith('data:') ? u.avatar_url : (u.avatar_url.startsWith('/') ? u.avatar_url : `/${u.avatar_url}`)}
                           alt={u.username}
                           className="w-10 h-10 rounded-xl object-cover border border-slate-700 flex-shrink-0"
                         />
@@ -454,53 +641,72 @@ export default function UsersPage() {
                         </div>
                       )}
                       <div className="min-w-0">
-                        <h3 className="text-white font-bold text-base truncate flex items-center gap-2">
-                          {u.username}
-                          {u.id === 1 && (
-                            <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">Root</span>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-white font-bold text-base truncate">
+                            {u.username}
+                          </h3>
+                          {isUOwner && (
+                            <span className="text-[10px] bg-amber-500/20 text-amber-300 font-semibold px-1.5 py-0.5 rounded border border-amber-500/30">Dueño</span>
                           )}
-                        </h3>
+                        </div>
                         <p className="text-slate-400 text-xs truncate">{u.email}</p>
                       </div>
                     </div>
 
-                    <span className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5", roleColor)}>
-                      <RoleIcon className="w-3.5 h-3.5" />
-                      {roleLabel}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={cn("px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5", roleColor)}>
+                        <RoleIcon className="w-3.5 h-3.5" />
+                        {roleLabel}
+                      </span>
+                      {!hasLoggedIn && (
+                        <span className="text-[10px] text-slate-400 font-medium bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700/60 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
+                          Esperando 1er ingreso
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Switch Autorizado a Trabajar */}
-                  <div className="my-4 p-3 rounded-xl bg-slate-800/40 border border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {u.authorized_to_work ? (
-                        <UserCheck className="w-4 h-4 text-emerald-400" />
-                      ) : (
-                        <UserX className="w-4 h-4 text-rose-400" />
-                      )}
-                      <div>
-                        <p className="text-xs font-semibold text-white">Autorizado a Trabajar</p>
-                        <p className="text-[10px] text-slate-400">
-                          {u.authorized_to_work ? 'Acceso activo al sistema y POS' : 'Acceso bloqueado / suspendido'}
-                        </p>
+                  {activeViewTab !== 'archived' && (
+                    <div className="my-4 p-3 rounded-xl bg-slate-800/40 border border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {u.authorized_to_work ? (
+                          <UserCheck className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <UserX className="w-4 h-4 text-rose-400" />
+                        )}
+                        <div>
+                          <p className="text-xs font-semibold text-white">Autorizado a Trabajar</p>
+                          <p className="text-[10px] text-slate-400">
+                            {u.authorized_to_work ? 'Acceso activo al sistema y POS' : 'Acceso bloqueado / suspendido'}
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    <button
-                      onClick={(e) => toggleAuthorize(u, e)}
-                      className={cn(
-                        "relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-500",
-                        u.authorized_to_work ? "bg-emerald-500" : "bg-slate-700"
-                      )}
-                    >
-                      <span 
+                      <button
+                        onClick={(e) => toggleAuthorize(u, e)}
                         className={cn(
-                          "absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 shadow-md",
-                          u.authorized_to_work ? "translate-x-5" : "translate-x-0"
-                        )} 
-                      />
-                    </button>
-                  </div>
+                          "relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-cyan-500",
+                          u.authorized_to_work ? "bg-emerald-500" : "bg-slate-700"
+                        )}
+                      >
+                        <span 
+                          className={cn(
+                            "absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 shadow-md",
+                            u.authorized_to_work ? "translate-x-5" : "translate-x-0"
+                          )} 
+                        />
+                      </button>
+                    </div>
+                  )}
+
+                  {activeViewTab === 'archived' && (
+                    <div className="my-4 p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 flex items-center gap-2 text-amber-300 text-xs">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                      <span>Usuario archivado. Toda su trazabilidad histórica se conserva.</span>
+                    </div>
+                  )}
 
                   {/* Resumen de Permisos */}
                   <div className="grid grid-cols-2 gap-2 text-xs mb-4">
@@ -509,8 +715,10 @@ export default function UsersPage() {
                       <p className="text-white font-bold">{activePermsCount} activos</p>
                     </div>
                     <div className="p-2 rounded-lg bg-slate-800/30 border border-slate-800/60">
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">PIN de Acceso</p>
-                      <p className="text-white font-mono">{u.pin || 'Configurado'}</p>
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Estado de Cuenta</p>
+                      <p className={cn("font-medium", hasLoggedIn ? "text-emerald-400" : "text-slate-400")}>
+                        {hasLoggedIn ? 'Activo' : 'En Espera'}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -522,22 +730,44 @@ export default function UsersPage() {
                   </span>
 
                   <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => openEditModal(u)}
-                      className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-medium border border-cyan-500/30 flex items-center gap-1.5 transition-colors"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      Configurar
-                    </button>
+                    {activeViewTab === 'archived' ? (
+                      <>
+                        <button
+                          onClick={(e) => handleUnarchive(u, e)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-semibold border border-emerald-500/30 flex items-center gap-1.5 transition-colors"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Desarchivar
+                        </button>
 
-                    {u.id !== 1 && (
-                      <button
-                        onClick={(e) => handleDelete(u, e)}
-                        className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
-                        title="Eliminar usuario"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                        <button
+                          onClick={(e) => handleDelete(u, e)}
+                          className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                          title="Eliminar permanentemente"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => openEditModal(u)}
+                          className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 text-xs font-medium border border-cyan-500/30 flex items-center gap-1.5 transition-colors"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          Configurar
+                        </button>
+
+                        {!isUOwner && (
+                          <button
+                            onClick={(e) => handleDelete(u, e)}
+                            className="p-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 transition-colors"
+                            title="Archivar usuario"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

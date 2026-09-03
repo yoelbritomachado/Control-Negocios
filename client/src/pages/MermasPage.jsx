@@ -17,6 +17,7 @@ import {
 import { cn } from '../lib/utils';
 import { useCart } from '../components/CartProvider';
 import { SafeImage } from '../components/SafeImage';
+import { fetchProducts as fetchProductsApi } from '../api';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -68,12 +69,12 @@ export default function MermasPage() {
 
     const fetchProducts = async () => {
         try {
-            const response = await fetch(`${API_URL}/products?inventory=${currentInventory}`);
-            if (!response.ok) throw new Error('Error al cargar productos');
-            const data = await response.json();
-            setProducts(data);
+            setLoading(true);
+            const data = await fetchProductsApi('', currentInventory);
+            setProducts(Array.isArray(data) ? data : []);
         } catch (err) {
-            console.error('Error:', err);
+            console.error('Error al cargar productos en mermas:', err);
+            setProducts([]);
         } finally {
             setLoading(false);
         }

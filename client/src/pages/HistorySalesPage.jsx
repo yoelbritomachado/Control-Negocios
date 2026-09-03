@@ -24,6 +24,9 @@ import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 import { useCart } from '../components/CartProvider';
 import QRScannerModal from '../components/QRScannerModal';
+import { recordLog } from '../lib/telemetryLogger';
+import { savePendingSale, getPendingSales } from '../lib/localDB';
+import QRScanResultModal from '../components/QRScanResultModal';
 import api from '../api';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -174,6 +177,7 @@ export default function HistorySalesPage() {
     const [loading, setLoading] = useState(true);
     const [qrScannerOpen, setQrScannerOpen] = useState(false);
     const [qrConfirmationModal, setQrConfirmationModal] = useState(null); // { type, checkResult, qrData }
+    const [scanResultDetails, setScanResultDetails] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [dateFilter, setDateFilter] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
@@ -184,28 +188,58 @@ export default function HistorySalesPage() {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-            const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-            const invParam = currentInventory ? `?inventory=${encodeURIComponent(currentInventory)}` : '';
-            const res = await fetch(`${API_URL}/history/sales${invParam}`, { headers });
+                        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+                        // Dueño/Admin ven todas las sedes; el vendedor solo la suya
+                        const userRole = (localStorage.getItem('mch_user_role') || '').toLowerCase();
+                        const isOwnerOrAdmin = ['owner', 'admin', 'dueño', 'dueno', 'administrador'].includes(userRole);
+                        const invParam = (!isOwnerOrAdmin && currentInventory) ? `?inventory=${encodeURIComponent(currentInventory)}` : '?inventory=all';
+            
+            // Timeout corto para modo offline
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+            const res = await fetch(`${API_URL}/history/sales${invParam}`, { 
+                headers, 
+                signal: controller.signal 
+            });
+            clearTimeout(timeoutId);
+
             if (!res.ok) throw new Error('Error al obtener ventas');
             const data = await res.json();
             setSales(Array.isArray(data) ? data : []);
         } catch (err) {
-            console.error('Error fetching sales:', err);
-            setSales([]);
+            console.warn('[Historial Ventas] Backend desconectado, consultando base local:', err.message);
+            try {
+                const pendingSales = await getPendingSales();
+                const offlineList = pendingSales.map(s => ({
+                    id: s.local_id || s.id,
+                    total: s.total || 0,
+                    payment_method: s.paymentMethod || s.payment_method || 'cash',
+                    created_at: s.created_at || new Date().toISOString(),
+                    items: s.items || [],
+                    is_offline: true,
+                    status: 'completed'
+                }));
+                setSales(offlineList);
+            } catch (dbErr) {
+                console.error('Error cargando ventas locales:', dbErr);
+                setSales([]);
+            }
         } finally {
             setLoading(false);
         }
     };
 
     // Conciliación de QR de Venta o Cierre desde el Dispositivo del Vendedor
-    const handleScanSaleSuccess = async (qrData) => {
+    const handleScanSaleSuccess = async (scannedData, rawType = null) => {
         setQrScannerOpen(false);
         try {
+            const qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
+            recordLog('info', 'QR_SALE_SCAN_START', 'Iniciando verificación de QR de venta', { qrData });
             const checkRes = await api.post('/sales/qr-import', {
                 qrData,
                 action: 'check'
-            });
+            }, { timeout: 3500 });
 
             const { exists, isModified, difference, currentTotal, newTotal, message } = checkRes.data;
 
@@ -229,7 +263,20 @@ export default function HistorySalesPage() {
                 applySaleFromQR(qrData);
             }
         } catch (err) {
-            alert('Error al verificar código QR de venta: ' + (err.response?.data?.error || err.message));
+            console.warn('[QR Venta] Sin conexión central, guardando localmente:', err.message);
+            recordLog('warn', 'QR_SALE_OFFLINE_FALLBACK', 'Venta QR guardada localmente', { error: err.message, qrData });
+            try {
+                await savePendingSale(qrData);
+                setScanResultDetails({
+                    type: 'SALE',
+                    data: qrData,
+                    isOffline: true,
+                    message: '⚠️ Modo Offline: La venta fue absorbida y guardada localmente en tu dispositivo. Tu historial y caja ya fueron actualizados.'
+                });
+            } catch (localErr) {
+                alert('Error al procesar código QR de venta: ' + (err.response?.data?.error || err.message));
+            }
+            fetchSales();
         }
     };
 
@@ -239,7 +286,12 @@ export default function HistorySalesPage() {
                 qrData,
                 action: 'apply'
             });
-            alert(res.data.message || 'Venta sincronizada y asentada contablemente.');
+            setScanResultDetails({
+                type: 'SALE',
+                data: qrData,
+                isOffline: false,
+                message: res.data?.message || '¡Venta sincronizada y asentada contablemente en el servidor central!'
+            });
             setQrConfirmationModal(null);
             fetchSales();
         } catch (err) {
@@ -736,6 +788,13 @@ export default function HistorySalesPage() {
                     </div>
                 </div>
             )}
+
+            {/* Modal de Desglose y Resumen Post-Escaneo */}
+            <QRScanResultModal
+                isOpen={!!scanResultDetails}
+                onClose={() => setScanResultDetails(null)}
+                scanResult={scanResultDetails}
+            />
         </div>
     );
 }

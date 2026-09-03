@@ -22,34 +22,59 @@ import {
   markSaleSynced, 
   markTransferSynced, 
   saveProductsLocal, 
-  getPendingCounts 
+  getPendingCounts,
+  clearAllPendingOperations,
+  deletePendingSale,
+  savePendingSale,
+  savePendingTransfer,
+  applyLocalTransferStock
 } from '../lib/localDB';
 import QRGeneratorModal from './QRGeneratorModal';
 import QRScannerModal from './QRScannerModal';
-import { 
-  encodeMultiQR, 
+import QRScanResultModal from './QRScanResultModal';
+import {
+  encodeMultiQR,
   prepareSaleQRPayload, 
   prepareTransferQRPayload 
 } from '../lib/qrOfflineService';
+import { performFullSync, subscribeSyncEvents } from '../lib/autoSyncEngine';
+import { recordLog } from '../lib/telemetryLogger';
 
 export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComplete }) {
   const [activeTab, setActiveTab] = useState('auto'); // 'auto' | 'qr_export' | 'qr_import'
   const [loading, setLoading] = useState(false);
   const [pendingStats, setPendingStats] = useState({ salesCount: 0, transfersCount: 0, totalPending: 0 });
+  const [pendingSalesList, setPendingSalesList] = useState([]);
   const [statusMessage, setStatusMessage] = useState(null);
   
   // Modales de QR
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrPayload, setQrPayload] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanResultDetails, setScanResultDetails] = useState(null);
 
   const loadPending = async () => {
     try {
       const counts = await getPendingCounts();
       setPendingStats(counts);
+      const sales = await getPendingSales();
+      setPendingSalesList(sales || []);
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleClearAll = async () => {
+    if (window.confirm('¿Deseas descartar todas las operaciones pendientes locales? (Usar solo si ya fueron asentadas o son pruebas)')) {
+      await clearAllPendingOperations();
+      await loadPending();
+      setStatusMessage({ type: 'info', text: 'Operaciones locales pendientes descartadas.' });
+    }
+  };
+
+  const handleDeleteOne = async (localId) => {
+    await deletePendingSale(localId);
+    await loadPending();
   };
 
   useEffect(() => {
@@ -59,6 +84,15 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const unsubscribe = subscribeSyncEvents((event) => {
+      if (event.type === 'complete' || event.type === 'start') {
+        loadPending();
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   if (!isOpen) return null;
 
   // --- SINCRONIZACIÓN AUTOMÁTICA POR INTERNET / RED ---
@@ -67,46 +101,26 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
     setStatusMessage({ type: 'info', text: 'Sincronizando operaciones con el servidor...' });
 
     try {
-      let salesUploaded = 0;
-      let transfersUploaded = 0;
-
-      // 1. Subir ventas locales pendientes
-      const pendingSales = await getPendingSales();
-      for (const sale of pendingSales) {
-        try {
-          const res = await api.post('/sales', {
-            items: sale.items,
-            total: sale.total,
-            paymentMethod: sale.payment_method,
-            amountReceived: sale.amount_received,
-            change: sale.change,
-            inventoryId: sale.inventory_id,
-            cashAmount: sale.cash_amount,
-            transferAmount: sale.transfer_amount,
-            isOfflineSync: true,
-            offlineId: sale.local_id
-          });
-          if (res.data?.success) {
-            await markSaleSynced(sale.local_id, res.data.saleId);
-            salesUploaded++;
-          }
-        } catch (saleErr) {
-          console.warn('[Sync] Error subiendo venta:', saleErr);
-        }
-      }
-
-      // 2. Descargar catálogo actualizado de productos y guardar en IndexedDB
-      const catalog = await fetchProducts('');
-      if (Array.isArray(catalog) && catalog.length > 0) {
-        await saveProductsLocal(catalog);
-      }
-
+      const result = await performFullSync(false);
       await loadPending();
 
-      setStatusMessage({
-        type: 'success',
-        text: `¡Sincronización exitosa! ${salesUploaded} venta(s) subidas. Catálogo de productos actualizado.`
-      });
+      if (result.success && (result.salesUploaded > 0 || result.transfersUploaded > 0)) {
+        setStatusMessage({
+          type: 'success',
+          text: `¡Sincronización exitosa! ${result.salesUploaded} venta(s) y ${result.transfersUploaded} traslado(s) subidos. Catálogo actualizado.`
+        });
+      } else if (result.success && result.salesUploaded === 0 && result.transfersUploaded === 0 && result.remainingPending === 0) {
+        setStatusMessage({
+          type: 'success',
+          text: `¡Todo sincronizado! No quedan operaciones pendientes. Catálogo actualizado.`
+        });
+      } else {
+        const detail = (result.errors && result.errors.length > 0) ? ` Errores: ${result.errors.join(' | ')}` : '';
+        setStatusMessage({
+          type: 'danger',
+          text: `Error en sincronización: ${result.error || 'Algunas operaciones no pudieron subirse.'}${detail}`
+        });
+      }
 
       if (onSyncComplete) onSyncComplete();
     } catch (err) {
@@ -165,45 +179,114 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
   };
 
   // --- PROCESAR ESCANEO DE PAQUETE QR ---
-  const handleScanSuccess = async (scannedData) => {
+  const handleScanSuccess = async (scannedData, rawType = null) => {
     setScannerOpen(false);
     setLoading(true);
     setStatusMessage({ type: 'info', text: 'Procesando paquete QR recibido...' });
 
     try {
-      if (scannedData?.type === 'BUNDLE' && scannedData.data) {
-        const { sales = [], transfers = [] } = scannedData.data;
+      // Normalizar tipo y datos (soporta tanto (data, type) como ({type, data}))
+      let type = rawType || scannedData?.type;
+      let data = scannedData?.data !== undefined ? scannedData.data : scannedData;
+
+      // Si aún no detectó el tipo por metadata, inferirlo por la estructura del objeto
+      if (!type) {
+        if (data?.sales || data?.transfers) type = 'BUNDLE';
+        else if (data?.src && data?.tgt && data?.items) type = 'TRF';
+        else if (data?.total !== undefined && (data?.seller || data?.method || data?.code)) type = 'SALE';
+      }
+
+      recordLog('info', 'QR_UNIFIED_SCAN_DETECTED', `Procesando QR de tipo ${type}`, { type, data });
+
+      if (type === 'BUNDLE') {
+        const { sales = [], transfers = [] } = data || {};
         let count = 0;
 
         for (const s of sales) {
           try {
-            await api.post('/api/sales/qr-import', { saleData: s });
+            await api.post('/sales/qr-import', { qrData: s, action: 'apply' }, { timeout: 2500 });
             count++;
-          } catch (e) {}
+          } catch (e) {
+            // Si está offline o da timeout, guardarlo en la base local del móvil
+            await savePendingSale(s);
+            count++;
+          }
         }
 
-        setStatusMessage({
-          type: 'success',
-          text: `¡Paquete QR absorbido con éxito! Se procesaron ${count} operaciones.`
+        for (const t of transfers) {
+          try {
+            await api.post('/transfers/qr-import', { qrData: t, action: 'apply' }, { timeout: 2500 });
+            count++;
+          } catch (e) {
+            const trfRecord = {
+              ...t,
+              status: 'received',
+              is_received: true
+            };
+            await savePendingTransfer(trfRecord);
+            await applyLocalTransferStock(trfRecord, true);
+            count++;
+          }
+        }
+
+        setScanResultDetails({
+          type: 'BUNDLE',
+          data,
+          count,
+          isOffline: !navigator.onLine,
+          message: `¡Paquete QR absorbido con éxito! Se procesaron ${count} operaciones.`
         });
-      } else if (scannedData?.type === 'TRF' && scannedData.data) {
-        const res = await api.post('/api/transfers/qr-import', { transferData: scannedData.data });
-        setStatusMessage({
-          type: 'success',
-          text: `¡Traslado QR recibido! ${res.data?.message || 'Inventario actualizado.'}`
-        });
-      } else if (scannedData?.type === 'SALE' && scannedData.data) {
-        const res = await api.post('/api/sales/qr-import', { saleData: scannedData.data });
-        setStatusMessage({
-          type: 'success',
-          text: `¡Venta QR recibida! ${res.data?.message || 'Registrada en el sistema.'}`
-        });
+      } else if (type === 'TRF') {
+        try {
+          const res = await api.post('/transfers/qr-import', { qrData: data, action: 'apply' }, { timeout: 2500 });
+          setScanResultDetails({
+            type: 'TRF',
+            data,
+            isOffline: false,
+            message: `¡Traslado QR recibido en servidor! ${res.data?.message || 'Inventario actualizado.'}`
+          });
+        } catch (netErr) {
+          console.warn('[QR] Backend no disponible, guardando traslado en base local:', netErr.message);
+          const trfRecord = {
+            ...data,
+            status: 'received',
+            is_received: true
+          };
+          await savePendingTransfer(trfRecord);
+          await applyLocalTransferStock(trfRecord, true);
+          setScanResultDetails({
+            type: 'TRF',
+            data: trfRecord,
+            isOffline: true,
+            message: '⚠️ Modo Offline: Traslado QR absorbido localmente en tu dispositivo. Tu stock y este historial ya fueron actualizados.'
+          });
+        }
+      } else if (type === 'SALE') {
+        try {
+          const res = await api.post('/sales/qr-import', { qrData: data, action: 'apply' }, { timeout: 2500 });
+          setScanResultDetails({
+            type: 'SALE',
+            data,
+            isOffline: false,
+            message: `¡Venta QR recibida en servidor! ${res.data?.message || 'Registrada en el sistema.'}`
+          });
+        } catch (netErr) {
+          console.warn('[QR] Backend no disponible, guardando venta en base local:', netErr.message);
+          await savePendingSale(data);
+          setScanResultDetails({
+            type: 'SALE',
+            data,
+            isOffline: true,
+            message: '⚠️ Modo Offline: Venta QR absorbida y guardada localmente en tu dispositivo.'
+          });
+        }
       } else {
         throw new Error('Formato de QR no reconocido');
       }
 
       if (onSyncComplete) onSyncComplete();
     } catch (err) {
+      recordLog('error', 'QR_UNIFIED_SCAN_ERROR', 'Error al procesar QR', { error: err.message, scannedData });
       setStatusMessage({
         type: 'danger',
         text: 'Error aplicando los datos del QR: ' + (err.response?.data?.error || err.message)
@@ -250,13 +333,22 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
                 <span className="text-sm font-normal text-slate-400">pendientes de asentar</span>
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 rounded-xl text-xs bg-pink-500/10 border border-pink-500/30 text-pink-400 font-medium">
                 {pendingStats.salesCount} Ventas
               </span>
-              <span className="px-2.5 py-1 rounded-xl text-xs bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-medium">
+              <span className="px-2.5 py-1 rounded-xl text-xs bg-blue-500/10 border border-blue-500/30 text-blue-400 font-medium">
                 {pendingStats.transfersCount} Traslados
               </span>
+              {pendingStats.totalPending > 0 && (
+                <button
+                  onClick={handleClearAll}
+                  className="px-2.5 py-1 rounded-xl text-xs bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all font-medium active:scale-95 ml-1"
+                  title="Descartar pendientes si ya fueron registradas manualmente"
+                >
+                  Limpiar cola local
+                </button>
+              )}
             </div>
           </div>
 
@@ -271,6 +363,32 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
               {statusMessage.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0" />}
               {statusMessage.type === 'danger' && <AlertTriangle className="w-5 h-5 shrink-0" />}
               <span>{statusMessage.text}</span>
+            </div>
+          )}
+
+          {/* Lista detallada de pendientes si los hay */}
+          {pendingSalesList.length > 0 && (
+            <div className="space-y-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Detalle de Ventas Pendientes
+              </span>
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                {pendingSalesList.map((s) => (
+                  <div key={s.local_id} className="p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/40 flex items-center justify-between text-xs">
+                    <div>
+                      <p className="font-semibold text-white">Total: ${Number(s.total || 0).toLocaleString()} <span className="text-slate-400 font-normal">({s.items?.length || 0} items)</span></p>
+                      <p className="text-[10px] text-slate-400">{s.local_id} • {s.payment_method || s.method || 'efectivo'}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteOne(s.local_id)}
+                      className="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-colors text-[10px]"
+                      title="Eliminar esta venta local"
+                    >
+                      Descartar
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -355,6 +473,13 @@ export default function UnifiedSyncModal({ isOpen, onClose, isOnline, onSyncComp
           onScanSuccess={handleScanSuccess}
           title="Escanear Código de Sincronización"
           subtitle="Apuntá a la pantalla del otro dispositivo"
+        />
+
+        {/* Modal de Desglose y Resumen Detallado Post-Escaneo */}
+        <QRScanResultModal
+          isOpen={!!scanResultDetails}
+          onClose={() => setScanResultDetails(null)}
+          scanResult={scanResultDetails}
         />
       </div>
     </div>

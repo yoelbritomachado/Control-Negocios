@@ -62,6 +62,12 @@ export const NexusNode = React.memo(({
   const parentCount = (node.parentIds?.length || (node.parentId ? 1 : 0));
   const isCubrefranco = isVendedor && parentCount >= 2;
 
+  // Detectar estado de primer ingreso (Whitelist vs Activo) y autorización
+  const isUserNode = ['dueño', 'administrador', 'vendedor'].includes((node.type || '').toLowerCase());
+  const metrics = node.metrics || {};
+  const hasLoggedIn = isUserNode ? Boolean(metrics.hasLoggedIn ?? (metrics.first_login_at || metrics.last_login_at || metrics.is_logged_before)) : true;
+  const isAuthorized = isUserNode ? Boolean(metrics.authorized_to_work ?? (node.status === NODE_STATUS.ONLINE)) : true;
+
   // Si es cubrefranco, le damos un estilo visual púrpura/violeta distintivo
   const baseTypeConfig = NODE_TYPES[node.type?.toUpperCase()] || NODE_TYPES.EMPRESA;
   const typeConfig = isCubrefranco 
@@ -142,24 +148,20 @@ export const NexusNode = React.memo(({
         : `0 4px 15px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8)`;
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      whileHover={{ scale: 1.02 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+    <div
       style={{
         background: bgGradient,
-        borderColor: isConnectingFrom ? '#3b82f6' : isSelected ? typeConfig.color : typeConfig.borderColor,
+        borderColor: isConnectingFrom ? '#3b82f6' : isSelected ? typeConfig.color : (isUserNode && !hasLoggedIn ? '#475569' : typeConfig.borderColor),
         boxShadow: shadowStyle
       }}
       className={`
         relative w-[250px] sm:w-[260px] min-h-[150px] sm:min-h-[160px] rounded-xl cursor-grab active:cursor-grabbing
         border-2 transition-all duration-200 touch-none select-none
+        ${isUserNode && !hasLoggedIn ? 'grayscale-[0.95] opacity-80' : ''}
+        ${isUserNode && !isAuthorized ? 'opacity-60 border-dashed' : ''}
         ${isSelected ? (isDark ? 'ring-2 ring-offset-2 ring-offset-slate-900' : 'ring-2 ring-offset-2 ring-offset-white') : ''}
         ${isConnectingFrom ? 'animate-pulse' : ''}
-        ${isConnectingMode && !isConnectingFrom ? 'cursor-pointer hover:scale-[1.02]' : ''}
+        ${isConnectingMode && !isConnectingFrom ? 'cursor-pointer' : ''}
       `}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -328,7 +330,7 @@ export const NexusNode = React.memo(({
           </span>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 });
 
