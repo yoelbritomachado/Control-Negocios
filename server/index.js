@@ -2246,6 +2246,13 @@ app.post('/api/sessions/close', (req, res) => {
         const deliveredBase = (leftover_cash != null && leftover_cash > 0) ? Math.max(0, finalCash - leftover_cash) : (cash_delivered != null ? cash_delivered : finalCash);
         const deliveredCash = Math.max(0, deliveredBase - wageSettled);
 
+        // SES-04: redondeo del pago final a centenas (±$50). El total de caja queda histórico;
+        // el ajuste es un desglose del destino: si termina en <50 se redondea hacia abajo (el
+        // vendedor absorbe la diferencia como propina/diferencia de caja); si termina en >=50,
+        // hacia arriba (el admin pone la diferencia).
+        const roundedCash = Math.round(deliveredCash / 100) * 100;
+        const roundingAdjustment = roundedCash - deliveredCash;
+
         db.prepare(`
             UPDATE sales_sessions
             SET end_time = ?,
@@ -2259,7 +2266,9 @@ app.post('/api/sessions/close', (req, res) => {
                 leftover_cash = ?,
                 cash_delivered = ?,
                 wage_settled = ?,
-                wage_deferred = ?
+                wage_deferred = ?,
+                rounded_cash = ?,
+                rounding_adjustment = ?
             WHERE id = ?
         `).run(
             new Date().toISOString(),
@@ -2273,6 +2282,8 @@ app.post('/api/sessions/close', (req, res) => {
             deliveredCash,
             wageSettled,
             wageDeferred,
+            roundedCash,
+            roundingAdjustment,
             session.id
         );
 
@@ -2286,6 +2297,11 @@ app.post('/api/sessions/close', (req, res) => {
                 deferred: wageDeferred,
                 wage_payment_id: wagePaymentId,
                 cash_delivered: deliveredCash
+            },
+            rounding: {
+                base_cash: deliveredCash,
+                rounded_cash: roundedCash,
+                adjustment: roundingAdjustment
             },
             accumulated: {
                 current_session_wage: wage,
@@ -4600,6 +4616,8 @@ try {
         'cash_delivered': 'REAL DEFAULT 0',          // Efectivo entregado al administrador al cerrar
         'wage_settled': 'REAL DEFAULT 0',            // SES-02: salario liquidado del efectivo en este cierre
         'wage_deferred': 'REAL DEFAULT 0',           // SES-03: salario diferido a caja central en este cierre
+        'rounded_cash': 'REAL DEFAULT 0',            // SES-04: efectivo a entregar redondeado a centenas
+        'rounding_adjustment': 'REAL DEFAULT 0',     // SES-04: diferencia del redondeo (positiva: pone el admin; negativa: absorbe el vendedor)
         'inventory_id': 'TEXT'                        // Sede de la sesión (mch1/mch2) para herencia de fondo
     };
     for (const [col, def] of Object.entries(colsToAdd)) {
