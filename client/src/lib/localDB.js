@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'mch_local_db';
-const DB_VERSION = 3;
+const DB_VERSION = 3; // v3: +pending_expenses (gastos offline), +expense_types (cache) y +pending_returns (auditoría devoluciones)
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -50,6 +50,18 @@ function openDB() {
       if (!db.objectStoreNames.contains('pending_returns')) {
         const retStore = db.createObjectStore('pending_returns', { keyPath: 'local_id' });
         retStore.createIndex('sync_status', 'sync_status', { unique: false });
+      }
+
+      // Gastos pendientes de sincronizar (EXP-01: gastos 100% offline)
+      if (!db.objectStoreNames.contains('pending_expenses')) {
+        const expStore = db.createObjectStore('pending_expenses', { keyPath: 'local_id' });
+        expStore.createIndex('sync_status', 'sync_status', { unique: false });
+        expStore.createIndex('created_at', 'created_at', { unique: false });
+      }
+
+      // Cache de tipos de gasto (para poder registrar gastos sin conexión)
+      if (!db.objectStoreNames.contains('expense_types')) {
+        db.createObjectStore('expense_types', { keyPath: 'id' });
       }
     };
 
@@ -249,6 +261,96 @@ export async function deletePendingSale(localId) {
   return new Promise((resolve) => {
     tx.oncomplete = () => resolve(true);
     tx.onerror = () => resolve(false);
+  });
+}
+
+// --- GASTOS OFFLINE (EXP-01) ---
+
+// Guardar un gasto pendiente de sincronizar (funciona 100% offline)
+export async function savePendingExpense(expenseData) {
+  const db = await openDB();
+  const tx = db.transaction('pending_expenses', 'readwrite');
+  const store = tx.objectStore('pending_expenses');
+
+  const record = {
+    ...expenseData,
+    local_id: expenseData.local_id || `offline_exp_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    sync_status: 'pending',
+    created_at: expenseData.created_at || new Date().toISOString(),
+    date: expenseData.date || new Date().toISOString()
+  };
+
+  store.put(record);
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Gastos pendientes de sincronizar
+export async function getPendingExpenses() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('pending_expenses', 'readonly');
+    const store = tx.objectStore('pending_expenses');
+    const req = store.getAll();
+
+    req.onsuccess = () => {
+      const items = (req.result || []).filter(e => e.sync_status === 'pending');
+      resolve(items);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// Marcar gasto como sincronizado
+export async function markExpenseSynced(localId, serverId = null) {
+  const db = await openDB();
+  const tx = db.transaction('pending_expenses', 'readwrite');
+  const store = tx.objectStore('pending_expenses');
+
+  const getReq = store.get(localId);
+  getReq.onsuccess = () => {
+    const record = getReq.result;
+    if (record) {
+      record.sync_status = 'synced';
+      record.server_id = serverId;
+      record.synced_at = new Date().toISOString();
+      store.put(record);
+    }
+  };
+
+  return new Promise((resolve) => {
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => resolve(false);
+  });
+}
+
+// --- CACHE DE TIPOS DE GASTO (EXP-01) ---
+
+export async function saveExpenseTypesLocal(types) {
+  if (!Array.isArray(types) || types.length === 0) return;
+  const db = await openDB();
+  const tx = db.transaction('expense_types', 'readwrite');
+  const store = tx.objectStore('expense_types');
+  for (const t of types) {
+    store.put(t);
+  }
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getExpenseTypesLocal() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('expense_types', 'readonly');
+    const store = tx.objectStore('expense_types');
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -466,14 +568,16 @@ export async function setMetaLocal(key, value) {
 }
 
 export async function getPendingCounts() {
-  const [sales, transfers] = await Promise.all([
+  const [sales, transfers, expenses] = await Promise.all([
     getPendingSales(),
-    getPendingTransfers()
+    getPendingTransfers(),
+    getPendingExpenses()
   ]);
   return {
     salesCount: sales.length,
     transfersCount: transfers.length,
-    totalPending: sales.length + transfers.length
+    expensesCount: expenses.length,
+    totalPending: sales.length + transfers.length + expenses.length
   };
 }
 

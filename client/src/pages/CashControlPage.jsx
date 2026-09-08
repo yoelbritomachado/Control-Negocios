@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../api';
+import { useRole } from '../hooks/useRole';
 import {
     Wallet, TrendingUp, TrendingDown, RefreshCw, Loader2, Calendar,
     DollarSign, ArrowDownToLine, ArrowUpFromLine, Repeat, CircleDollarSign,
-    Info, ChevronDown
+    Info, ChevronDown, Scale, BadgeCheck, AlertTriangle, Coins, Landmark, Receipt
 } from 'lucide-react';
 
 const RANGES = [
@@ -287,8 +288,185 @@ export default function CashControlPage() {
                             <p className="px-5 pb-5 text-sm text-slate-500">No hay sesiones abiertas en este momento.</p>
                         )}
                     </div>
+
+                    {/* CONTROL DEFINITIVO: 4 bolsas de moneda estilo Excel */}
+                    {data.bags && <DefinitiveControl data={data} inventoryId={inventoryId} onCountSaved={load} />}
                 </>
             )}
+        </div>
+    );
+}
+
+// --- CONTROL DEFINITIVO: tabla de bolsas MN / USD / EUR / Transferencias + efectivo real ---
+const BAG_META = [
+    { key: 'mn', label: 'MN', symbol: '$', icon: Wallet, color: 'text-emerald-400', header: 'bg-emerald-500/10' },
+    { key: 'usd', label: 'USD', symbol: 'USD', icon: Coins, color: 'text-cyan-400', header: 'bg-cyan-500/10' },
+    { key: 'eur', label: 'EUR', symbol: 'EUR', icon: CircleDollarSign, color: 'text-amber-400', header: 'bg-amber-500/10' },
+    { key: 'transfer', label: 'Transferencias', symbol: '$', icon: Landmark, color: 'text-blue-400', header: 'bg-blue-500/10' },
+];
+
+function DefinitiveControl({ data, inventoryId, onCountSaved }) {
+    const { isAdmin } = useRole();
+    const [counts, setCounts] = useState({ mn: '', usd: '', eur: '', transfer: '' });
+    const [saving, setSaving] = useState(false);
+    const [countMsg, setCountMsg] = useState(null);
+
+    const bags = data.bags || {};
+
+    const periodMonth = (() => {
+        const d = new Date(data.period.start);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    })();
+
+    const diffFor = (key) => {
+        const c = parseFloat(counts[key]);
+        if (isNaN(c)) return null;
+        const saldo = bags[key]?.saldo || 0;
+        return Math.round((c - saldo) * 100) / 100;
+    };
+
+    const diffs = ['mn', 'usd', 'eur', 'transfer'].map(diffFor);
+    const allCounted = diffs.every(d => d !== null);
+    const balanced = allCounted && diffs.every(d => Math.abs(d) < 0.01);
+
+    const saveCount = async () => {
+        setSaving(true);
+        setCountMsg(null);
+        try {
+            const res = await api.post('/cash-control/physical-count', {
+                period_month: periodMonth,
+                inventory_id: inventoryId || null,
+                counted_mn: parseFloat(counts.mn) || 0,
+                counted_usd: parseFloat(counts.usd) || 0,
+                counted_eur: parseFloat(counts.eur) || 0,
+                counted_transfer: parseFloat(counts.transfer) || 0
+            });
+            setCountMsg({
+                ok: true,
+                text: `Conteo guardado. Diff MN: $${fmtMoney(res.data.diff?.mn)} · USD: ${fmtMoney(res.data.diff?.usd)} · EUR: ${fmtMoney(res.data.diff?.eur)} · Transf: $${fmtMoney(res.data.diff?.transfer)}`
+            });
+            if (onCountSaved) onCountSaved(true);
+        } catch (e) {
+            setCountMsg({ ok: false, text: e.response?.data?.error || 'Error al guardar el conteo' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="glass-card p-5 space-y-4">
+            <div>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-violet-400 flex items-center gap-2">
+                    <Scale className="w-4 h-4" /> Control Definitivo · Bolsas de Moneda
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                    Saldo anterior auto-heredado del cierre del mes anterior (calculado) · período: {periodMonth}
+                </p>
+            </div>
+
+            {/* Tabla estilo Excel: saldo anterior + ingresos − egresos = saldo */}
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                    <thead>
+                        <tr className="text-left text-xs uppercase tracking-wider text-slate-400 border-b border-border">
+                            <th className="py-2 px-2">Bolsa</th>
+                            <th className="py-2 px-2 text-right">Saldo Mes Anterior</th>
+                            <th className="py-2 px-2 text-right text-emerald-400">+ Ingresos</th>
+                            <th className="py-2 px-2 text-right text-rose-400">− Egresos</th>
+                            <th className="py-2 px-2 text-right">= Saldo del Mes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {BAG_META.map(({ key, label, symbol, color, header }) => {
+                            const bag = bags[key] || {};
+                            return (
+                                <tr key={key} className="border-b border-border/50 hover:bg-white/[0.02]">
+                                    <td className={`py-3 px-2 font-semibold ${color}`}>
+                                        <span className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg ${header}`}>
+                                            <Icon className="w-4 h-4" /> {label}
+                                        </span>
+                                    </td>
+                                    <td className="py-3 px-2 text-right font-mono text-slate-300">{symbol} {fmtMoney(bag.saldo_anterior)}</td>
+                                    <td className="py-3 px-2 text-right font-mono text-emerald-400">+{symbol} {fmtMoney(bag.ingresos)}</td>
+                                    <td className="py-3 px-2 text-right font-mono text-rose-400">−{symbol} {fmtMoney(bag.egresos)}</td>
+                                    <td className={`py-3 px-2 text-right font-mono font-black text-lg ${color}`}>{symbol} {fmtMoney(bag.saldo)}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+
+            {/* Detalle MN */}
+            {bags.mn?.detalle && (
+                <div className="text-xs text-slate-500 grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <span>Ventas efectivo: <span className="font-mono text-slate-300">${fmtMoney(bags.mn.detalle.ventas_cash)}</span></span>
+                    <span>Inyecciones: <span className="font-mono text-slate-300">${fmtMoney(bags.mn.detalle.inyecciones)}</span></span>
+                    <span>Gastos efectivo: <span className="font-mono text-slate-300">${fmtMoney(bags.mn.detalle.gastos_cash)}</span></span>
+                    <span>Devoluciones: <span className="font-mono text-slate-300">${fmtMoney(bags.mn.detalle.devoluciones_cash)}</span></span>
+                    <span>Compra divisas: <span className="font-mono text-slate-300">${fmtMoney(bags.mn.detalle.compras_divisas_mn)}</span></span>
+                </div>
+            )}
+
+            {/* Fila de efectivo real vs diff */}
+            <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-violet-300 flex items-center gap-2">
+                        <Receipt className="w-3.5 h-3.5" /> Efectivo Real (contado físico) vs Diff
+                    </h4>
+                    {allCounted && (
+                        balanced ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold">
+                                <BadgeCheck className="w-4 h-4" /> Cuadrado
+                            </span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
+                                <AlertTriangle className="w-4 h-4" /> Descuadre
+                            </span>
+                        )
+                    )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {BAG_META.map(({ key, label }) => {
+                        const diff = diffFor(key);
+                        return (
+                            <div key={key}>
+                                <label className="text-xs text-slate-400 block mb-1">{label}</label>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    disabled={!isAdmin}
+                                    placeholder={isAdmin ? 'Contado físico' : 'Solo admin'}
+                                    value={counts[key]}
+                                    onChange={e => setCounts(prev => ({ ...prev, [key]: e.target.value }))}
+                                    className="w-full bg-secondary/50 border border-border rounded-lg px-3 py-2 text-sm font-mono disabled:opacity-50 disabled:cursor-not-allowed"
+                                />
+                                {diff !== null && (
+                                    <p className={`text-xs font-mono mt-1 ${Math.abs(diff) < 0.01 ? 'text-emerald-400' : diff > 0 ? 'text-cyan-400' : 'text-rose-400'}`}>
+                                        diff: {diff > 0 ? '+' : ''}{fmtMoney(diff)}
+                                    </p>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+                {isAdmin && (
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={saveCount}
+                            disabled={saving}
+                            className="px-4 py-2 rounded-lg bg-violet-600/80 hover:bg-violet-600 text-white text-sm font-semibold transition-all flex items-center gap-2 disabled:opacity-50"
+                        >
+                            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scale className="w-4 h-4" />}
+                            Registrar Conteo
+                        </button>
+                        {countMsg && (
+                            <span className={`text-xs ${countMsg.ok ? 'text-emerald-400' : 'text-rose-400'}`}>{countMsg.text}</span>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

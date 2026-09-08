@@ -10,7 +10,10 @@ import {
   saveUsersLocal,
   getPendingCounts,
   getPendingReturns,
-  markReturnSynced
+  markReturnSynced,
+  getPendingExpenses,
+  markExpenseSynced,
+  saveExpenseTypesLocal
 } from './localDB';
 
 let isSyncInProgress = false;
@@ -133,6 +136,36 @@ export async function performFullSync(silent = true) {
       }
     }
 
+    let expensesUploaded = 0;
+    // 2.5. Sincronizar gastos offline pendientes (EXP-01)
+    const pendingExpenses = await getPendingExpenses();
+    for (const exp of pendingExpenses) {
+      try {
+        const res = await api.post('/expenses', {
+          type: exp.type || 'Otros',
+          amount: Number(exp.amount) || 0,
+          description: exp.description || '',
+          payment_method: exp.payment_method || 'cash',
+          amount_cash: exp.amount_cash != null ? Number(exp.amount_cash) : undefined,
+          amount_transfer: exp.amount_transfer != null ? Number(exp.amount_transfer) : undefined,
+          isOfflineSync: true,
+          offlineId: exp.local_id
+        }, { timeout: 7000 });
+
+        if (res.data?.success) {
+          await markExpenseSynced(exp.local_id, res.data.id);
+          expensesUploaded++;
+        } else {
+          const errMsg = res.data?.error || 'Respuesta no exitosa del servidor';
+          errors.push(`Gasto ${exp.local_id}: ${errMsg}`);
+        }
+      } catch (err) {
+        const errMsg = err?.response?.data?.error || err.message;
+        console.warn(`[AutoSync] Error subiendo gasto ${exp.local_id}:`, errMsg);
+        errors.push(`Gasto ${exp.local_id}: ${errMsg}`);
+      }
+    }
+
     // 3. Subir logs de telemetría y diagnósticos pendientes
     try {
       await flushOfflineLogs();
@@ -175,6 +208,13 @@ export async function performFullSync(silent = true) {
       if (nexusRes.status === 'fulfilled' && Array.isArray(nexusRes.value?.data)) {
         await saveNexusNodesLocal(nexusRes.value.data);
       }
+      // Precachear tipos de gasto (EXP-01: gastos offline)
+      try {
+        const expTypesRes = await api.get('/expense-types', { timeout: 7000 });
+        if (Array.isArray(expTypesRes.data)) {
+          await saveExpenseTypesLocal(expTypesRes.data);
+        }
+      } catch (_) {}
     } catch (_) {}
 
     // 3. DEV-06: Sincronizar devoluciones offline pendientes (se suben con status 'pending'
@@ -237,6 +277,7 @@ export async function performFullSync(silent = true) {
       salesUploaded,
       transfersUploaded,
       returnsUploaded,
+      expensesUploaded,
       errors,
       remainingPending: counts.totalPending
     };
