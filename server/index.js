@@ -2123,6 +2123,13 @@ app.post('/api/sessions/close', (req, res) => {
         const totalProfit = salesData.total_sales - salesData.total_cost;
         const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0; // 5% of profit
 
+        // SES-02/03: liquidación de salario en el cierre (opcional, solo cierre directo)
+        const { wage_withdrawal } = req.body || {};
+        const wantWageWithdrawal = !!wage_withdrawal;
+        let wageSettled = 0;   // pagado desde el efectivo de esta sesión
+        let wageDeferred = 0;  // diferido a caja central (queda pendiente como hoy)
+        let wagePaymentId = null;
+
         // Calculate final cash to deliver
         // Efectivo en ventas - Gastos en efectivo
         // Los pagos mixtos se distribuyen por importe real, no por el método principal.
@@ -2152,6 +2159,75 @@ app.post('/api/sessions/close', (req, res) => {
         const finalCash = (session.initial_cash || 0) + totalInjections + cashSales - cashExpenses - cashReturns - cashCurrencyPurchases;
         const finalTransfer = transferSales - transferExpenses;
 
+        // SES-02: si pidió liquidar el salario, validar contra el efectivo disponible (server-side, nunca confiar en el cliente)
+        // Salario liquidable = salario de esta sesión + acumulado pendiente de sesiones previas ya cerradas/aprobadas
+        const prevPending = db.prepare(`
+            SELECT COALESCE(SUM(wage_amount), 0) as total
+            FROM sales_sessions
+            WHERE user_id = ? AND id != ? AND status = 'closed'
+                AND wage_payment_id IS NULL
+        `).get(userId, session.id).total || 0;
+        const withdrawableWage = wage + Math.max(0, prevPending);
+
+        if (wantWageWithdrawal && withdrawableWage > 0) {
+            // Nunca liquidar más que el efectivo disponible en caja
+            const availableForWage = Math.max(0, finalCash);
+            wageSettled = Math.min(withdrawableWage, availableForWage);
+            wageDeferred = withdrawableWage - wageSettled;
+
+            const userRow = db.prepare('SELECT username FROM users WHERE id = ?').get(userId);
+            if (wageSettled > 0) {
+                // Solicitud creada y pagada directamente desde el efectivo del turno
+                // Nota: insert en dos pasos (insert + update) — con el INSERT de 10 columnas
+                // mejor-sqlite3 v12 disparó SQLITE_CONSTRAINT_FOREIGNKEY de forma espuria.
+                let insW;
+                try {
+                    insW = db.prepare(`
+                        INSERT INTO wage_payments (user_id, session_id, amount, paid_at, paid_by, notes, paid_from_session)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    `).run(
+                        userId, session.id, wageSettled, new Date().toISOString(),
+                        req.user.id, `Liquidado en cierre de sesión #${session.id}`, session.id
+                    );
+                    db.prepare(`UPDATE wage_payments SET payment_method = 'cash', status = 'paid', source = 'session_close' WHERE id = ?`)
+                        .run(insW.lastInsertRowid);
+                } catch (wErr) {
+                    logError("Wage settlement insert", wErr, { userId, session_id: session.id, wageSettled });
+                    throw wErr;
+                }
+                wagePaymentId = insW.lastInsertRowid;
+            }
+            if (wageDeferred > 0) {
+                // Diferido a caja central: queda pendiente de pago como hoy
+                const insD = db.prepare(`
+                    INSERT INTO wage_payments (user_id, session_id, amount, payment_method, status, source)
+                    VALUES (?, ?, ?, 'cash', 'pending', 'session_close')
+                `).run(userId, session.id, wageDeferred);
+                wagePaymentId = wagePaymentId || insD.lastInsertRowid;
+            }
+            if (wagePaymentId) {
+                db.prepare('UPDATE sales_sessions SET wage_payment_id = ? WHERE id = ?').run(wagePaymentId, session.id);
+                // Notificar a admins
+                const adminsW = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+                const insNotif = db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'wage_request', ?, ?, ?)
+                `);
+                for (const a of adminsW) {
+                    let msg;
+                    if (wageSettled > 0 && wageDeferred > 0) {
+                        msg = `${userRow?.username || 'Vendedor'}: $${wageSettled.toFixed(2)} liquidados del turno y $${wageDeferred.toFixed(2)} diferidos a caja central`;
+                    } else if (wageSettled > 0) {
+                        msg = `${userRow?.username || 'Vendedor'}: $${wageSettled.toFixed(2)} liquidados del efectivo del turno #${session.id}`;
+                    } else {
+                        msg = `${userRow?.username || 'Vendedor'}: $${wageDeferred.toFixed(2)} diferidos a caja central (sin saldo en el turno)`;
+                    }
+                    insNotif.run(a.id, 'Liquidación de salario en cierre', msg,
+                        JSON.stringify({ session_id: session.id, settled: wageSettled, deferred: wageDeferred, wage_payment_id: wagePaymentId }));
+                }
+            }
+        }
+
         // Calculate ACCUMULATED WAGE (all unpaid sessions) BEFORE updating this session
         const accumulatedWages = db.prepare(`
             SELECT 
@@ -2162,6 +2238,13 @@ app.post('/api/sessions/close', (req, res) => {
                 AND (status = 'closed' OR status = 'pending_review')
                 AND wage_payment_id IS NULL
         `).get(userId);
+
+        // KANB-F: el efectivo total es calculado y JAMÁS editable; la liquidación del salario
+        // es un desglose del destino: se resta de lo que el admin recibe, no del total en caja.
+        // Base de entrega según destino elegido (el total de caja es calculado, no editable);
+        // la liquidación del salario se descuenta acá, en el servidor, del efectivo a entregar.
+        const deliveredBase = (leftover_cash != null && leftover_cash > 0) ? Math.max(0, finalCash - leftover_cash) : (cash_delivered != null ? cash_delivered : finalCash);
+        const deliveredCash = Math.max(0, deliveredBase - wageSettled);
 
         db.prepare(`
             UPDATE sales_sessions
@@ -2174,7 +2257,9 @@ app.post('/api/sessions/close', (req, res) => {
                 status = 'closed',
                 notes = ?,
                 leftover_cash = ?,
-                cash_delivered = ?
+                cash_delivered = ?,
+                wage_settled = ?,
+                wage_deferred = ?
             WHERE id = ?
         `).run(
             new Date().toISOString(),
@@ -2185,7 +2270,9 @@ app.post('/api/sessions/close', (req, res) => {
             wage,
             notes || '',
             leftover_cash || 0,
-            cash_delivered || Math.max(0, finalCash - (leftover_cash || 0)),
+            deliveredCash,
+            wageSettled,
+            wageDeferred,
             session.id
         );
 
@@ -2193,10 +2280,17 @@ app.post('/api/sessions/close', (req, res) => {
             success: true, 
             session_id: session.id,
             wage: wage,
+            wage_settlement: {
+                requested: wantWageWithdrawal,
+                settled: wageSettled,
+                deferred: wageDeferred,
+                wage_payment_id: wagePaymentId,
+                cash_delivered: deliveredCash
+            },
             accumulated: {
                 current_session_wage: wage,
                 previous_sessions_wage: accumulatedWages.total_pending_wage,
-                total_pending_wage: accumulatedWages.total_pending_wage + wage,
+                total_pending_wage: Math.max(0, accumulatedWages.total_pending_wage + wage - wageSettled),
                 pending_sessions_count: accumulatedWages.pending_sessions + 1
             },
             summary: {
@@ -4038,6 +4132,20 @@ db.exec(`
   )
 `);
 
+// SES-02/03 Migration: origen del pago de salario (liquidado en cierre vs caja central)
+try {
+    const wpCols = db.prepare("PRAGMA table_info(wage_payments)").all();
+    const wpColsToAdd = {
+        'source': "TEXT DEFAULT 'central'",           // 'session_close' | 'central'
+        'paid_from_session': 'INTEGER'                // sesión cuyo efectivo pagó el salario (si liquidó)
+    };
+    for (const [col, def] of Object.entries(wpColsToAdd)) {
+        if (!wpCols.some(c => c.name === col)) {
+            db.exec(`ALTER TABLE wage_payments ADD COLUMN ${col} ${def}`);
+        }
+    }
+} catch (e) { console.log("Migration check (wage_payments source/paid_from_session):", e.message); }
+
 // Migration: Add wage_payment_id to sales_sessions
 try {
     const sessionCols = db.prepare("PRAGMA table_info(sales_sessions)").all();
@@ -4054,6 +4162,8 @@ try {
     const colsToAdd = {
         'leftover_cash': 'REAL DEFAULT 0',           // Fondo dejado en caja para la próxima sesión
         'cash_delivered': 'REAL DEFAULT 0',          // Efectivo entregado al administrador al cerrar
+        'wage_settled': 'REAL DEFAULT 0',            // SES-02: salario liquidado del efectivo en este cierre
+        'wage_deferred': 'REAL DEFAULT 0',           // SES-03: salario diferido a caja central en este cierre
         'inventory_id': 'TEXT'                        // Sede de la sesión (mch1/mch2) para herencia de fondo
     };
     for (const [col, def] of Object.entries(colsToAdd)) {
