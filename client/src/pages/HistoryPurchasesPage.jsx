@@ -154,8 +154,9 @@ export default function HistoryPurchasesPage() {
     // Procesar QR escaneado (Recepción de Traslado)
     const handleScanTransferSuccess = async (scannedData, rawType = null) => {
         setQrScannerOpen(false);
+        let qrData = null;
         try {
-            const qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
+            qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
             recordLog('info', 'QR_SCAN_START', 'Iniciando verificación de QR de traslado', { qrData });
             const checkRes = await api.post('/transfers/qr-import', {
                 qrData,

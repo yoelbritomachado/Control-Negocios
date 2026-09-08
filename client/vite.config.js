@@ -119,7 +119,7 @@ export default defineConfig(async () => {
       })
     )
     console.log('[Vite Config] vite-plugin-pwa cargado correctamente')
-  } catch (e) {
+  } catch {
     console.log('[Vite Config] vite-plugin-pwa no disponible, continuando sin PWA...')
   }
 

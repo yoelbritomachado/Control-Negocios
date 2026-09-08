@@ -67,6 +67,22 @@ db.exec(`
 `);
 try { db.exec("ALTER TABLE nexus_nodes ADD COLUMN parent_ids TEXT DEFAULT '[]'"); } catch (e) {}
 
+// KANB-E: Solicitudes de pago de salario por período (vendedor sugiere, admin aprueba)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wage_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    seller_id INTEGER NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    amount REAL NOT NULL DEFAULT 0,
+    notes TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    reviewed_by INTEGER,
+    reviewed_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
 // CORS Configuration
 const allowedOrigins = [
     'http://localhost:5173',
@@ -1969,20 +1985,52 @@ app.post('/api/sales', (req, res) => { // Auth checked by middleware
 // Open Session
 app.post('/api/sessions/open', (req, res) => {
     try {
-        const { initial_cash } = req.body;
+        const { initial_cash, inventory_id } = req.body;
         const userId = req.user.id;
 
         const existing = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
         if (existing) return res.status(400).json({ error: "Ya tienes una sesión abierta." });
 
         const info = db.prepare(`
-            INSERT INTO sales_sessions (user_id, start_time, initial_cash, status)
-            VALUES (?, ?, ?, 'open')
-        `).run(userId, new Date().toISOString(), initial_cash || 0);
+            INSERT INTO sales_sessions (user_id, start_time, initial_cash, status, inventory_id)
+            VALUES (?, ?, ?, 'open', ?)
+        `).run(userId, new Date().toISOString(), initial_cash || 0, inventory_id || null);
 
         res.json({ success: true, sessionId: info.lastInsertRowid });
     } catch (e) {
         logError("Open Session", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// KANB-F: Fondo disponible para nueva sesión en una sede
+// = leftover_cash de la última sesión cerrada en esa sede (herencia) + info para apertura
+app.get('/api/sessions/carryover', (req, res) => {
+    try {
+        const { inventory_id } = req.query;
+        if (!inventory_id) return res.json({ carryover: 0, from_session_id: null, from_session_end: null });
+
+        const last = db.prepare(`
+            SELECT id, end_time, leftover_cash
+            FROM sales_sessions
+            WHERE inventory_id = ? AND status = 'closed' AND leftover_cash > 0
+            ORDER BY end_time DESC, id DESC
+            LIMIT 1
+        `).get(inventory_id);
+
+        // Si el último cierre ya fue "consumido" por una sesión posterior (aunque sea de otro día), no hereda dos veces.
+        // Regla: hereda solo si NO existe ninguna sesión posterior (open o closed) para esa sede.
+        if (last) {
+            const consumed = db.prepare(`
+                SELECT COUNT(*) AS c FROM sales_sessions
+                WHERE inventory_id = ? AND id > ? AND status IN ('open', 'closed')
+            `).get(inventory_id, last.id).c;
+            if (consumed > 0) return res.json({ carryover: 0, from_session_id: null, from_session_end: null });
+            return res.json({ carryover: last.leftover_cash || 0, from_session_id: last.id, from_session_end: last.end_time });
+        }
+        res.json({ carryover: 0, from_session_id: null, from_session_end: null });
+    } catch (e) {
+        logError("GET /api/sessions/carryover", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2028,7 +2076,7 @@ app.get('/api/sessions/injections', (req, res) => {
 // Close Session & Calculate Wages
 app.post('/api/sessions/close', (req, res) => {
     try {
-        const { declared_cash, notes } = req.body;
+        const { declared_cash, notes, leftover_cash, cash_delivered } = req.body;
         const userId = req.user.id;
 
         const session = db.prepare("SELECT * FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(userId);
@@ -2116,15 +2164,17 @@ app.post('/api/sessions/close', (req, res) => {
         `).get(userId);
 
         db.prepare(`
-            UPDATE sales_sessions 
-            SET end_time = ?, 
-                declared_cash = ?, 
-                total_sales = ?, 
-                total_cost = ?, 
-                total_profit = ?, 
-                wage_amount = ?, 
+            UPDATE sales_sessions
+            SET end_time = ?,
+                declared_cash = ?,
+                total_sales = ?,
+                total_cost = ?,
+                total_profit = ?,
+                wage_amount = ?,
                 status = 'closed',
-                notes = ?
+                notes = ?,
+                leftover_cash = ?,
+                cash_delivered = ?
             WHERE id = ?
         `).run(
             new Date().toISOString(),
@@ -2134,6 +2184,8 @@ app.post('/api/sessions/close', (req, res) => {
             totalProfit,
             wage,
             notes || '',
+            leftover_cash || 0,
+            cash_delivered || Math.max(0, finalCash - (leftover_cash || 0)),
             session.id
         );
 
@@ -2164,10 +2216,13 @@ app.post('/api/sessions/close', (req, res) => {
                 injections: {
                     total: totalInjections
                 },
+                session_fund: session.initial_cash || 0,
                 final: {
                     cash: finalCash,
                     transfer: finalTransfer,
-                    total: finalCash + finalTransfer
+                    total: finalCash + finalTransfer,
+                    leftover_cash: leftover_cash || 0,
+                    cash_delivered: cash_delivered || Math.max(0, finalCash - (leftover_cash || 0))
                 }
             }
         });
@@ -2345,7 +2400,7 @@ app.post('/api/sessions/send-for-review', (req, res) => {
 });
 
 // Approve Session (Admin/Owner)
-app.post('/api/sessions/:id/approve', checkAdmin, (req, res) => {
+app.post('/api/sessions/:id/approve', authenticate, requireAdmin, (req, res) => {
     try {
         const sessionId = req.params.id;
         const adminId = req.user.id;
@@ -2540,6 +2595,119 @@ app.post('/api/wages/:id/pay', checkAdmin, (req, res) => {
 });
 
 // Get all pending wage payments (Admin/Owner)
+// KANB-E: Solicitudes de pago por período (vendedor sugiere, admin aprueba)
+// Vendedor crea solicitud de pago para un período
+app.post('/api/wage-requests', (req, res) => {
+    try {
+        const { period_start, period_end, amount, notes } = req.body || {};
+        if (!period_start || !period_end || amount == null) {
+            return res.status(400).json({ error: 'period_start, period_end y amount son obligatorios.' });
+        }
+        const result = db.prepare(`
+            INSERT INTO wage_requests (seller_id, period_start, period_end, amount, notes)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(req.user.id, period_start, period_end, amount, notes || '');
+        res.json({ success: true, id: result.lastInsertRowid });
+    } catch (e) {
+        logError("POST /api/wage-requests", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Listar solicitudes: vendedor ve las propias, admin/owner ve todas (filtros: seller_id, status)
+app.get('/api/wage-requests', (req, res) => {
+    try {
+        const { seller_id, status } = req.query;
+        const isBoss = req.user.role === 'admin' || req.user.role === 'owner';
+        const conditions = [];
+        const params = [];
+
+        if (!isBoss) {
+            conditions.push("wr.seller_id = ?");
+            params.push(req.user.id);
+        } else if (seller_id) {
+            conditions.push("wr.seller_id = ?");
+            params.push(seller_id);
+        }
+        if (status) {
+            conditions.push("wr.status = ?");
+            params.push(status);
+        }
+
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const rows = db.prepare(`
+            SELECT wr.*, u.username as seller_name
+            FROM wage_requests wr
+            LEFT JOIN users u ON u.id = wr.seller_id
+            ${where}
+            ORDER BY wr.created_at DESC
+        `).all(...params);
+        res.json(rows);
+    } catch (e) {
+        logError("GET /api/wage-requests", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Contador de solicitudes pendientes (badge para admin/owner)
+app.get('/api/wage-requests/pending-count', requireAdmin, (req, res) => {
+    try {
+        const row = db.prepare("SELECT COUNT(*) as count FROM wage_requests WHERE status = 'pending'").get();
+        res.json({ count: row.count });
+    } catch (e) {
+        logError("GET /api/wage-requests/pending-count", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// KANB-D: Contador y lista de sesiones pendientes de revisión (admin/owner)
+app.get('/api/sessions/pending-count', authenticate, requireAdmin, (req, res) => {
+    try {
+        const row = db.prepare("SELECT COUNT(*) as count FROM sales_sessions WHERE status = 'pending_review'").get();
+        res.json({ count: row.count });
+    } catch (e) {
+        logError("GET /api/sessions/pending-count", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/sessions/pending-review', authenticate, requireAdmin, (req, res) => {
+    try {
+        const rows = db.prepare(`
+            SELECT s.*, u.username as seller_name
+            FROM sales_sessions s
+            LEFT JOIN users u ON u.id = s.user_id
+            WHERE s.status = 'pending_review'
+            ORDER BY s.end_time DESC, s.id DESC
+        `).all();
+        res.json(rows);
+    } catch (e) {
+        logError("GET /api/sessions/pending-review", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Aprobar / rechazar (solo admin/owner)
+app.patch('/api/wage-requests/:id/review', requireAdmin, (req, res) => {
+    try {
+        const { status } = req.body || {};
+        if (!['approved', 'rejected'].includes(status)) {
+            return res.status(400).json({ error: "status debe ser 'approved' o 'rejected'." });
+        }
+        const wr = db.prepare("SELECT * FROM wage_requests WHERE id = ?").get(req.params.id);
+        if (!wr) return res.status(404).json({ error: 'Solicitud no encontrada.' });
+        db.prepare(`
+            UPDATE wage_requests
+            SET status = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(status, req.user.id, req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        logError("PATCH /api/wage-requests/:id/review", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/wages/pending', checkAdmin, (req, res) => {
     try {
         const payments = db.prepare(`
@@ -2728,7 +2896,12 @@ app.get('/api/sessions/metrics', (req, res) => {
         // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
         const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
 
-        const finalCash = cashSales - cashExpenses - cashReturns;
+        // KANB-F: Inyecciones de efectivo durante el turno
+        const metricsInjections = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(session.id)?.t || 0;
+        const cashCurrencyPurchasesMetrics = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(session.id)?.t || 0;
+
+        // Efectivo disponible en caja = fondo inicial + inyecciones + ventas - gastos - devoluciones - divisas
+        const finalCash = (session.initial_cash || 0) + metricsInjections + cashSales - cashExpenses - cashReturns - cashCurrencyPurchasesMetrics;
         const finalTransfer = transferSales - transferExpenses;
 
         // Calculate ACCUMULATED WAGE (all unpaid sessions)
@@ -2746,7 +2919,9 @@ app.get('/api/sessions/metrics', (req, res) => {
             session: {
                 id: session.id,
                 start_time: session.start_time,
-                initial_cash: session.initial_cash
+                initial_cash: session.initial_cash,
+                injections_total: metricsInjections,
+                inventory_id: session.inventory_id || null
             },
             current: {
                 sales: {
@@ -2857,6 +3032,82 @@ app.post('/api/returns', upload.single('evidence'), (req, res) => {
     }
 });
 
+// --- DELETE ENDPOINTS (Dueño/Admin) para tickets del turno ---
+
+function getSessionTableInfo(table, id) {
+    return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+}
+
+// Eliminar gasto del turno
+app.delete('/api/expenses/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const exp = db.prepare("SELECT * FROM expenses WHERE id = ?").get(req.params.id);
+        if (!exp) return res.status(404).json({ error: "Gasto no encontrado." });
+        db.prepare("DELETE FROM expenses WHERE id = ?").run(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        logError("Delete Expense", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Eliminar inyección de efectivo del turno
+app.delete('/api/sessions/injections/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const inj = db.prepare("SELECT * FROM cash_injections WHERE id = ?").get(req.params.id);
+        if (!inj) return res.status(404).json({ error: "Inyección no encontrada." });
+        db.prepare("DELETE FROM cash_injections WHERE id = ?").run(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        logError("Delete Injection", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Eliminar compra de divisas del turno
+app.delete('/api/currency-purchases/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const cp = db.prepare("SELECT * FROM currency_purchases WHERE id = ?").get(req.params.id);
+        if (!cp) return res.status(404).json({ error: "Compra de divisas no encontrada." });
+        db.prepare("DELETE FROM currency_purchases WHERE id = ?").run(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        logError("Delete Currency Purchase", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Eliminar venta del turno (solo si la sesión está abierta — devuelve stock)
+app.delete('/api/sales/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(req.params.id);
+        if (!sale) return res.status(404).json({ error: "Venta no encontrada." });
+        const session = db.prepare("SELECT status FROM sales_sessions WHERE id = ?").get(sale.session_id);
+        if (session && session.status !== 'open') {
+            return res.status(400).json({ error: "No se puede eliminar una venta de una sesión cerrada." });
+        }
+        const tx = db.transaction(() => {
+            // Devolver stock
+            const items = db.prepare("SELECT product_id, quantity FROM sale_items WHERE sale_id = ?").all(req.params.id);
+            const updateStock = db.prepare(`
+                UPDATE product_inventory
+                SET quantity = quantity + ?
+                WHERE product_id = ? AND inventory_id = ?
+            `);
+            items.forEach(it => {
+                updateStock.run(it.quantity, it.product_id, sale.inventory_id || 'mch1');
+            });
+            db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(req.params.id);
+            db.prepare("DELETE FROM sales WHERE id = ?").run(req.params.id);
+        });
+        tx();
+        res.json({ success: true });
+    } catch (e) {
+        logError("Delete Sale", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- CURRENCY EXCHANGE (Compra de Divisas) ---
 
 // Get available cash for the current open session (fondo + ventas efectivo - gastos efectivo - devoluciones)
@@ -2930,20 +3181,214 @@ app.post('/api/currency-purchase', authenticate, (req, res) => {
             return res.status(400).json({ error: `Efectivo insuficiente. Disponible: $${available.toFixed(2)} MN, la compra requiere $${totalMn.toFixed(2)} MN.` });
         }
 
+        const nowIso = new Date().toISOString();
         const info = db.prepare(`
             INSERT INTO currency_purchases (session_id, user_id, currency, amount_divisas, cost_per_divisa, amount_mn, payment_method, date, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_review')
-        `).run(session.id, userId, currency || 'USD', amountDivisas, unitCost, totalMn, payment_method || 'cash', new Date().toISOString());
+        `).run(session.id, userId, currency || 'USD', amountDivisas, unitCost, totalMn, payment_method || 'cash', nowIso);
 
         // Notify admins
         const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
         const notifData = JSON.stringify({ purchase_id: info.lastInsertRowid, seller_id: userId, total_mn: totalMn, currency: currency || 'USD', amount_divisas: amountDivisas });
         const insertNotif = db.prepare("INSERT INTO notifications (user_id, type, title, message, data, is_read, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)");
-        admins.forEach(a => insertNotif.run(a.id, 'currency_purchase', 'Compra de Divisas', `Compra de ${amountDivisas} ${currency || 'USD'} por $${totalMn.toFixed(2)} MN pendiente de revisión.`, notifData, new Date().toISOString()));
+        admins.forEach(a => insertNotif.run(a.id, 'currency_purchase', 'Compra de Divisas', `Compra de ${amountDivisas} ${currency || 'USD'} por $${totalMn.toFixed(2)} MN pendiente de revisión.`, notifData, nowIso));
 
-        res.json({ success: true, id: info.lastInsertRowid, total_mn: totalMn, available_after: available - totalMn });
+        const createdPurchase = {
+            id: info.lastInsertRowid,
+            session_id: session.id,
+            user_id: userId,
+            currency: currency || 'USD',
+            amount_divisas: amountDivisas,
+            cost_per_divisa: unitCost,
+            amount_mn: totalMn,
+            payment_method: payment_method || 'cash',
+            date: nowIso,
+            status: 'pending_review'
+        };
+
+        res.json({ success: true, id: info.lastInsertRowid, purchase: createdPurchase, total_mn: totalMn, available_after: available - totalMn });
     } catch (e) {
         logError("Currency Purchase", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Get currency purchases of current open session (para listar en tickets del turno)
+app.get('/api/sessions/currency-purchases', authenticate, (req, res) => {
+    try {
+        const session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
+        if (!session) {
+            return res.json({ success: true, purchases: [] });
+        }
+        const purchases = db.prepare(`
+            SELECT id, session_id, user_id, currency, amount_divisas, cost_per_divisa, amount_mn, payment_method, date, status
+            FROM currency_purchases
+            WHERE session_id = ?
+            ORDER BY id DESC
+        `).all(session.id);
+        res.json({ success: true, purchases });
+    } catch (e) {
+        logError("Get Session Currency Purchases", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- CASH CONTROL (KANB-F: Control de Efectivo global por moneda y período) ---
+
+// Control de efectivo: ingresos, egresos, divisas y saldos por rango de fechas.
+// Rangos: today | week | month (default) | year | custom (from, to).
+// Solo cuenta sesiones CERRADAS (closed/approved); sesiones abiertas van aparte como "circulante".
+app.get('/api/cash-control', (req, res) => {
+    try {
+        const { range, from, to, inventory_id } = req.query;
+        const now = new Date();
+        let start, end = null;
+
+        const startOfDay = (d) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+        const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+        const fmt = (d) => d.toISOString();
+
+        if (range === 'today') {
+            start = startOfDay(now);
+        } else if (range === 'week') {
+            const d = new Date(startOfDay(now));
+            d.setDate(d.getDate() - d.getDay()); // domingo como inicio
+            start = d;
+        } else if (range === 'year') {
+            start = new Date(now.getFullYear(), 0, 1);
+        } else if (range === 'custom' && from && to) {
+            start = startOfDay(new Date(from));
+            end = endOfDay(new Date(to));
+        } else {
+            // month (default): mes en curso hasta ahora
+            start = new Date(now.getFullYear(), now.getMonth(), 1);
+        }
+
+        const startIso = fmt(start);
+        const endIso = end ? fmt(end) : null;
+
+        // Condición de fecha según rango (para tablas con columna date TEXT ISO)
+        const dateCond = endIso ? "date >= ? AND date <= ?" : "date >= ?";
+        const dateParams = endIso ? [startIso, endIso] : [startIso];
+
+        // Filtro opcional por sede
+        const invCond = inventory_id ? " AND inventory_id = ?" : "";
+        const invParams = inventory_id ? [inventory_id] : [];
+
+        // 1) Saldo inicial: fondo dejado de la última sesión cerrada ANTES del período.
+        //    Usamos leftover_cash de la última sesión cerrada previa al inicio del rango.
+        const prevSession = db.prepare(`
+            SELECT id, leftover_cash, end_time FROM sales_sessions
+            WHERE status IN ('closed','approved') AND end_time < ?
+            ${inventory_id ? "AND inventory_id = ?" : ""}
+            ORDER BY end_time DESC LIMIT 1
+        `).get(...[startIso], ...invParams);
+        const openingBalance = prevSession ? (prevSession.leftover_cash || 0) : 0;
+
+        // 2) Ventas: efectivo y transferencia (de sesiones cerradas y también en vivo — tiempo real)
+        const salesRows = db.prepare(`
+            SELECT
+                COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) AS cash,
+                COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN total ELSE 0 END), 0) AS transfer,
+                COUNT(*) AS count
+            FROM sales WHERE ${dateCond}${invCond.replace('inventory_id', 's.inventory_id')}
+        `).all(...dateParams, ...invParams);
+        const sales = salesRows[0] || { cash: 0, transfer: 0, count: 0 };
+
+        // 3) Inyecciones de efectivo del período
+        const injRows = db.prepare(`
+            SELECT COALESCE(SUM(ci.amount), 0) AS total, COUNT(*) AS count
+            FROM cash_injections ci
+            JOIN sales_sessions ss ON ss.id = ci.session_id
+            WHERE ci.created_at >= ? ${endIso ? "AND ci.created_at <= ?" : ""}${invCond.replace('inventory_id', 'ss.inventory_id')}
+        `).all(...(endIso ? [startIso, endIso] : [startIso]), ...invParams);
+        const injections = injRows[0] || { total: 0, count: 0 };
+
+        // 4) Gastos por método de pago
+        const expRows = db.prepare(`
+            SELECT
+                COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END), 0) AS cash,
+                COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount ELSE 0 END), 0) AS transfer,
+                COUNT(*) AS count
+            FROM expenses WHERE ${dateCond}${invCond.replace('inventory_id', 's.inventory_id')}
+        `).all(...dateParams, ...invParams);
+        const expenses = expRows[0] || { cash: 0, transfer: 0, count: 0 };
+
+        // 5) Devoluciones en efectivo (salida de caja)
+        const retRows = db.prepare(`
+            SELECT COALESCE(SUM(amount_returned), 0) AS cash, COUNT(*) AS count
+            FROM returns WHERE payment_method = 'cash' AND ${dateCond}
+        `).all(...dateParams);
+        const returnsCash = retRows[0] || { cash: 0, count: 0 };
+
+        // 6) Compras de divisas: salida MN (cash) y entrada de divisas por moneda
+        const cpRows = db.prepare(`
+            SELECT currency,
+                   COALESCE(SUM(amount_mn), 0) AS mn_spent,
+                   COALESCE(SUM(amount_divisas), 0) AS divisas_bought
+            FROM currency_purchases cp
+            WHERE ${dateCond.replace('date', 'cp.date')}
+            GROUP BY currency
+        `).all(...dateParams);
+        const currencyPurchases = cpRows || [];
+
+        // 7) Sesiones abiertas ahora: efectivo circulante (fondo + inyecciones + ventas - gastos - devoluciones - divisas, en vivo)
+        const openSessions = db.prepare(`
+            SELECT id, user_id, inventory_id, initial_cash, start_time
+            FROM sales_sessions WHERE status = 'open'
+            ${inventory_id ? "AND inventory_id = ?" : ""}
+        `).all(...invParams);
+        const circulating = openSessions.map(s => {
+            const inj = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(s.id).t || 0;
+            const cashSales = db.prepare("SELECT COALESCE(SUM(total),0) AS t FROM sales WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
+            const exp = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
+            const ret = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
+            const cp = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(s.id).t || 0;
+            return {
+                session_id: s.id,
+                user_id: s.user_id,
+                inventory_id: s.inventory_id,
+                start_time: s.start_time,
+                circulating_cash: (s.initial_cash || 0) + inj + cashSales - exp - ret - cp
+            };
+        });
+
+        // Totales consolidados
+        const totalIncomeCash = (sales.cash || 0) + (injections.total || 0);
+        const totalExpenseCash = (expenses.cash || 0) + (returnsCash.cash || 0);
+        const closingBalance = openingBalance + totalIncomeCash - totalExpenseCash;
+
+        res.json({
+            period: {
+                range: range || 'month',
+                start: startIso,
+                end: endIso,
+                label: range === 'today' ? 'Hoy' : range === 'week' ? 'Esta semana' : range === 'year' ? 'Este año' : range === 'custom' ? 'Personalizado' : 'Mes en curso'
+            },
+            opening_balance: openingBalance,
+            income: {
+                sales_cash: sales.cash || 0,
+                sales_transfer: sales.transfer || 0,
+                sales_count: sales.count || 0,
+                injections: injections.total || 0,
+                injections_count: injections.count || 0,
+                total_cash: totalIncomeCash
+            },
+            expenses: {
+                cash: expenses.cash || 0,
+                transfer: expenses.transfer || 0,
+                count: expenses.count || 0
+            },
+            returns_cash: returnsCash.cash || 0,
+            returns_count: returnsCash.count || 0,
+            currency_purchases: currencyPurchases,
+            closing_balance: closingBalance,
+            circulating_sessions: circulating,
+            circulating_total: circulating.reduce((a, s) => a + s.circulating_cash, 0),
+            real_time: !endIso // sin fecha final = incluye sesiones abiertas en vivo
+        });
+    } catch (e) {
+        logError("Cash Control", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2974,6 +3419,29 @@ try {
 } catch (e) {
     // Column already exists, ignore error
 }
+
+// Add updated_at column if it doesn't exist (required by /api/products/sync delta sync)
+try {
+    const prodCols = db.prepare("PRAGMA table_info(products)").all().map(c => c.name);
+    if (!prodCols.includes('updated_at')) {
+        db.exec(`ALTER TABLE products ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+        db.exec(`UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL`);
+        console.log('Migrating: Added updated_at to products table');
+    }
+} catch (e) {
+    console.error('products updated_at migration failed:', e.message);
+}
+
+// Auto-update products.updated_at on insert/update (for delta sync)
+try {
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_products_updated_at
+      AFTER UPDATE ON products
+      BEGIN
+        UPDATE products SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+      END;
+    `);
+} catch (e) { /* trigger may already exist */ }
 
 // Inventories table (Modified for MCH Multi-site)
 db.exec(`
@@ -3579,6 +4047,22 @@ try {
         db.exec("ALTER TABLE sales_sessions ADD COLUMN wage_payment_id INTEGER REFERENCES wage_payments(id)");
     }
 } catch (e) { console.log("Migration check (sales_sessions wage_payment_id):", e.message); }
+
+// KANB-F Migration: cash handling columns on sales_sessions
+try {
+    const sessionColsF = db.prepare("PRAGMA table_info(sales_sessions)").all();
+    const colsToAdd = {
+        'leftover_cash': 'REAL DEFAULT 0',           // Fondo dejado en caja para la próxima sesión
+        'cash_delivered': 'REAL DEFAULT 0',          // Efectivo entregado al administrador al cerrar
+        'inventory_id': 'TEXT'                        // Sede de la sesión (mch1/mch2) para herencia de fondo
+    };
+    for (const [col, def] of Object.entries(colsToAdd)) {
+        if (!sessionColsF.some(c => c.name === col)) {
+            console.log(`Migrating: Adding ${col} to sales_sessions...`);
+            db.exec(`ALTER TABLE sales_sessions ADD COLUMN ${col} ${def}`);
+        }
+    }
+} catch (e) { console.log("Migration check (sales_sessions cash columns):", e.message); }
 
 // Transfers table
 console.log("Creating transfers table...");
@@ -6572,6 +7056,127 @@ setTimeout(() => {
         }
     } catch (_) {}
 }, 10000);
+
+// ============================================================
+// KANB-G: AUTO-CIERRE DE SESIONES A MEDIANOCHE
+// Las sesiones son un día de trabajo: duran menos de un día, nunca más.
+// A las 00:00 (hora local del servidor) toda sesión abierta se cierra
+// automáticamente y se envía a revisión del administrador.
+// ============================================================
+function autoCloseMidnightSessions() {
+    try {
+        const openSessions = db.prepare("SELECT * FROM sales_sessions WHERE status = 'open'").all();
+        if (openSessions.length === 0) return;
+
+        console.log(`[KANB-G] Auto-cierre de medianoche: ${openSessions.length} sesión(es) abierta(s)`);
+
+        for (const session of openSessions) {
+            const salesData = db.prepare(`
+                SELECT COALESCE(SUM(s.total), 0) as total_sales,
+                       COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+                FROM sales s JOIN sale_items si ON s.id = si.sale_id
+                WHERE s.session_id = ?
+            `).get(session.id);
+
+            const paymentTotals = db.prepare(`
+                SELECT COALESCE(SUM(cash_amount), 0) AS cash_total,
+                       COALESCE(SUM(transfer_amount), 0) AS transfer_total
+                FROM sales WHERE session_id = ?
+            `).get(session.id);
+            const cashSales = paymentTotals.cash_total || 0;
+            const transferSales = paymentTotals.transfer_total || 0;
+
+            const expensesByMethod = db.prepare(`
+                SELECT payment_method, COALESCE(SUM(amount), 0) as total
+                FROM expenses WHERE session_id = ? GROUP BY payment_method
+            `).all(session.id);
+            const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
+            const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
+
+            const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+
+            const totalProfit = salesData.total_sales - salesData.total_cost;
+            const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0;
+
+            const closeTx = db.transaction(() => {
+                const seller = db.prepare("SELECT username FROM users WHERE id = ?").get(session.user_id);
+                db.prepare(`
+                    UPDATE sales_sessions
+                    SET end_time = ?, declared_cash = ?, total_sales = ?, total_cost = ?,
+                        total_profit = ?, wage_amount = ?, status = 'pending_review',
+                        notes = ?
+                    WHERE id = ?
+                `).run(
+                    new Date().toISOString(),
+                    null, // declared_cash: no hubo declaración humana
+                    salesData.total_sales,
+                    salesData.total_cost,
+                    totalProfit,
+                    wage,
+                    '[Auto-cierre medianoche] Sesión abierta al cambio de día, enviada a revisión automática.',
+                    session.id
+                );
+
+                // Notificar a admins
+                const admins = db.prepare("SELECT id FROM users WHERE role = 'admin' OR role = 'owner'").all();
+                const notificationData = JSON.stringify({
+                    session_id: session.id,
+                    seller_id: session.user_id,
+                    seller_name: seller?.username || 'Vendedor',
+                    total_sales: salesData.total_sales,
+                    wage: wage,
+                    auto_closed: true
+                });
+                const insertNotification = db.prepare(`
+                    INSERT INTO notifications (user_id, type, title, message, data)
+                    VALUES (?, 'session_pending', ?, ?, ?)
+                `);
+                for (const admin of admins) {
+                    insertNotification.run(
+                        admin.id,
+                        'Sesión auto-cerrada (medianoche)',
+                        `La sesión #${session.id} de ${seller?.username || 'vendedor'} quedó abierta al cambio de día y fue enviada a revisión automática. Total: $${salesData.total_sales.toFixed(2)}`,
+                        notificationData
+                    );
+                }
+            });
+            closeTx();
+            console.log(`[KANB-G] Sesión #${session.id} (${seller?.username || session.user_id}) auto-cerrada y enviada a revisión`);
+        }
+    } catch (e) {
+        logError('AutoCloseMidnight', e);
+    }
+}
+
+// Programar el auto-cierre: primero al próximo medianoche, luego cada 24h.
+function scheduleMidnightAutoClose() {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5); // 00:00:05 para no competir con el borde
+    const msUntilMidnight = next - now;
+    setTimeout(() => {
+        autoCloseMidnightSessions();
+        setInterval(autoCloseMidnightSessions, 24 * 60 * 60 * 1000); // y cada 24h
+    }, msUntilMidnight);
+
+    // Al arrancar el servidor: si hay sesiones abiertas de días anteriores, auto-cerrarlas también
+    setTimeout(() => {
+        try {
+            const openSessions = db.prepare("SELECT status = 'open' AS isOpen, start_time FROM sales_sessions WHERE status = 'open'").all();
+            const stale = openSessions.filter(s => {
+                const startDay = new Date(s.start_time);
+                const today = new Date();
+                return startDay.getFullYear() !== today.getFullYear() || startDay.getMonth() !== today.getMonth() || startDay.getDate() !== today.getDate();
+            });
+            if (stale.length > 10) { // umbral informativo
+                console.log(`[KANB-G] ${stale.length} sesión(es) abiertas de días anteriores detectadas al arrancar`);
+            }
+            if (stale.length > 0) {
+                autoCloseMidnightSessions();
+            }
+        } catch (_) {}
+    }, 15000); // 15s tras arrancar, cuando la BD ya está lista
+}
+scheduleMidnightAutoClose();
 try {
     const pCols = db.prepare("PRAGMA table_info(products)").all();
     if (!pCols.some(c => c.name === 'updated_at')) {
@@ -7169,52 +7774,275 @@ if (resetInventories.count === 0) {
 app.get('/api/history/sales', authenticate, (req, res) => {
     try {
         const { inventory } = req.query;
-        let query = `
-            SELECT s.id, s.total, s.date, s.user_id, s.inventory_id, s.payment_method,
-                   u.username as seller_name,
-                   COUNT(si.id) as items_count,
-                   json_group_array(
-                       json_object(
-                           'name', COALESCE(p.name, 'Producto'),
-                           'quantity', si.quantity,
-                           'price', si.price,
-                           'cost', si.cost
-                       )
-                   ) as items_json
-            FROM sales s
-            LEFT JOIN sale_items si ON s.id = si.sale_id
-            LEFT JOIN products p ON si.product_id = p.id
-            LEFT JOIN users u ON s.user_id = u.id
-        `;
-        let params = [];
+        const params = [];
+        let where = '';
         if (inventory && inventory !== 'all') {
-            query += ` WHERE s.inventory_id = ? `;
+            where = ` WHERE s.inventory_id = ? `;
             params.push(inventory);
         }
-        query += ` GROUP BY s.id ORDER BY s.date DESC LIMIT 1000 `;
 
-        const rawSales = db.prepare(query).all(...params);
-        const sales = rawSales.map(s => {
-            let items = [];
-            try {
-                items = JSON.parse(s.items_json || '[]').filter(it => it.name && it.quantity);
-            } catch (_) {}
+        // KANB-I: agrupar por SESIÓN — una fila por sesión con todos sus tickets adentro.
+        // 1) Ventas con sesión real
+        const sessionRows = db.prepare(`
+            SELECT ss.id as session_id, ss.status as session_status, ss.start_time, ss.end_time,
+                   ss.user_id, ss.inventory_id as session_inventory,
+                   COALESCE(u.username, 'Vendedor') as seller_name
+            FROM sales_sessions ss
+            LEFT JOIN users u ON ss.user_id = u.id
+            ${where ? where.replace(/s\.inventory_id/g, 'ss.inventory_id') : ''}
+            ORDER BY ss.start_time DESC
+        `).all(...params);
+
+        // 2) Ventas huérfanas (sin session_id — modo offline / legacy)
+        const orphanSales = db.prepare(`
+            SELECT s.id, s.total, s.date, s.user_id, s.inventory_id, s.payment_method, s.session_id,
+                   s.cash_amount, s.transfer_amount,
+                   COALESCE(u.username, 'Vendedor') as seller_name
+            FROM sales s
+            LEFT JOIN users u ON s.user_id = u.id
+            WHERE s.session_id IS NULL ${where ? 'AND s.inventory_id = ?' : ''}
+            ORDER BY s.date DESC
+        `).all(...params);
+
+        // Tickets + items de cada sesión
+        const ticketsBySession = {};
+        const sessIds = sessionRows.map(r => r.session_id);
+        if (sessIds.length > 0) {
+            const placeholders = sessIds.map(() => '?').join(',');
+            const ticketRows = db.prepare(`
+                SELECT s.id, s.session_id, s.total, s.date, s.payment_method, s.cash_amount, s.transfer_amount,
+                       json_group_array(
+                           json_object(
+                               'product_id', si.product_id,
+                               'name', COALESCE(p.name, 'Producto'),
+                               'quantity', si.quantity,
+                               'price', si.price,
+                               'cost', si.cost,
+                               'image_url', COALESCE((SELECT pi.url FROM product_images pi WHERE pi.product_id = si.product_id LIMIT 1), '')
+                           )
+                       ) as items_json
+                FROM sales s
+                LEFT JOIN sale_items si ON s.id = si.sale_id
+                LEFT JOIN products p ON si.product_id = p.id
+                WHERE s.session_id IN (${placeholders})
+                GROUP BY s.id ORDER BY s.date ASC
+            `).all(...sessIds);
+            for (const t of ticketRows) {
+                let items = [];
+                try {
+                    items = JSON.parse(t.items_json || '[]').filter(it => it.name && it.quantity);
+                } catch (_) {}
+                if (!ticketsBySession[t.session_id]) ticketsBySession[t.session_id] = [];
+                ticketsBySession[t.session_id].push({
+                    id: t.id,
+                    date: t.date,
+                    total: t.total,
+                    payment_method: t.payment_method || 'cash',
+                    cash_amount: t.cash_amount,
+                    transfer_amount: t.transfer_amount,
+                    items: items.length > 0 ? items : [{ name: 'Venta General', quantity: 1, price: t.total }]
+                });
+            }
+        }
+
+        const invLabel = (inv) => inv === 'alm' ? 'Almacén' : (inv === 'mch1' ? 'MCH 1' : (inv === 'mch2' ? 'MCH 2' : (inv || 'MCH 1')));
+
+        const groups = sessionRows.map(ss => {
+            const tickets = ticketsBySession[ss.session_id] || [];
+            const total = tickets.reduce((a, t) => a + (t.total || 0), 0);
+            // KANB-I: un solo pase — usar cash_amount/transfer_amount si existen; si no, inferir del método.
+            // Evita doble conteo: un ticket mixed aporta una vez a cada columna, no dos veces a cash.
+            let cash = 0, transfer = 0;
+            for (const t of tickets) {
+                if (t.cash_amount != null || t.transfer_amount != null) {
+                    cash += (t.cash_amount || 0);
+                    transfer += (t.transfer_amount || 0);
+                } else if ((t.payment_method || 'cash') === 'cash') {
+                    cash += t.total || 0;
+                } else if (t.payment_method === 'transfer') {
+                    transfer += t.total || 0;
+                }
+            }
             return {
-                id: s.id,
-                date: s.date,
-                inventory: s.inventory_id === 'alm' ? 'Almacén' : (s.inventory_id === 'mch1' ? 'MCH 1' : (s.inventory_id === 'mch2' ? 'MCH 2' : s.inventory_id)),
-                inventory_id: s.inventory_id,
-                seller: s.seller_name || 'Vendedor',
-                seller_id: s.user_id,
-                total: s.total,
-                status: 'closed',
-                payment_method: s.payment_method || 'cash',
-                items: items.length > 0 ? items : [{ name: 'Venta General', quantity: s.items_count || 1, price: s.total }]
+                id: ss.session_id,               // id de grupo = session_id (para expandir/eliminar)
+                session_id: ss.session_id,
+                date: ss.start_time,
+                end_date: ss.end_time,
+                status: ss.session_status || 'closed',
+                session_status: ss.session_status || 'closed',
+                seller: ss.seller_name,
+                seller_id: ss.user_id,
+                inventory: invLabel(ss.session_inventory),
+                inventory_id: ss.session_inventory,
+                total,
+                cash_amount: cash,
+                transfer_amount: transfer,
+                tickets_count: tickets.length,
+                tickets,
+                // items aplanado para compatibilidad con edición/POS
+                items: tickets.flatMap(t => t.items)
             };
         });
-        res.json(sales);
+
+        // Huérfanas: cada venta es su propio grupo (id virtual sale-<id>)
+        for (const s of orphanSales) {
+            let items = [];
+            try {
+                const r = db.prepare(`
+                    SELECT json_group_array(json_object(
+                        'product_id', si.product_id, 'name', COALESCE(p.name, 'Producto'),
+                        'quantity', si.quantity, 'price', si.price, 'cost', si.cost
+                    )) as j FROM sale_items si LEFT JOIN products p ON si.product_id = p.id WHERE si.sale_id = ?
+                `).get(s.id);
+                items = JSON.parse(r?.j || '[]').filter(it => it.name && it.quantity);
+            } catch (_) {}
+            if (items.length === 0) items = [{ name: 'Venta General', quantity: 1, price: s.total }];
+            groups.push({
+                id: `sale-${s.id}`,
+                session_id: null,
+                orphan_sale_id: s.id,
+                date: s.date,
+                end_date: null,
+                status: 'closed',
+                session_status: 'closed',
+                seller: s.seller_name,
+                seller_id: s.user_id,
+                inventory: invLabel(s.inventory_id),
+                inventory_id: s.inventory_id,
+                total: s.total,
+                cash_amount: s.payment_method === 'cash' ? s.total : (s.cash_amount || 0),
+                transfer_amount: s.payment_method === 'transfer' ? s.total : (s.transfer_amount || 0),
+                tickets_count: 1,
+                tickets: [{ id: s.id, date: s.date, total: s.total, payment_method: s.payment_method || 'cash', cash_amount: s.cash_amount, transfer_amount: s.transfer_amount, items }],
+                items
+            });
+        }
+
+        // Ordenar por fecha descendente
+        groups.sort((a, b) => new Date(b.date) - new Date(a.date));
+        res.json(groups);
     } catch (e) {
         logError("GET /api/history/sales", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- KANB-H: DETALLE COMPLETO DE VENTA (tickets, productos, gastos, totales) ---
+app.get('/api/history/sales/:id/detail', authenticate, (req, res) => {
+    try {
+        const saleId = req.params.id;
+        const sale = db.prepare(`
+            SELECT s.*, u.username as seller_name, ss.status as session_status
+            FROM sales s
+            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN sales_sessions ss ON s.session_id = ss.id
+            WHERE s.id = ?
+        `).get(saleId);
+        if (!sale) return res.status(404).json({ error: "Venta no encontrada." });
+
+        const items = db.prepare(`
+            SELECT si.id, si.product_id, si.quantity, si.price, si.cost,
+                   COALESCE(p.name, 'Producto') as name,
+                   COALESCE(pi.url, '') as image_url
+            FROM sale_items si
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN product_images pi ON pi.product_id = p.id
+            WHERE si.sale_id = ?
+        `).all(saleId);
+
+        // Gastos registrados en la misma sesión (contexto del día de la venta)
+        let saleExpenses = [];
+        if (sale.session_id) {
+            saleExpenses = db.prepare(`
+                SELECT id, type, amount, description, payment_method, date
+                FROM expenses
+                WHERE session_id = ?
+                ORDER BY date DESC
+            `).all(sale.session_id);
+        }
+
+        res.json({
+            sale: {
+                id: sale.id,
+                date: sale.date,
+                total: sale.total,
+                payment_method: sale.payment_method,
+                cash_amount: sale.cash_amount,
+                transfer_amount: sale.transfer_amount,
+                notes: sale.notes,
+                seller: sale.seller_name,
+                session_id: sale.session_id,
+                session_status: sale.session_status,
+                inventory_id: sale.inventory_id
+            },
+            items,
+            expenses: saleExpenses,
+            totals: {
+                products: items.reduce((a, i) => a + i.quantity * i.price, 0),
+                expenses_cash: saleExpenses.filter(e => e.payment_method === 'cash').reduce((a, e) => a + e.amount, 0),
+                expenses_transfer: saleExpenses.filter(e => e.payment_method === 'transfer').reduce((a, e) => a + e.amount, 0),
+                cash: sale.cash_amount || 0,
+                transfer: sale.transfer_amount || 0
+            }
+        });
+    } catch (e) {
+        logError("Sale Detail", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- KANB-H: ELIMINAR VENTA CON RESTAURACIÓN COMPLETA ---
+// Devuelve productos al inventario, revierte gastos y deja la venta como si no hubiera existido.
+app.delete('/api/history/sales/:id', authenticate, requireAdmin, (req, res) => {
+    try {
+        const saleId = req.params.id;
+        const sale = db.prepare("SELECT * FROM sales WHERE id = ?").get(saleId);
+        if (!sale) return res.status(404).json({ error: "Venta no encontrada." });
+
+        const session = sale.session_id ? db.prepare("SELECT * FROM sales_sessions WHERE id = ?").get(sale.session_id) : null;
+        if (session && session.status === 'closed') {
+            return res.status(400).json({ error: "No se puede eliminar una venta de una sesión ya aprobada/cerrada. Edita o elimina desde la sesión correspondiente." });
+        }
+
+        const items = db.prepare("SELECT * FROM sale_items WHERE sale_id = ?").all(saleId);
+
+        const tx = db.transaction(() => {
+            // 1) Devolver productos al inventario de la sede de la venta
+            for (const it of items) {
+                if (!it.product_id) continue;
+                const inv = db.prepare("SELECT * FROM product_inventory WHERE product_id = ? AND inventory_id = ?").get(it.product_id, sale.inventory_id);
+                if (inv) {
+                    db.prepare("UPDATE product_inventory SET stock = stock + ? WHERE product_id = ? AND inventory_id = ?")
+                        .run(it.quantity, it.product_id, sale.inventory_id);
+                } else {
+                    db.prepare("INSERT INTO product_inventory (product_id, inventory_id, stock) VALUES (?, ?, ?)")
+                        .run(it.product_id, sale.inventory_id, it.quantity);
+                }
+            }
+
+            // 2) Eliminar items y la venta
+            db.prepare("DELETE FROM sale_items WHERE sale_id = ?").run(saleId);
+            db.prepare("DELETE FROM sales WHERE id = ?").run(saleId);
+
+            // 3) Recalcular totales de la sesión si existe
+            if (sale.session_id) {
+                const agg = db.prepare(`
+                    SELECT COALESCE(SUM(s.total), 0) as total_sales,
+                           COALESCE(SUM(si.quantity * si.cost), 0) as total_cost
+                    FROM sales s LEFT JOIN sale_items si ON s.id = si.sale_id
+                    WHERE s.session_id = ?
+                `).get(sale.session_id);
+                const profit = agg.total_sales - agg.total_cost;
+                const wage = profit > 0 ? profit * 0.05 : 0;
+                db.prepare("UPDATE sales_sessions SET total_sales = ?, total_cost = ?, total_profit = ?, wage_amount = ? WHERE id = ?")
+                    .run(agg.total_sales, agg.total_cost, profit, wage, sale.session_id);
+            }
+        });
+        tx();
+
+        res.json({ success: true, message: `Venta #${saleId} eliminada. Los productos volvieron al inventario de ${sale.inventory_id}.` });
+    } catch (e) {
+        logError("Delete Sale", e);
         res.status(500).json({ error: e.message });
     }
 });

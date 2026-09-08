@@ -22,8 +22,9 @@ import {
     Receipt,
     Trash2,
     AlertTriangle,
-    Truck
-} from 'lucide-react';
+    Truck,
+    Wallet
+    } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
 import { useRole } from '../hooks/useRole';
@@ -32,6 +33,7 @@ import { Grid3X3 } from 'lucide-react';
 
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
+    { id: 'cash-control', label: 'Control de Efectivo', icon: Wallet, path: '/control-efectivo', category: 'general' },
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/inventario', category: 'management' },
     { id: 'entradas', label: 'Entradas', icon: ArrowLeftRight, path: '/entradas', category: 'management', almacOnly: true },
@@ -93,26 +95,22 @@ export function Sidebar({ isDark, toggleTheme }) {
         setIsInventoryOpen(false);
     };
 
-    // Botón de hamburguesa para móvil
-    const MobileMenuButton = () => (
-        <button
-            onClick={() => setIsMobileOpen(true)}
-            className={cn(
-                'lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[60] p-3 rounded-xl transition-all duration-300',
-                isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100',
-                isDark 
-                    ? 'bg-slate-800/90 border border-white/10 text-white' 
-                    : 'bg-white/90 border border-black/10 text-slate-900',
-                'backdrop-blur-md shadow-lg'
-            )}
-        >
-            <Menu className="w-5 h-5" />
-        </button>
-    );
-
     return (
         <>
-            <MobileMenuButton />
+            {/* Botón de hamburguesa para móvil */}
+            <button
+                onClick={() => setIsMobileOpen(true)}
+                className={cn(
+                    'lg:hidden fixed top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-[60] p-3 rounded-xl transition-all duration-300',
+                    isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100',
+                    isDark 
+                        ? 'bg-slate-800/90 border border-white/10 text-white' 
+                        : 'bg-white/90 border border-black/10 text-slate-900',
+                    'backdrop-blur-md shadow-lg'
+                )}
+            >
+                <Menu className="w-5 h-5" />
+            </button>
             
             {/* Overlay para móvil */}
             <AnimatePresence>

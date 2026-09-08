@@ -24,11 +24,11 @@ const Gallery = ({ viewGallery, setViewGallery }) => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [viewGallery, setViewGallery]);
 
-    if (!viewGallery) return null;
-
     const handleImageError = useCallback((imgIndex) => {
         setFailedImages(prev => new Set(prev).add(imgIndex));
     }, []);
+
+    if (!viewGallery) return null;
 
     const validImages = viewGallery.images.map((img, i) => ({
         src: img,

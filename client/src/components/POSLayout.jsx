@@ -10,19 +10,21 @@ import ConfirmModal from './ConfirmModal';
 import AlertModal from './AlertModal';
 import ReturnsModule from './ReturnsModule';
 import CurrencyPurchaseModal from './CurrencyPurchaseModal';
+import WageRequestsPanel from './WageRequestsPanel';
 import { useRole } from '../hooks/useRole';
 import {
     ShoppingCart, Trash2, Banknote, Save, RotateCcw,
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
-    Sparkles, TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
-    CreditCard, Calendar, QrCode, PlusCircle, Coins, Info
+    TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
+    CreditCard, Calendar, QrCode, PlusCircle, Coins, Info, DollarSign
     } from 'lucide-react';
 import QRGeneratorModal from './QRGeneratorModal';
 import { prepareSaleQRPayload } from '../lib/qrOfflineService';
 import { savePendingSale, getPendingSales } from '../lib/localDB';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
+import { getAdaptiveImageUrl } from '../lib/imageUtils';
 
 // Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
 // NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
@@ -328,11 +330,15 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
         const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
         const isSeller = role === 'seller';
 
+        // KANB-F: destino del efectivo al cerrar — solo decisión, el monto es el total calculado
+        const [destino, setDestino] = useState('entregar'); // 'entregar' | 'fondo'
+
         // Support both old format (summary) and new format (metrics.current)
         const data = metrics?.current || summary || {};
         const accumulated = metrics?.accumulated || {};
         const finalData = metrics?.final || {};
         const sessionFund = (parseFloat(metrics?.session?.initial_cash) || 0);
+        const sessionInjections = (parseFloat(metrics?.session?.injections_total) || 0);
     
     // Extract values from the correct format
     const cashSales = data.sales?.cash || 0;
@@ -350,6 +356,10 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     // Final amounts to deliver
     const finalCash = finalData.cash || (cashSales - cashExpenses);
     const finalTransfer = finalData.transfer || (transferSales - transferExpenses);
+
+    // KANB-F: derivado del destino elegido — el monto siempre es el total calculado, no editable
+    const cashDelivered = destino === 'entregar' ? finalCash : 0;
+    const leftoverCash = destino === 'fondo' ? finalCash : 0;
     
     // Accumulated wage (all unpaid sessions)
     const totalPendingWage = accumulated.total_pending_wage || currentWage;
@@ -358,7 +368,11 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(cash, notes, requestWagePayment, wagePaymentMethod, totalPendingWage);
+        // KANB-F: pasar destino del efectivo (entrega y fondo) al handler de cierre
+        onSave(cash, notes, requestWagePayment, wagePaymentMethod, totalPendingWage, {
+            cash_delivered: cashDelivered,
+            leftover_cash: leftoverCash
+        });
     };
 
     return (
@@ -424,28 +438,96 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                         </div>
                     )}
 
-                    {/* Totales a Entregar */}
-                                        <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
-                                            <div className="text-xs text-violet-400 uppercase tracking-wider mb-2 font-semibold">Total a Entregar</div>
-                                            {sessionFund > 0 && (
-                                                <div className="mb-2 text-xs text-slate-400">
-                                                    Fondo de apertura: <span className="text-emerald-400 font-mono font-bold">${sessionFund.toFixed(2)}</span>
-                                                </div>
-                                            )}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <div className="text-xs text-slate-400">Efectivo Neto</div>
-                                <div className="text-xl font-bold text-emerald-400 font-mono">${finalCash.toFixed(2)}</div>
-                            </div>
+                    {/* KANB-F: Desglose de Caja - Fondo + Inyecciones + Operaciones */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-purple-500/10 border border-violet-500/20">
+                        <div className="text-xs text-violet-400 uppercase tracking-wider mb-3 font-semibold">Efectivo en Caja</div>
+
+                        {/* Desglose de composición de la caja */}
+                        <div className="space-y-1.5 text-sm mb-3">
+                            {sessionFund > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Fondo de apertura:</span>
+                                    <span className="text-emerald-400 font-mono font-semibold">${sessionFund.toFixed(2)}</span>
+                                </div>
+                            )}
+                            {sessionInjections > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Inyecciones de efectivo:</span>
+                                    <span className="text-cyan-400 font-mono font-semibold">+${sessionInjections.toFixed(2)}</span>
+                                </div>
+                            )}
+                            {cashSales > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Ventas en efectivo:</span>
+                                    <span className="text-emerald-400 font-mono">+${cashSales.toFixed(2)}</span>
+                                </div>
+                            )}
+                            {cashExpenses > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Gastos en efectivo:</span>
+                                    <span className="text-rose-400 font-mono">-${cashExpenses.toFixed(2)}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-white/10">
+                            <div className="text-xs text-slate-400">Efectivo Total en Caja</div>
+                            <div className="text-2xl font-bold text-emerald-400 font-mono">${finalCash.toFixed(2)}</div>
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t border-white/10 grid grid-cols-2 gap-4">
                             <div>
                                 <div className="text-xs text-slate-400">Transferencia</div>
                                 <div className="text-xl font-bold text-blue-400 font-mono">${finalTransfer.toFixed(2)}</div>
                             </div>
+                            <div>
+                                <div className="text-xs text-slate-400">Total General</div>
+                                <div className="text-xl font-bold text-white font-mono">${(finalCash + finalTransfer).toFixed(2)}</div>
+                            </div>
                         </div>
-                        <div className="mt-3 pt-3 border-t border-white/10">
-                            <div className="text-xs text-slate-400">Total General</div>
-                            <div className="text-2xl font-bold text-white font-mono">${(finalCash + finalTransfer).toFixed(2)}</div>
+                    </div>
+
+                    {/* KANB-F: Destino del Efectivo - el total es calculado, solo se decide el reparto */}
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20">
+                        <div className="text-xs text-amber-400 uppercase tracking-wider mb-3 font-semibold">Destino del Efectivo al Cerrar</div>
+                        <p className="text-xs text-slate-400 mb-3">
+                            Los ${finalCash.toFixed(2)} en caja son un valor calculado (no editable). Decidí su destino:
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setDestino('entregar')}
+                                className={`p-3 rounded-lg border text-left transition-all ${destino === 'entregar'
+                                    ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                                    : 'bg-secondary/40 border-border text-slate-300 hover:bg-secondary/70'
+                                }`}
+                            >
+                                <div className="text-sm font-bold">Entregar todo al Admin</div>
+                                <div className="text-xs text-slate-400 mt-0.5">La próxima sesión abre sin fondo</div>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDestino('fondo')}
+                                className={`p-3 rounded-lg border text-left transition-all ${destino === 'fondo'
+                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                                    : 'bg-secondary/40 border-border text-slate-300 hover:bg-secondary/70'
+                                }`}
+                            >
+                                <div className="text-sm font-bold">Dejar todo de Fondo</div>
+                                <div className="text-xs text-slate-400 mt-0.5">Se hereda a la próxima sesión</div>
+                            </button>
                         </div>
+                        <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-black/20 border border-white/5">
+                            <span className="text-xs text-slate-400">Efectivo a entregar al admin:</span>
+                            <span className="text-lg font-bold font-mono text-amber-400">${(destino === 'entregar' ? finalCash : 0).toFixed(2)}</span>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between p-3 rounded-lg bg-black/20 border border-white/5">
+                            <span className="text-xs text-slate-400">Efectivo a dejar de fondo:</span>
+                            <span className="text-lg font-bold font-mono text-emerald-400">${(destino === 'fondo' ? finalCash : 0).toFixed(2)}</span>
+                        </div>
+                        <p className="mt-2 text-[11px] text-slate-500">
+                            El fondo dejado se heredará automáticamente como efectivo inicial de la próxima sesión en esta sede.
+                        </p>
                     </div>
 
                     {/* Comisión - 5% de ganancia real */}
@@ -593,12 +675,42 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
 
 export default function POSLayout() {
     const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory, editingSession, setEditingSession } = useCart();
-    const { isSeller, currentRole } = useRole();
+    const { isSeller, currentRole, isOwner } = useRole();
+    const canDeleteTickets = currentRole === 'owner' || currentRole === 'admin';
+
+    const handleDeleteTicket = (type, id, label) => {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Eliminar del turno',
+            message: `¿Seguro que querés eliminar ${label} del turno? Esta acción no se puede deshacer.`,
+            type: 'danger',
+            onConfirm: async () => {
+                try {
+                    const endpoints = {
+                        expense: `/expenses/${id}`,
+                        injection: `/sessions/injections/${id}`,
+                        currency: `/currency-purchases/${id}`,
+                        sale: `/sales/${id}`
+                    };
+                    await api.delete(endpoints[type]);
+                    if (type === 'expense') setExpenses(prev => prev.filter(x => x.id !== id));
+                    if (type === 'injection') setInjections(prev => prev.filter(x => x.id !== id));
+                    if (type === 'currency') setCurrencyPurchases(prev => prev.filter(x => x.id !== id));
+                    if (type === 'sale') setRecentSales(prev => prev.filter(x => x.id !== id));
+                    setAlertModal({ isOpen: true, title: 'Eliminado', message: `${label} eliminado del turno.`, type: 'success' });
+                } catch (e) {
+                    setAlertModal({ isOpen: true, title: 'Error', message: e.response?.data?.error || 'No se pudo eliminar.', type: 'danger' });
+                }
+            }
+        });
+    };
+
     const [search, setSearch] = useState('');
     const [loadingProduct, setLoadingProduct] = useState(false);
     const [searchResults, setSearchResults] = useState([]);
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
     const inputRef = useRef(null);
+    const productsCacheRef = useRef([]);
 
     // Modals
     const [showExpense, setShowExpense] = useState(false);
@@ -608,14 +720,40 @@ export default function POSLayout() {
     const [showSaveTicketModal, setShowSaveTicketModal] = useState(false);
     const [showInjection, setShowInjection] = useState(false);
     const [showCurrency, setShowCurrency] = useState(false); // Modal de compra de divisas
+    const [showWagePanel, setShowWagePanel] = useState(false); // KANB-E: solicitudes de salario
+    const [pendingWageCount, setPendingWageCount] = useState(0);
+    const [pendingSessionReviewCount, setPendingSessionReviewCount] = useState(0); // KANB-D: sesiones pendientes de revisión
+
+    // KANB-E & KANB-D: badges de auditoría para admin/owner, refresca cada 60s
+    useEffect(() => {
+        if (!canDeleteTickets || !navigator.onLine) return;
+        let mounted = true;
+        const fetchAuditCounts = async () => {
+            try {
+                const [wagesRes, sessionsRes] = await Promise.allSettled([
+                    api.get('/wage-requests/pending-count', { timeout: 8000 }),
+                    api.get('/sessions/pending-count', { timeout: 8000 })
+                ]);
+                if (mounted) {
+                    if (wagesRes.status === 'fulfilled') {
+                        setPendingWageCount(wagesRes.value.data.count || 0);
+                    }
+                    if (sessionsRes.status === 'fulfilled') {
+                        setPendingSessionReviewCount(sessionsRes.value.data.count || 0);
+                    }
+                }
+            } catch (_) { /* silencioso */ }
+        };
+        fetchAuditCounts();
+        const iv = setInterval(fetchAuditCounts, 60000);
+        return () => { mounted = false; clearInterval(iv); };
+    }, [canDeleteTickets]);
     const [ticketCustomName, setTicketCustomName] = useState('');
     // Ticket que se está editando: al guardarlo conserva el mismo nombre e ID.
     const [editingSavedSale, setEditingSavedSale] = useState(null);
     const [sessionMetrics, setSessionMetrics] = useState(null);
     const [qrModalOpen, setQrModalOpen] = useState(false);
     const [qrPayload, setQrPayload] = useState(null);
-    const [showQuickSaleModal, setShowQuickSaleModal] = useState(false);
-    const [quickSaleData, setQuickSaleData] = useState({ name: '', price: '', quantity: 1 });
 
     // Confirm Modals
     const [showCartConfirm, setShowCartConfirm] = useState(false);
@@ -630,6 +768,8 @@ export default function POSLayout() {
     const [recentSales, setRecentSales] = useState([]);
     const [savedSales, setSavedSales] = useState([]); // Ventas guardadas (pendientes)
     const [expenses, setExpenses] = useState([]); // Gastos del turno
+    const [currencyPurchases, setCurrencyPurchases] = useState([]); // Compras de divisas del turno
+    const [injections, setInjections] = useState([]); // Inyecciones de efectivo del turno
     const [checkoutProcessing, setCheckoutProcessing] = useState(false);
     const [closingSessionLoading, setClosingSessionLoading] = useState(false);
     const [serverDate, setServerDate] = useState(null); // Fecha del servidor (no del dispositivo)
@@ -640,15 +780,26 @@ export default function POSLayout() {
     // Cargar fecha del servidor al montarse
         useEffect(() => {
                     if (navigator.onLine) {
-                        api.get('/sessions/status', { timeout: 2000 }).then(res => {
+                        api.get('/sessions/status', { timeout: 10000 }).then(res => {
                             if (res.data.serverDate) setServerDate(res.data.serverDate);
                             // Fondo inicial de apertura de caja
                             const ic = parseFloat(res.data.session?.initial_cash) || 0;
                             setInitialCash(ic);
                         }).catch(() => {});
                         // Inyecciones acumuladas del turno
-                        api.get('/sessions/injections', { timeout: 2000 }).then(res => {
-                            if (res.data.success) setInjectionTotal(res.data.total || 0);
+                        api.get('/sessions/injections', { timeout: 10000 }).then(res => {
+                            if (res.data.success) {
+                                setInjectionTotal(res.data.total || 0);
+                                if (Array.isArray(res.data.injections)) {
+                                    setInjections(res.data.injections);
+                                }
+                            }
+                        }).catch(() => {});
+                        // Compras de divisas de la sesión actual
+                        api.get('/sessions/currency-purchases', { timeout: 10000 }).then(res => {
+                            if (res.data.success && Array.isArray(res.data.purchases)) {
+                                setCurrencyPurchases(res.data.purchases);
+                            }
                         }).catch(() => {});
                     }
                 }, []);
@@ -1002,27 +1153,6 @@ export default function POSLayout() {
         setQrModalOpen(true);
     };
 
-    const handleAddQuickSale = (e) => {
-        e.preventDefault();
-        const price = parseFloat(quickSaleData.price);
-        const qty = parseInt(quickSaleData.quantity, 10) || 1;
-        if (!price || price <= 0) {
-            alert('Ingrese un precio válido');
-            return;
-        }
-        const quickProduct = {
-            id: Number(Date.now().toString().slice(-6)), // ID numérico de contingencia
-            name: quickSaleData.name.trim() || 'Venta Rápida / Comodín',
-            code: 'RAPIDO',
-            sale_price_manual: price,
-            cost_mn: 0,
-            inventory: { [currentInventory]: 999 }
-        };
-        addToCart(quickProduct, qty);
-        setShowQuickSaleModal(false);
-        setQuickSaleData({ name: '', price: '', quantity: 1 });
-    };
-
     const handleDeleteSale = (saleId) => {
         setConfirmModal({
             isOpen: true,
@@ -1084,7 +1214,7 @@ export default function POSLayout() {
                     cashAmount: paymentData.cashAmount,
                     transferAmount: paymentData.transferAmount,
                     idempotencyKey: paymentData.idempotencyKey
-                }, { timeout: 3000 });
+                }, { timeout: 10000 });
             } catch (networkError) {
                 console.warn('[POS] Sin conexión al servidor, guardando venta localmente (Offline)...');
                 const offlineRecord = await savePendingSale({
@@ -1105,6 +1235,12 @@ export default function POSLayout() {
 
             if (isOfflineRecorded || (res && res.data && res.data.success)) {
                 const saleIdToUse = isOfflineRecorded ? localSaleId : res.data.saleId;
+                // UI-03: adjuntar imagen de catálogo a cada item para el carrusel del ticket
+                const catalogProducts = productsCacheRef.current || [];
+                const findImage = (pid, code) => {
+                    const prod = catalogProducts.find(p => String(p.id) === String(pid) || (code && p.code === code));
+                    return prod ? (prod.image_url || prod.image || (Array.isArray(prod.images) ? prod.images[0] : null)) : null;
+                };
                 const completedSale = {
                     id: saleIdToUse,
                     is_offline: isOfflineRecorded,
@@ -1115,7 +1251,8 @@ export default function POSLayout() {
                         code: item.code,
                         quantity: item.quantity,
                         sale_price_manual: item.sale_price_manual,
-                        cost_mn: item.cost_mn
+                        cost_mn: item.cost_mn,
+                        image_url: item.image_url || findImage(item.product_id || item.id, item.code)
                     })),
                     total: total,
                     time: new Date().toLocaleTimeString(),
@@ -1155,10 +1292,10 @@ export default function POSLayout() {
 
     const [closeSummary, setCloseSummary] = useState(null);
 
-    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash', totalPendingWage = 0) => {
+    const handleCloseSession = async (cash, notes, requestWagePayment = false, wagePaymentMethod = 'cash', totalPendingWage = 0, cashDestination = null) => {
         try {
             localStorage.setItem('mch_offline_session_open', 'false');
-            
+
             if (!navigator.onLine) {
                 setAlertModal({
                     isOpen: true,
@@ -1172,7 +1309,13 @@ export default function POSLayout() {
 
             // Usar endpoint diferente según el rol
             const endpoint = isSeller ? '/sessions/send-for-review' : '/sessions/close';
-            const res = await api.post(endpoint, { declared_cash: cash, notes }, { timeout: 3000 });
+            const payload = { declared_cash: cash, notes };
+            // KANB-F: destino del efectivo al cerrar (solo cierre directo, no revisión)
+            if (!isSeller && cashDestination) {
+                payload.leftover_cash = cashDestination.leftover_cash || 0;
+                payload.cash_delivered = cashDestination.cash_delivered || 0;
+            }
+            const res = await api.post(endpoint, payload, { timeout: 10000 });
             setCloseSummary(res.data.summary);
             
             // Obtener salario acumulado de la respuesta o usar el pasado al modal
@@ -1391,7 +1534,7 @@ export default function POSLayout() {
 
             // Conexión activa: Consultar backend central
             try {
-                const res = await api.get('/sessions/metrics', { timeout: 2500 });
+                const res = await api.get('/sessions/metrics', { timeout: 10000 });
                 setSessionMetrics(res.data);
                 setShowClose(true);
             } catch (e) {
@@ -1528,15 +1671,6 @@ export default function POSLayout() {
                                 />
                             </div>
 
-                            {/* Botón de Venta Rápida / Comodín */}
-                            <button
-                                onClick={() => setShowQuickSaleModal(true)}
-                                className="h-10 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-medium text-xs flex items-center gap-1.5 transition-all whitespace-nowrap shadow-sm"
-                                title="Venta rápida manual / comodín sin catálogo"
-                            >
-                                <Sparkles className="w-3.5 h-3.5" />
-                                <span className="hidden sm:inline">Venta Rápida</span>
-                            </button>
                         </div>
 
                         {/* Cart List Premium - Hidden on mobile when viewing tickets */}
@@ -1651,7 +1785,7 @@ export default function POSLayout() {
                                 )}
                             >
                                 <History className="w-3.5 h-3.5" />
-                                Tickets {recentSales.length > 0 && <span className="bg-violet-500 text-white text-[10px] px-1.5 py-0 rounded-full">{recentSales.length}</span>}
+                                Tickets {(recentSales.length + savedSales.length + expenses.length + currencyPurchases.length + injections.length) > 0 && <span className="bg-violet-500 text-white text-[10px] px-1.5 py-0 rounded-full">{recentSales.length + savedSales.length + expenses.length + currencyPurchases.length + injections.length}</span>}
                             </button>
                         </div>
 
@@ -1787,6 +1921,54 @@ export default function POSLayout() {
                                 ))}
                             </AnimatePresence>
 
+                            {/* Inyecciones de Efectivo al Turno */}
+                            <AnimatePresence>
+                                {injections.map((inj, index) => (
+                                    <motion.div
+                                        key={generateSafeKey('injection', inj, index)}
+                                        initial={{ opacity: 0, x: 20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 hover:border-emerald-500/40 hover:bg-emerald-500/10 transition-all"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
+                                                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="font-semibold text-foreground text-sm flex items-center gap-2">
+                                                        <span>{inj.concept || 'Inyección de fondo'}</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 uppercase">
+                                                            Aporte Caja
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {inj.created_at ? new Date(inj.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Turno actual'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex items-center gap-2">
+                                                <div>
+                                                    <div className="font-bold font-mono text-emerald-400">+${(inj.amount || 0).toFixed(2)}</div>
+                                                    <div className="text-[10px] text-muted-foreground font-mono">entrada fondo</div>
+                                                </div>
+                                                {canDeleteTickets && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteTicket('injection', inj.id, 'Inyección', ); }}
+                                                        className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                                                        title="Eliminar inyección"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+
                             {/* Gastos */}
                             <AnimatePresence>
                                 {expenses.map((expense, index) => (
@@ -1810,7 +1992,66 @@ export default function POSLayout() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="font-bold font-mono text-rose-400">-${expense.amount?.toFixed(2)}</div>
+                                            <div className="text-right flex items-center gap-2">
+                                                <div className="font-bold font-mono text-rose-400">-${expense.amount?.toFixed(2)}</div>
+                                                {canDeleteTickets && expense.id && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteTicket('expense', expense.id, 'Gasto'); }}
+                                                        className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                                                        title="Eliminar gasto"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+
+                            {/* Compras de Divisas del Turno */}
+                            <AnimatePresence>
+                                {currencyPurchases.map((cp, index) => (
+                                    <motion.div
+                                        key={generateSafeKey('currency-purchase', cp, index)}
+                                        initial={{ opacity: 0, x: 20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        transition={{ delay: index * 0.05 }}
+                                        className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all"
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center">
+                                                    <Coins className="w-4 h-4 text-cyan-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="font-semibold text-foreground text-sm flex items-center gap-2">
+                                                        <span>Divisas: {cp.amount_divisas} {cp.currency || 'USD'}</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-400 uppercase">
+                                                            {cp.status === 'approved' ? 'Aprobada' : 'Pend. Revisión'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {cp.time || (cp.date ? new Date(cp.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '')} • Costo: ${(cp.cost_per_divisa || 0).toFixed(2)} MN
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="text-right flex items-center gap-2">
+                                                <div>
+                                                    <div className="font-bold font-mono text-cyan-400">-${(cp.amount_mn || 0).toFixed(2)}</div>
+                                                    <div className="text-[10px] text-muted-foreground font-mono">salida caja</div>
+                                                </div>
+                                                {canDeleteTickets && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDeleteTicket('currency', cp.id, 'Compra de divisas'); }}
+                                                        className="p-1.5 rounded-lg text-muted-foreground/50 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                                                        title="Eliminar compra de divisas"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     </motion.div>
                                 ))}
@@ -1875,10 +2116,10 @@ export default function POSLayout() {
                                 ))}
                             </AnimatePresence>
 
-                            {recentSales.length === 0 && savedSales.length === 0 && expenses.length === 0 && (
+                            {recentSales.length === 0 && savedSales.length === 0 && expenses.length === 0 && currencyPurchases.length === 0 && injections.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40 py-8">
                                     <History className="w-10 h-10 mb-2 opacity-50" />
-                                    <p className="text-sm">Sin ventas en este turno</p>
+                                    <p className="text-sm">Sin movimientos en este turno</p>
                                 </div>
                             )}
                         </div>
@@ -1937,6 +2178,45 @@ export default function POSLayout() {
                                         <div className="text-[10px] text-cyan-400/70">Compra</div>
                                     </div>
                                 </button>
+
+                                {canDeleteTickets && (
+                                    <button
+                                        onClick={() => { setShowWagePanel(true); setPendingWageCount(0); }}
+                                        className="relative flex items-center gap-2 px-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400 hover:bg-violet-500/20 transition-all group"
+                                    >
+                                        <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                            <Wallet className="w-4 h-4" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="font-semibold text-sm">Salarios</div>
+                                            <div className="text-[10px] text-violet-400/70">Solicitudes</div>
+                                        </div>
+                                        {pendingWageCount > 0 && (
+                                            <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+                                                {pendingWageCount}
+                                            </span>
+                                        )}
+                                    </button>
+                                )}
+
+                                {canDeleteTickets && pendingSessionReviewCount > 0 && (
+                                    <button
+                                        onClick={() => window.location.assign('/historial/ventas?status=pending_review')}
+                                        className="relative flex items-center gap-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 transition-all group"
+                                        title="Ver sesiones de venta pendientes de revisión de administradores"
+                                    >
+                                        <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                            <Receipt className="w-4 h-4" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="font-semibold text-sm">Auditoría</div>
+                                            <div className="text-[10px] text-amber-400/70">En Revisión</div>
+                                        </div>
+                                        <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-black text-[10px] font-extrabold flex items-center justify-center animate-bounce">
+                                            {pendingSessionReviewCount}
+                                        </span>
+                                    </button>
+                                )}
                             </div>
                             <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-rose-400/80">
                                 <Info className="w-3 h-3 shrink-0" />
@@ -1986,9 +2266,14 @@ export default function POSLayout() {
                                 try {
                                     if (navigator.onLine) {
                                         await api.post('/sessions/inject-cash', data);
-                                        // Refrescar total de inyecciones del turno
-                                        api.get('/sessions/injections', { timeout: 2000 }).then(r2 => {
-                                            if (r2.data.success) setInjectionTotal(r2.data.total || 0);
+                                        // Refrescar total e inyecciones del turno
+                                        api.get('/sessions/injections', { timeout: 10000 }).then(r2 => {
+                                            if (r2.data.success) {
+                                                setInjectionTotal(r2.data.total || 0);
+                                                if (Array.isArray(r2.data.injections)) {
+                                                    setInjections(r2.data.injections);
+                                                }
+                                            }
                                         }).catch(() => {});
                                     } else {
                                         // Offline: guardar en IndexedDB (store meta) para sincronizar luego
@@ -2020,17 +2305,33 @@ export default function POSLayout() {
                             key="currency-purchase-modal"
                             open={showCurrency}
                             onClose={() => setShowCurrency(false)}
-                            onSaved={async () => {
+                            onSaved={async (purchaseData) => {
                                 try {
+                                    // Agregar la compra de divisas de inmediato a la lista de tickets del turno
+                                    if (purchaseData?.purchase) {
+                                        setCurrencyPurchases(prev => [purchaseData.purchase, ...prev]);
+                                    } else {
+                                        // Si no viniera el objeto completo, recargar del backend
+                                        const cpRes = await api.get('/sessions/currency-purchases', { timeout: 10000 });
+                                        if (cpRes.data.success && Array.isArray(cpRes.data.purchases)) {
+                                            setCurrencyPurchases(cpRes.data.purchases);
+                                        }
+                                    }
+
                                     // Refrescar fondo del turno tras compra de divisas
                                     if (navigator.onLine) {
                                         const [statusRes, injRes] = await Promise.all([
-                                            api.get('/sessions/status', { timeout: 2500 }),
-                                            api.get('/sessions/injections', { timeout: 2500 })
+                                            api.get('/sessions/status', { timeout: 10000 }),
+                                            api.get('/sessions/injections', { timeout: 10000 })
                                         ]);
                                         const ic = parseFloat(statusRes.data.session?.initial_cash) || 0;
                                         setInitialCash(ic);
-                                        if (injRes.data.success) setInjectionTotal(injRes.data.total || 0);
+                                        if (injRes.data.success) {
+                                            setInjectionTotal(injRes.data.total || 0);
+                                            if (Array.isArray(injRes.data.injections)) {
+                                                setInjections(injRes.data.injections);
+                                            }
+                                        }
                                     }
                                 } catch (e) {
                                     console.error('Error refrescando fondo tras compra de divisas:', e);
@@ -2091,6 +2392,11 @@ export default function POSLayout() {
                             role={currentRole}
                         />
                     )}
+                    <WageRequestsPanel
+                        isOpen={showWagePanel}
+                        onClose={() => setShowWagePanel(false)}
+                        isAdmin={canDeleteTickets}
+                    />
                     {showPayment && (
                         <PaymentModal
                             key="payment-modal"
@@ -2263,81 +2569,7 @@ export default function POSLayout() {
                         />
                     )}
 
-                    {/* Modal de Venta Rápida / Contingencia */}
-                    {showQuickSaleModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-                            <form onSubmit={handleAddQuickSale} className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2 text-amber-400 font-bold">
-                                        <Sparkles className="w-5 h-5" />
-                                        <span>Venta Rápida / Contingencia</span>
-                                    </div>
-                                    <button 
-                                        type="button" 
-                                        onClick={() => setShowQuickSaleModal(false)}
-                                        className="text-slate-400 hover:text-white"
-                                    >
-                                        <X className="w-5 h-5" />
-                                    </button>
-                                </div>
-                                <p className="text-xs text-slate-400">
-                                    Agregá un producto de contingencia o precio libre al carrito de inmediato.
-                                </p>
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="text-xs text-slate-300 font-medium mb-1 block">Descripción (opcional):</label>
-                                        <input
-                                            type="text"
-                                            value={quickSaleData.name}
-                                            onChange={(e) => setQuickSaleData({ ...quickSaleData, name: e.target.value })}
-                                            placeholder="Ej. Bolso de playa, Accesorio, etc."
-                                            className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm focus:border-amber-500 outline-none"
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="text-xs text-slate-300 font-medium mb-1 block">Precio ($ MN): *</label>
-                                            <input
-                                                type="number"
-                                                step="any"
-                                                required
-                                                autoFocus
-                                                value={quickSaleData.price}
-                                                onChange={(e) => setQuickSaleData({ ...quickSaleData, price: e.target.value })}
-                                                placeholder="0.00"
-                                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm font-mono focus:border-amber-500 outline-none font-bold"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs text-slate-300 font-medium mb-1 block">Cantidad:</label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                value={quickSaleData.quantity}
-                                                onChange={(e) => setQuickSaleData({ ...quickSaleData, quantity: e.target.value })}
-                                                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white text-sm font-mono focus:border-amber-500 outline-none"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3 pt-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowQuickSaleModal(false)}
-                                        className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium transition-colors"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-black font-bold text-sm transition-all shadow-lg shadow-amber-500/20"
-                                    >
-                                        Agregar al Carrito
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    )}
+
                 </AnimatePresence>
             </div>
         </SessionGuard>

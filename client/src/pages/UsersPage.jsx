@@ -320,7 +320,7 @@ export default function UsersPage() {
 
     // Validación de Teléfono Móvil de Cuba (+53 5XXXXXXX o 5XXXXXXX)
     if (formData.phone && formData.phone.trim()) {
-      const cleanPhone = formData.phone.replace(/[\s\-\(\)]/g, '');
+      const cleanPhone = formData.phone.replace(/[\s\-()]/g, '');
       const cubanPhoneRegex = /^(\+?53)?[56]\d{7}$/;
       if (!cubanPhoneRegex.test(cleanPhone)) {
         alert('El número de teléfono móvil de Cuba debe ser válido (Ejemplo: +53 52123456 o 52123456 de 8 dígitos empezando por 5 o 6).');

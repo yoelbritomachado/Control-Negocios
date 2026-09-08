@@ -104,7 +104,7 @@ const Dashboard = ({ totals, currentInventory, settings }) => {
         {/* Fake Bar Chart */}
         <div className="h-48 flex items-end justify-between gap-1 opacity-80">
           {[...Array(30)].map((_, i) => {
-            const height = Math.floor(Math.random() * 80) + 20;
+            const height = ((i * 7 + 13) % 75) + 20;
             const isToday = i === 28;
             return (
               <div key={i} className="flex-1 flex flex-col items-center gap-2 group">

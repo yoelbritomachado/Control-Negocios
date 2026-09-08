@@ -105,7 +105,7 @@ export function OfflineProvider({ children }) {
       }
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         const res = await fetch('/api/health', { signal: controller.signal });
         clearTimeout(timeoutId);
         if (isMounted) setIsOnline(res.ok);

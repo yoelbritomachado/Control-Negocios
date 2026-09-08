@@ -1,47 +1,66 @@
 # KANBAN MASTER: MISS CHULERÍAS CRM - SPRINT DE MEJORAS TOTALES
-**Última actualización:** 28 de Agosto, 2026
+**Última actualización:** 8 de Septiembre, 2026 (estado REAL verificado en código)
 **Modo de Ejecución:** Autónomo / Paralelo por Bloques
-
----
-
-## 📌 COLUMNA 1: BACKLOG / PLANIFICACIÓN
-*Todos los requisitos relevados y agrupados por dominios funcionales.*
-
----
-
-## 🚀 COLUMNA 2: EN PROGRESO (WIP)
-
-### 🧱 BLOQUE A: NÚCLEO POS & RENDIMIENTO (Cero latencia + Anti-duplicados)
-- [ ] **[POS-01]** Cuello de botella en checkout: Diagnosticar y erradicar demoras/congelamientos al presionar 'Proceder al Pago' y 'Confirmar'.
-- [ ] **[POS-02]** Protección Anti-Doble Clic: Deshabilitar botón de cobro al instante + Spinner animado + Idempotency Key para evitar tickets duplicados.
-- [ ] **[POS-03]** Fondo Inicial de Caja: Apertura con float rastreable separado de ventas + Registro de 'Inyección de Fondo' durante el turno.
-
-### 🔄 BLOQUE B: DEVOLUCIONES & MERMAS (Offline + Rápido + Auditoría)
-- [ ] **[DEV-01]** Búsqueda Offline Ultrarrápida: Búsqueda en memoria/IndexedDB al vuelo sin timeouts de red.
-- [ ] **[DEV-02]** Buscador Modular Reutilizable: Integrar panel estándar por nombre, código y código de barras.
-- [ ] **[DEV-03]** Contención de Dropdown: Evitar desbordamiento visual de la lista de resultados.
-- [ ] **[DEV-04]** Registro 100% Offline & Evidencias: Guardar en `pending_returns` en IndexedDB con fotos locales.
-- [ ] **[DEV-05]** Devolución con Producto Sin Existencia / Antiguo: Crear/reactivar ficha con foto, cantidad, costo, precio e inventario destino.
-- [ ] **[DEV-06]** Flujo de Auditoría: Ticket pendiente en la sesión para aprobación/rechazo de Dueño/Admin en el arqueo.
-
-### 💰 BLOQUE C: GASTOS & COMPRA DE DIVISAS
-- [ ] **[EXP-01]** Tipos de Gasto Offline: Persistir en IndexedDB para disponibilidad 100% desconectado.
-- [ ] **[EXP-02]** Gastos con Pago Híbrido: Soportar Efectivo, Transferencia o Mixto desglosado.
-- [ ] **[FX-01]** Módulo Compra de Divisas (USD / EUR / MXN): Ticket de compra con divisa, cantidad, tasa, método de pago y liquidación en bóveda.
-
-### 📊 BLOQUE D: CIERRE DE TURNO & SALARIOS MATEMÁTICOS
-- [ ] **[SES-01]** Arqueo y Desglose Financiero Matemático: Cálculo transparente (Ventas - Gastos ± Devoluciones = Total a entregar por método).
-- [ ] **[SES-02]** Acumulador de Salario del Vendedor & Checkbox de Cobro: Salario del turno + acumulado histórico + Checkbox 'Solicitar cobro de salario'.
-- [ ] **[SES-03]** Liquidación de Salario desde Efectivo del Turno: Descontar de la entrega si hay saldo suficiente o diferir a caja central.
-- [ ] **[SES-04]** Regla de Redondeo a Centenas (±$100 CUP) & Desglose de Pago (Efectivo/Transf) por Administración.
-
-### 📱 BLOQUE E: INTERFAZ MÓVIL, HEADER & TICKETS
-- [ ] **[UI-01]** Indicador Móvil de Conexión: Icono circular compacto de señal WiFi en header para celulares.
-- [ ] **[UI-02]** Notificaciones Deep Linking: Marcar como leída y navegar directo al evento/recurso.
-- [ ] **[UI-03]** Rediseño Visual de Tickets de Venta: Cero spanglish ('SALE'), badge ONLINE/OFFLINE, cabecera limpia, carrusel táctil de fotos y quitar botón de QR individual.
-- [ ] **[UI-04]** Barra de Filtros y Búsqueda Sticky en Inventario: `sticky top-0` con backdrop blur al scrollear.
+**Detalle completo de cada tarea:** ver `MASTER_TASKLIST.md` (fuente única de verdad)
 
 ---
 
 ## ✅ COLUMNA 3: COMPLETADO / VERIFICADO
-*(Se irán moviendo aquí tras cada build y verificación en código)*
+
+### 🧱 BLOQUE A: NÚCLEO POS & RENDIMIENTO — COMPLETO
+- [x] **[POS-01]** Checkout sin cuello de botella (queries preparadas 1x por ticket) — commit `ba0de99`
+- [x] **[POS-02]** Anti-doble clic + idempotency key + índice único — commit `72424ce`
+- [x] **[POS-03]** Fondo Inicial de Caja + Inyección de Fondo (KANB-F)
+
+### 💰 BLOQUE C: PARCIAL
+- [x] **[FX-01]** Compra de Divisas USD/EUR/MXN completa (tasa editable, ticket feed, descuenta caja, fix arqueo)
+
+### 📊 BLOQUE D: PARCIAL
+- [x] **[SES-01]** Arqueo financiero matemático transparente por método de pago
+
+### 🔄 BLOQUE B: PARCIAL
+- [x] **[DEV-01]** Búsqueda offline ultrarrápida
+- [x] **[DEV-02]** Buscador modular reutilizable (SearchDropdown)
+- [x] **[DEV-03]** Contención de dropdown
+- [x] **[DEV-04]** Registro 100% offline con evidencias fotográficas
+- [x] **[DEV-05]** Devolución con producto sin existencia / antiguo
+
+### 📱 BLOQUE E: PARCIAL
+- [x] **[UI-04]** Barra de filtros sticky en inventario
+- [x] **[UI-03]** Tickets sin spanglish (render limpio; badge visible = pendiente de decisión de Yoe)
+
+### ⚙️ Extras del sprint
+- [x] KANB-F Control de Efectivo (`/control-efectivo`) con rangos y tiempo real
+- [x] KANB-G Auto-cierre medianoche + stale-on-boot (verificado en vivo)
+- [x] KANB-D Auditoría sesiones pending_review (badge + filtro + aprobación)
+- [x] Partículas al confirmar swipe (BurstFeedback: verde/check aprobar, rojo/menos eliminar)
+- [x] Venta Rápida/Contingencia eliminada (orden 05/09)
+
+---
+
+## 🚀 COLUMNA 2: EN PROGRESO / SIGUIENTE
+
+### 🔥 Prioridad inmediata (preguntar a Yoe el orden)
+- [ ] **[DEV-06]** Auditoría de devoluciones: ticket pendiente en sesión para aprobación/rechazo de Dueño/Admin en el arqueo
+- [ ] **[SES-02]** Salario vendedor: integrar WageRequestsPanel al modal de cierre (acumulado + checkbox cobro)
+- [ ] **[Control-Moneda]** Control definitivo por moneda: MN / USD / EUR / Transferencias con saldos por columna (Excel de Yoe)
+
+---
+
+## 📌 COLUMNA 1: BACKLOG
+
+### 💰 BLOQUE C: RESTANTE
+- [ ] **[EXP-01]** Tipos de gasto offline (IndexedDB)
+- [ ] **[EXP-02]** Gastos con pago híbrido (efectivo/transferencia/mixto)
+
+### 📊 BLOQUE D: RESTANTE
+- [ ] **[SES-03]** Liquidación de salario desde efectivo del turno (o diferir a caja central)
+- [ ] **[SES-04]** Redondeo a centenas (±$100 CUP) + desglose de pago por administración
+
+### 📱 BLOQUE E: RESTANTE
+- [ ] **[UI-01]** Indicador móvil de conexión (icono WiFi compacto en header)
+- [ ] **[UI-02]** Notificaciones deep linking (marcar leída + navegar al evento)
+
+### ⚙️ UX / Infra
+- [ ] Aviso visual al vendedor cuando su sesión cruza medianoche
+- [ ] Origen de fecha configurable (server/internet/dispositivo) — en espera de VPS

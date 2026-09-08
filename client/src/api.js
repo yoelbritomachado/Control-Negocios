@@ -3,10 +3,12 @@ import { saveProductsLocal, getProductsLocal, getMetaLocal, setMetaLocal } from 
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
-// Configuración de Axios con timeout por defecto para no colgar peticiones en offline
+// Configuración de Axios. Timeout holgado: en red Tailscale/móvil el primer hit
+// puede tardar >3s. El modo offline NO depende de este timeout (usa navigator.onLine
+// + IndexedDB antes de intentar la red), así que un timeout corto solo causa falsos errores.
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 3000,
+  timeout: 12000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -109,7 +111,7 @@ export const fetchInventories = async () => {
     ];
   }
   try {
-    const res = await api.get('/inventories', { timeout: 2000 });
+    const res = await api.get('/inventories', { timeout: 8000 });
     if (Array.isArray(res.data) && res.data.length > 0) {
       localStorage.setItem('mch_cached_inventories', JSON.stringify(res.data));
     }
@@ -146,7 +148,7 @@ export const fetchProducts = async (search = '', inventoryId = '') => {
       const params = new URLSearchParams();
       params.append('search', search.trim());
       if (inventoryId) params.append('inventoryId', inventoryId);
-      const res = await api.get(`/products?${params.toString()}`, { timeout: 2500 });
+      const res = await api.get(`/products?${params.toString()}`, { timeout: 8000 });
       return res.data;
     } catch (err) {
       return (await getProductsLocal(search, inventoryId)) || [];
@@ -163,7 +165,7 @@ export const fetchProducts = async (search = '', inventoryId = '') => {
       params.append('since', lastSync);
       if (inventoryId) params.append('inventoryId', inventoryId);
 
-      const res = await api.get(`/products/sync?${params.toString()}`, { timeout: 2500 });
+      const res = await api.get(`/products/sync?${params.toString()}`, { timeout: 8000 });
       const delta = res.data;
 
       if (delta && delta.products && Array.isArray(delta.products)) {
@@ -184,7 +186,7 @@ export const fetchProducts = async (search = '', inventoryId = '') => {
     if (inventoryId) params.append('inventoryId', inventoryId);
     const queryString = params.toString() ? `?${params.toString()}` : '';
 
-    const res = await api.get(`/products${queryString}`, { timeout: 3500 });
+    const res = await api.get(`/products${queryString}`, { timeout: 10000 });
     const products = res.data;
 
     if (Array.isArray(products) && products.length > 0) {
@@ -259,7 +261,7 @@ export const fetchSettings = async () => {
     };
   }
   try {
-    const res = await api.get('/settings', { timeout: 2000 });
+    const res = await api.get('/settings', { timeout: 8000 });
     if (res.data) {
       localStorage.setItem('mch_cached_settings', JSON.stringify(res.data));
     }

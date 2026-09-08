@@ -19,6 +19,7 @@ import HistorySalesPage from './pages/HistorySalesPage';
 import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
 import HistoryMermasPage from './pages/HistoryMermasPage';
 import TrasladosPage from './pages/TrasladosPage';
+import CashControlPage from './pages/CashControlPage';
 import LoginPage from './pages/LoginPage';
 import './index.css';
 import { PWAInstallPrompt } from './offline';
@@ -81,6 +82,7 @@ function App() {
             <Route path="mermas" element={<MermasPage />} />
             <Route path="traslados" element={<TrasladosPage />} />
             <Route path="configuracion" element={<SettingsPage />} />
+            <Route path="control-efectivo" element={<CashControlPage />} />
             <Route path="nexus" element={<NexusManager />} />
           </Route>
 

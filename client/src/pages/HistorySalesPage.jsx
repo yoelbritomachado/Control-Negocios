@@ -18,10 +18,13 @@ import {
     RotateCcw,
     Save,
     QrCode,
-    Camera
+    Camera,
+    CheckCircle2,
+    Loader2
 } from 'lucide-react';
+import SwipeToConfirm from '../components/SwipeToConfirm';
 import { cn } from '../lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCart } from '../components/CartProvider';
 import QRScannerModal from '../components/QRScannerModal';
 import { recordLog } from '../lib/telemetryLogger';
@@ -183,20 +186,36 @@ export default function HistorySalesPage() {
     const [statusFilter, setStatusFilter] = useState('');
     const [expandedSale, setExpandedSale] = useState(null);
     const [showEditConfirm, setShowEditConfirm] = useState(null);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [approvingSessionId, setApprovingSessionId] = useState(null);
+    const [actionFeedback, setActionFeedback] = useState(null); // { type: 'success' | 'error', message: '' }
+    // KANB-H: modales de confirmación con swipe
+    const [deleteConfirm, setDeleteConfirm] = useState(null); // { saleId, inventory }
+    const [approveConfirm, setApproveConfirm] = useState(null); // { sessionId, total, seller }
+
+    // Rol de usuario actual para permisos de auditoría
+    const userRole = (localStorage.getItem('mch_user_role') || '').toLowerCase();
+    const isOwnerOrAdmin = ['owner', 'admin', 'dueño', 'dueno', 'administrador'].includes(userRole);
+
+    // Sincronizar filtro si viene por query param ?status=pending_review
+    useEffect(() => {
+        const statusParam = searchParams.get('status');
+        if (statusParam) {
+            setStatusFilter(statusParam);
+        }
+    }, [searchParams]);
 
     const fetchSales = async () => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
-                        const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-                        // Dueño/Admin ven todas las sedes; el vendedor solo la suya
-                        const userRole = (localStorage.getItem('mch_user_role') || '').toLowerCase();
-                        const isOwnerOrAdmin = ['owner', 'admin', 'dueño', 'dueno', 'administrador'].includes(userRole);
-                        const invParam = (!isOwnerOrAdmin && currentInventory) ? `?inventory=${encodeURIComponent(currentInventory)}` : '?inventory=all';
+            const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+            // Dueño/Admin ven todas las sedes; el vendedor solo la suya
+            const invParam = (!isOwnerOrAdmin && currentInventory) ? `?inventory=${encodeURIComponent(currentInventory)}` : '?inventory=all';
             
             // Timeout corto para modo offline
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 2500);
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             const res = await fetch(`${API_URL}/history/sales${invParam}`, { 
                 headers, 
@@ -230,11 +249,52 @@ export default function HistorySalesPage() {
         }
     };
 
+        const handleExpandSale = (sale) => {
+        // KANB-I: los tickets ya vienen en el payload agrupado — solo alternar expansión
+        setExpandedSale(expandedSale === sale.id ? null : sale.id);
+    };
+
+    // KANB-H: eliminar venta con restauración
+    const handleDeleteSale = async (saleId) => {
+        try {
+            const res = await api.delete(`/history/sales/${saleId}`, { timeout: 10000 });
+            setActionFeedback({ type: 'success', message: res.data?.message || `Venta #${saleId} eliminada.` });
+            setDeleteConfirm(null);
+            setExpandedSale(null);
+            await fetchSales();
+            setTimeout(() => setActionFeedback(null), 5000);
+        } catch (err) {
+            setActionFeedback({ type: 'error', message: err.response?.data?.error || 'Error al eliminar la venta.' });
+            setDeleteConfirm(null);
+            setTimeout(() => setActionFeedback(null), 5000);
+        }
+    };
+
+    // KANB-D: Aprobar sesión pendiente de revisión
+    const handleApproveSession = async (sessionId, e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (!sessionId) return;
+        setApprovingSessionId(sessionId);
+        try {
+            await api.post(`/sessions/${sessionId}/approve`);
+            setActionFeedback({ type: 'success', message: `Sesión #${sessionId} aprobada y cerrada correctamente.` });
+            await fetchSales();
+            setTimeout(() => setActionFeedback(null), 4000);
+        } catch (err) {
+            console.error('Error aprobando sesión:', err);
+            setActionFeedback({ type: 'error', message: err.response?.data?.error || err.message || 'Error al aprobar la sesión' });
+            setTimeout(() => setActionFeedback(null), 5000);
+        } finally {
+            setApprovingSessionId(null);
+        }
+    };
+
     // Conciliación de QR de Venta o Cierre desde el Dispositivo del Vendedor
     const handleScanSaleSuccess = async (scannedData, rawType = null) => {
         setQrScannerOpen(false);
+        let qrData = null;
         try {
-            const qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
+            qrData = scannedData?.data !== undefined ? scannedData.data : scannedData;
             recordLog('info', 'QR_SALE_SCAN_START', 'Iniciando verificación de QR de venta', { qrData });
             const checkRes = await api.post('/sales/qr-import', {
                 qrData,
@@ -341,7 +401,7 @@ export default function HistorySalesPage() {
                 time: new Date().toLocaleTimeString(),
                 date: new Date().toISOString(),
                 status: 'saved',
-                inventoryId: sale.inventory.toLowerCase().replace(' ', '')
+                inventoryId: (sale.inventory || currentInventory || 'MCH 1').toLowerCase().replace(' ', '')
             };
             setSavedSales(prev => [savedSale, ...prev]);
         }
@@ -368,7 +428,7 @@ export default function HistorySalesPage() {
         // Guardar info de la sesión en localStorage para el POS
         localStorage.setItem('editing_session', JSON.stringify({
             sale_id: sale.id,
-            inventory: sale.inventory,
+            inventory: sale.inventory || currentInventory || 'MCH 1',
             seller: sale.seller,
             status: sale.status,
             original_total: sale.total
@@ -435,6 +495,38 @@ export default function HistorySalesPage() {
                 </div>
             </div>
 
+            {/* Notification / Feedback Banner */}
+            <AnimatePresence>
+                {actionFeedback && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className={cn(
+                            "p-4 rounded-xl border flex items-center justify-between shadow-lg",
+                            actionFeedback.type === 'success'
+                                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                                : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+                        )}
+                    >
+                        <div className="flex items-center gap-2">
+                            {actionFeedback.type === 'success' ? (
+                                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                            ) : (
+                                <AlertCircle className="w-5 h-5 shrink-0" />
+                            )}
+                            <span className="text-sm font-medium">{actionFeedback.message}</span>
+                        </div>
+                        <button
+                            onClick={() => setActionFeedback(null)}
+                            className="text-xs opacity-70 hover:opacity-100 underline ml-4"
+                        >
+                            Cerrar
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Filters */}
             <div className="glass rounded-2xl p-4 flex flex-col sm:flex-row gap-4">
                 <div className="relative flex-1">
@@ -497,7 +589,7 @@ export default function HistorySalesPage() {
                                 {/* Main Row */}
                                 <div 
                                     className="p-4 cursor-pointer hover:bg-secondary/20 transition-colors"
-                                    onClick={() => setExpandedSale(isExpanded ? null : sale.id)}
+                                    onClick={() => handleExpandSale(sale)}
                                 >
                                     <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                                         {/* Date & Session */}
@@ -550,6 +642,28 @@ export default function HistorySalesPage() {
                                                 ${parseFloat(sale.total).toFixed(2)}
                                             </span>
                                             <div className="flex items-center gap-2">
+                                                {/* KANB-D: Botón Aprobar Sesión para Admin/Owner si está en pending_review — con modal de confirmación */}
+                                                {sale.status === 'pending_review' && isOwnerOrAdmin && sale.session_id && (
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.05 }}
+                                                        whileTap={{ scale: 0.95 }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setApproveConfirm({
+                                                                sessionId: sale.session_id,
+                                                                total: sale.total,
+                                                                seller: sale.seller,
+                                                                itemsCount: Array.isArray(sale.items) ? sale.items.length : 0
+                                                            });
+                                                        }}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 transition-all"
+                                                        title="Aprobar y cerrar definitivamente esta sesión de ventas"
+                                                    >
+                                                        <CheckCircle2 className="w-4 h-4" />
+                                                        <span>Aprobar</span>
+                                                    </motion.button>
+                                                )}
+
                                                 {/* Edit Session Button */}
                                                 <motion.button
                                                     whileHover={{ scale: 1.05 }}
@@ -596,29 +710,92 @@ export default function HistorySalesPage() {
                                             className="border-t border-border/30 bg-secondary/10"
                                         >
                                             <div className="p-4 space-y-4">
-                                                {/* Items List */}
-                                                <div>
-                                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                                                        <Package className="w-4 h-4 text-muted-foreground" />
-                                                        Productos ({Array.isArray(sale.items) ? sale.items.length : 0})
-                                                    </h4>
-                                                    <div className="space-y-2">
-                                                        {(sale.items || []).map((item, idx) => (
-                                                            <div 
-                                                                key={item?.id || item?.product_id || `item-${idx}-${item?.name?.replace(/\s+/g, '-') || 'unknown'}`}
-                                                                className="flex items-center justify-between py-2 px-3 rounded-lg bg-background/50"
-                                                            >
-                                                                <div className="flex items-center gap-3">
-                                                                    <span className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-xs text-muted-foreground">
-                                                                        {item?.quantity || 1}
-                                                                    </span>
-                                                                    <span className="text-sm">{item?.name || 'Producto'}</span>
+                                                {/* KANB-I: Tickets de la sesión — una línea por producto: foto, cantidad, nombre, c/u, total */}
+                                                {(sale.tickets || []).length > 0 && (
+                                                    <div>
+                                                        <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                                                            <Receipt className="w-4 h-4 text-muted-foreground" />
+                                                            Tickets ({sale.tickets.length})
+                                                        </h4>
+                                                        <div className="space-y-2">
+                                                            {sale.tickets.map((ticket, tIdx) => (
+                                                                <div key={ticket.id || `t-${tIdx}`} className="rounded-lg border border-border/40 bg-background/40 overflow-hidden">
+                                                                    {/* Items: una línea por producto */}
+                                                                    <div className="divide-y divide-border/20">
+                                                                        {(ticket.items || []).map((item, idx) => {
+                                                                            const qty = parseInt(item?.quantity) || 1;
+                                                                            const price = parseFloat(item?.price) || 0;
+                                                                            const lineTotal = price * qty;
+                                                                            const imgUrl = item?.image_url
+                                                                                ? (item.image_url.startsWith('http') ? item.image_url : `http://localhost:3002${item.image_url}`)
+                                                                                : null;
+                                                                            return (
+                                                                                <div key={`${ticket.id}-${idx}`} className="flex items-center gap-3 px-3 py-2">
+                                                                                    {/* Foto del producto */}
+                                                                                    {imgUrl ? (
+                                                                                        <img
+                                                                                            src={imgUrl}
+                                                                                            alt={item?.name || 'Producto'}
+                                                                                            className="w-9 h-9 rounded-lg object-cover border border-border/40 flex-shrink-0 bg-secondary"
+                                                                                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                                                                        />
+                                                                                    ) : (
+                                                                                        <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+                                                                                            <Package className="w-4 h-4 text-muted-foreground" />
+                                                                                        </div>
+                                                                                    )}
+                                                                                    {/* Cantidad */}
+                                                                                    <span className="w-6 h-6 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                                                                        {qty}
+                                                                                    </span>
+                                                                                    {/* Nombre + precio unitario */}
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <div className="text-sm truncate">{item?.name || 'Producto'}</div>
+                                                                                        {price > 0 && (
+                                                                                            <div className="text-[11px] text-muted-foreground">${price.toFixed(2)} c/u</div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    {/* Total de la línea — totalmente a la derecha */}
+                                                                                    <span className="text-sm font-bold font-mono text-right flex-shrink-0">
+                                                                                        ${lineTotal.toFixed(2)}
+                                                                                    </span>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                    {/* Total del ticket — pie discreto */}
+                                                                    <div className="flex items-center justify-between px-3 py-1.5 bg-secondary/30 border-t border-border/30">
+                                                                        <span className="text-[11px] text-slate-400">
+                                                                            {ticket.payment_method === 'cash' ? 'Efectivo' : ticket.payment_method === 'transfer' ? 'Transferencia' : 'Mixto'}
+                                                                        </span>
+                                                                        <span className="text-sm font-bold font-mono text-cyan-400">${parseFloat(ticket.total || 0).toFixed(2)}</span>
+                                                                    </div>
                                                                 </div>
-                                                                <span className="text-sm font-medium">
-                                                                    ${parseFloat(item?.price || 0).toFixed(2)}
-                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* KANB-I: Totales de la sesión — efectivo / transferencia */}
+                                                <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+                                                    <div className="text-xs text-cyan-400 uppercase tracking-wider mb-3 font-semibold">Total de la Sesión</div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <div className="text-xs text-slate-400">Efectivo</div>
+                                                            <div className="text-xl font-bold text-emerald-400 font-mono">
+                                                                ${parseFloat(sale.cash_amount || 0).toFixed(2)}
                                                             </div>
-                                                        ))}
+                                                        </div>
+                                                        <div>
+                                                            <div className="text-xs text-slate-400">Transferencia</div>
+                                                            <div className="text-xl font-bold text-blue-400 font-mono">
+                                                                ${parseFloat(sale.transfer_amount || 0).toFixed(2)}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-3 pt-3 border-t border-white/10 flex justify-between items-center">
+                                                        <span className="text-xs text-slate-400">Total General ({sale.tickets_count || (sale.tickets || []).length} tickets)</span>
+                                                        <span className="text-2xl font-black text-white font-mono">${parseFloat(sale.total).toFixed(2)}</span>
                                                     </div>
                                                 </div>
 
@@ -638,6 +815,25 @@ export default function HistorySalesPage() {
                                                 {sale.notes && (
                                                     <div className="text-sm text-muted-foreground">
                                                         <span className="font-medium text-foreground">Notas:</span> {sale.notes}
+                                                    </div>
+                                                )}
+
+                                                {/* KANB-H: Zona de peligro — eliminar venta */}
+                                                {isOwnerOrAdmin && sale.status !== 'open' && (
+                                                    <div className="pt-3 border-t border-rose-500/20">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setDeleteConfirm({ saleId: sale.id, total: sale.total, inventory: sale.inventory });
+                                                            }}
+                                                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/30 transition-all"
+                                                        >
+                                                            <RotateCcw className="w-4 h-4" />
+                                                            Eliminar venta (restaurar productos)
+                                                        </button>
+                                                        <p className="text-[11px] text-slate-500 mt-1.5">
+                                                            La eliminación devuelve los productos al inventario y revierte la venta por completo. Requiere confirmación con deslizamiento.
+                                                        </p>
                                                     </div>
                                                 )}
                                             </div>
@@ -795,6 +991,107 @@ export default function HistorySalesPage() {
                 onClose={() => setScanResultDetails(null)}
                 scanResult={scanResultDetails}
             />
+
+            {/* KANB-H: Modal de confirmación para ELIMINAR venta — con SwipeToConfirm */}
+            <AnimatePresence>
+                {deleteConfirm && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                        onClick={() => setDeleteConfirm(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95, y: 20 }}
+                            className="bg-slate-900 border border-rose-500/30 rounded-2xl max-w-md w-full p-6 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-rose-500/20 flex items-center justify-center">
+                                    <AlertCircle className="w-6 h-6 text-rose-400" />
+                                </div>
+                                <h3 className="text-lg font-bold text-white">¿Eliminar esta venta?</h3>
+                            </div>
+                            <div className="text-sm text-slate-300 space-y-2 mb-5">
+                                <p>Se eliminará la venta <span className="font-bold text-white">#{deleteConfirm.saleId}</span> (${parseFloat(deleteConfirm.total || 0).toFixed(2)}) del sistema de ventas.</p>
+                                <ul className="list-disc list-inside space-y-1 text-slate-400 text-[13px]">
+                                    <li>Los productos <span className="text-emerald-400">regresarán al inventario</span>.</li>
+                                    <li>Los gastos se restaurarán al control definitivo.</li>
+                                    <li>La venta quedará como si nunca se hubiera realizado.</li>
+                                </ul>
+                            </div>
+                            <SwipeToConfirm
+                                color="rose"
+                                label="Desliza para eliminar"
+                                confirmLabel="✔ Venta eliminada"
+                                onConfirm={() => handleDeleteSale(deleteConfirm.saleId)}
+                            />
+                            <button
+                                onClick={() => setDeleteConfirm(null)}
+                                className="w-full mt-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* KANB-D: Modal de confirmación para APROBAR sesión — con SwipeToConfirm */}
+            <AnimatePresence>
+                {approveConfirm && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                        onClick={() => setApproveConfirm(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95, y: 20 }}
+                            className="bg-slate-900 border border-emerald-500/30 rounded-2xl max-w-md w-full p-6 shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                                </div>
+                                <h3 className="text-lg font-bold text-white">¿Aprobar esta sesión?</h3>
+                            </div>
+                            <div className="text-sm text-slate-300 space-y-2 mb-5">
+                                <p>Vas a aprobar y cerrar <span className="font-bold text-white">definitivamente</span> la sesión de <span className="text-cyan-400">{approveConfirm.seller || 'vendedor'}</span> por un total de <span className="font-bold text-white">${parseFloat(approveConfirm.total || 0).toFixed(2)}</span>.</p>
+                                <ul className="list-disc list-inside space-y-1 text-slate-400 text-[13px]">
+                                    <li>Los productos se <span className="text-rose-400">descontarán del inventario</span> permanentemente.</li>
+                                    <li>El efectivo y las transferencias se sumarán a la caja del negocio.</li>
+                                    <li>Los gastos se aplicarán al control definitivo.</li>
+                                    <li>Esta acción <span className="text-rose-400">no se puede deshacer</span>.</li>
+                                </ul>
+                            </div>
+                            <SwipeToConfirm
+                                color="emerald"
+                                label="Desliza para aprobar"
+                                confirmLabel="✔ Sesión aprobada"
+                                onConfirm={() => {
+                                    const sid = approveConfirm.sessionId;
+                                    setApproveConfirm(null);
+                                    handleApproveSession(sid, null);
+                                }}
+                            />
+                            <button
+                                onClick={() => setApproveConfirm(null)}
+                                className="w-full mt-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

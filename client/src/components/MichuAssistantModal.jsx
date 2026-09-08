@@ -16,12 +16,12 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function MichuAssistantModal({ isOpen, onClose }) {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState(() => [
     {
       id: 1,
       sender: 'bot',
       text: '¡Hola Yoe! Soy **MichuSourcing**, tu asistente de abastecimiento estratégico, análisis de proveedores internacionales y soporte operativo para **Michulerías**.\n\n¿En qué te puedo asesorar hoy?',
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      time: '12:00'
     }
   ]);
   const [input, setInput] = useState('');
@@ -37,8 +37,6 @@ export default function MichuAssistantModal({ isOpen, onClose }) {
       scrollToBottom();
     }
   }, [messages, isOpen]);
-
-  if (!isOpen) return null;
 
   const quickQuestions = [
     { title: '🛡️ Seguridad VCC / Escrow', query: '¿Cómo asegurar pagos con proveedores en Alibaba?' },
@@ -67,15 +65,15 @@ export default function MichuAssistantModal({ isOpen, onClose }) {
       const q = queryText.toLowerCase();
 
       if (q.includes('vcc') || q.includes('pago') || q.includes('tarjeta') || q.includes('escrow')) {
-        botResponse = '🔒 **Protocolo de Seguridad de Pago en Compras**:\n\n1. **VCC Exclusivo**: Usá siempre Tarjetas Virtuales (VCC) de un solo uso con límite ajustado al monto exacto (vía Privacy, Wise o Capital One Eno). Nunca ingreses tarjetas físicas directas.\n2. **Trade Assurance (Alibaba)**: Garantiza que los fondos queden retenidos en *Escrow* hasta que el paquete llegue verificado a la agencia de consolidación en EE.UU.\n3. **Cero pagos externos**: Nunca aceptes pagar por WeChat directo o transferencias Western Union.';
+        botResponse = '🔒 **Protocolo de Seguridad de Pago en Compras**:\n\n1. **VCC Exclusivo**: Usá siempre Tarjetas Virtuales (VCC) de un solo uso con límite ajustado al monto exacto (vía Privacy, Wise o Capital One Eno). Nunca ingreses tarjetas físicas directas.\n2. **Trade Assurance (Alibaba)**: Garantiza que los fondos queden retenidos en *Escrow* hasta que el paquete llegue verificado a la agencia de consolidación en EE.UU.\n3. **Cero pagos externos**: Nunca aceptes pagar por WeChat directo ni transferencias no respaldadas.';
       } else if (q.includes('logística') || q.includes('envío') || q.includes('cuba') || q.includes('ruta')) {
         botResponse = '📦 **Optimización Logística (China ➔ EE.UU. ➔ Cuba)**:\n\n- **Ruta Recomendada**: Proveedor internacional ➔ Consolidación en Miami/Kentucky ➔ Cuba.\n- **Agencias recomendadas**: CubaMax / agencias marítimas o aéreas con tarifa cerrada por libra/bulto.\n- **Cálculo de Landed Cost**: Recordá sumar siempre el costo unitario de compra + envío nacional US + tarifa de bulto a Cuba + arancel aduanal para fijar el precio de venta en kioscos con margen saludable.';
       } else if (q.includes('qr') || q.includes('sincronizar') || q.includes('offline') || q.includes('traslado')) {
         botResponse = '🔄 **Operativa Offline y Traspasos QR**:\n\n- **En Kioscos sin red**: Las ventas y traslados se guardan localmente de inmediato (IndexedDB).\n- **Transmitir Cambios**: Tocá el botón azul **[ Sincronizar ]** ➔ Seleccioná **"Transmitir Paquete QR"**.\n- **Recibir en la otra sede**: Abrí el botón **[ Sincronizar ]** ➔ **"Escanear Paquete QR"** y apuntá la cámara al QR. El stock y las ventas se absorben al instante sin necesidad de internet.';
-      } else if (q.includes('proveedor') || q.includes('alibaba') || q.includes('aliexpress') || q.includes('filtro')) {
-        botResponse = '🔎 **Criterios de Validación de Proveedores**:\n\n- **Alibaba**: Proveedor *Verified Supplier*, mínimo 2–3 años de antigüedad, soporte de Trade Assurance y tasa de respuesta > 90%.\n- **AliExpress**: Tiendas con > 95% de valoraciones positivas y ventas reales verificables.\n- **Banderas Rojas**: Precios anormalmente bajos, pedir liquidación fuera de plataforma o evasivas ante fotos del empaque real.';
+      } else if (q.includes('proveedor') || q.includes('alib') || q.includes('aliexpress') || q.includes('segur')) {
+        botResponse = '💡 **Filtro de Seguridad de Proveedores**:\n\n1. Exigir **Verified Supplier** con al menos 2 a 3 años de antigüedad.\n2. Verificar **Trade Assurance** activo.\n3. Calificación mínima de 4.7/5 y volumen alto de transacciones verificadas.\n4. Descartar precios ridículamente bajos (red flag típica de estafa o mercancía defectuosa).';
       } else {
-        botResponse = `Entendido. Registré tu consulta sobre "${queryText}". Como MichuSourcing, estoy configurado para optimizar cada compra mayorista de **Michulerías**, cuidando el capital y garantizando que las operaciones entre almacén y puntos de venta fluyan con total seguridad.`;
+        botResponse = `Recibido: "${queryText}". Si necesitás asistencia con una cotización, verificación de proveedor en China o validación de aranceles de entrada a Cuba, podés indicarme los detalles y lo calculamos.`;
       }
 
       setMessages(prev => [
@@ -90,6 +88,8 @@ export default function MichuAssistantModal({ isOpen, onClose }) {
       setIsTyping(false);
     }, 600);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/75 backdrop-blur-sm">

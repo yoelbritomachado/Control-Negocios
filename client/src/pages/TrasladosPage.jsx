@@ -128,7 +128,7 @@ export default function TrasladosPage() {
     const fetchProducts = async () => {
         try {
             setLoading(true);
-            const response = await api.get(`/products?inventory=${sourceInventory}`, { timeout: 3000 });
+            const response = await api.get(`/products?inventory=${sourceInventory}`, { timeout: 10000 });
             const list = Array.isArray(response.data) ? response.data : [];
             if (list.length > 0) {
                 setProducts(list);

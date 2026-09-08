@@ -1,4 +1,5 @@
 import api, { fetchProducts } from '../api';
+import { flushOfflineLogs } from './telemetryLogger';
 import {
   getPendingSales,
   getPendingTransfers,
