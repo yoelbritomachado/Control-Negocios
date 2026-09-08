@@ -464,12 +464,20 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const previousWage = accumulated.previous_sessions_wage || 0;
     const pendingSessions = accumulated.pending_sessions_count || 0;
 
+    // SES-02/03: liquidación de salario en el cierre
+    // Si hay saldo suficiente: se liquida del efectivo (admin entrega menos). Si no: se difiere a caja central.
+    const wageSettledPreview = requestWagePayment ? Math.min(totalPendingWage, Math.max(0, finalCash)) : 0;
+    const wageDeferredPreview = requestWagePayment ? Math.max(0, totalPendingWage - wageSettledPreview) : 0;
+    const cashDeliveredPreview = Math.max(0, (destino === 'entregar' ? finalCash : 0) - wageSettledPreview);
+
     const handleSubmit = (e) => {
         e.preventDefault();
         // KANB-F: pasar destino del efectivo (entrega y fondo) al handler de cierre
+        // El servidor descuenta el salario liquidado del efectivo a entregar (fuente de verdad única)
         onSave(cash, notes, requestWagePayment, wagePaymentMethod, totalPendingWage, {
-            cash_delivered: cashDelivered,
-            leftover_cash: leftoverCash
+            cash_delivered: destino === 'entregar' ? finalCash : 0,
+            leftover_cash: leftoverCash,
+            wage_withdrawal: requestWagePayment && totalPendingWage > 0
         });
     };
 
@@ -725,20 +733,40 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                         </div>
                     )}
 
+                    {/* SES-02/03: Efectivo en Caja — calculado, JAMÁS editable */}
                     <div className="space-y-2">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Efectivo en Caja</label>
-                        <div className="relative">
-                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground font-mono">$</span>
-                            <input
-                                type="number"
-                                placeholder="0.00"
-                                value={cash}
-                                onChange={e => setCash(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-3 text-white focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 outline-none transition-all font-mono text-lg"
-                                required
-                            />
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Efectivo en Caja (calculado)</label>
+                        <div className="flex items-center justify-between w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                            <span className="text-muted-foreground font-mono">$</span>
+                            <span className="text-white font-mono text-lg font-bold">{finalCash.toFixed(2)}</span>
+                            <span className="text-[10px] text-slate-500 uppercase">No editable</span>
                         </div>
                     </div>
+
+                    {/* SES-02/03: desglose del destino del efectivo con liquidación de salario */}
+                    {requestWagePayment && totalPendingWage > 0 && (
+                        <div className="p-4 rounded-xl bg-black/20 border border-white/10 space-y-1.5 text-sm">
+                            <div className="text-xs text-slate-400 uppercase tracking-wider mb-2 font-semibold">Desglose de entrega</div>
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Efectivo total en caja:</span>
+                                <span className="text-white font-mono">${finalCash.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-slate-400">Salario liquidado del turno:</span>
+                                <span className="text-violet-400 font-mono">-${wageSettledPreview.toFixed(2)}</span>
+                            </div>
+                            {wageDeferredPreview > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Salario diferido a caja central:</span>
+                                    <span className="text-amber-400 font-mono">${wageDeferredPreview.toFixed(2)}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-between border-t border-white/10 pt-1.5 mt-1">
+                                <span className="text-emerald-400 font-medium">Efectivo a entregar al admin:</span>
+                                <span className="text-emerald-400 font-bold font-mono">${cashDeliveredPreview.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="space-y-2">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Notas del Turno</label>
@@ -1420,6 +1448,8 @@ export default function POSLayout() {
             if (!isSeller && cashDestination) {
                 payload.leftover_cash = cashDestination.leftover_cash || 0;
                 payload.cash_delivered = cashDestination.cash_delivered || 0;
+                // SES-02/03: liquidación del salario en el cierre (el servidor valida saldo y difiere si no alcanza)
+                payload.wage_withdrawal = !!cashDestination.wage_withdrawal;
             }
             const res = await api.post(endpoint, payload, { timeout: 10000 });
             setCloseSummary(res.data.summary);
@@ -1496,6 +1526,19 @@ export default function POSLayout() {
                                 <div className="text-right font-mono text-blue-400">${res.data.summary?.final?.transfer?.toFixed(2) || '0.00'}</div>
                             </div>
                             <p className="pt-2 border-t border-white/10">Salario del vendedor (5%): <span className="text-violet-400 font-mono">${res.data.wage?.toFixed(2)}</span></p>
+                            {/* SES-02/03: cómo quedó liquidado el salario en el cierre */}
+                            {res.data.wage_settlement?.requested && (
+                                res.data.wage_settlement.deferred > 0 ? (
+                                    <p className="text-amber-400 text-sm">
+                                        ⏳ Diferido a caja central: <span className="font-mono font-bold">${res.data.wage_settlement.deferred.toFixed(2)}</span> (queda pendiente de pago)
+                                    </p>
+                                ) : res.data.wage_settlement.settled > 0 ? (
+                                    <p className="text-emerald-400 text-sm">
+                                        ✓ Salario liquidado del turno: <span className="font-mono font-bold">${res.data.wage_settlement.settled.toFixed(2)}</span>
+                                        {' '}— Efectivo entregado: <span className="font-mono">${res.data.wage_settlement.cash_delivered.toFixed(2)}</span>
+                                    </p>
+                                ) : null
+                            )}
                         </div>
                     ),
                     type: 'success',
