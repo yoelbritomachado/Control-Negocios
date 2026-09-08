@@ -17,11 +17,14 @@ import {
     Receipt, Search, History, LogOut, Loader2,
     CheckCircle2, Camera, Package2, X, Plus, Minus,
     TrendingUp, ArrowRight, Wallet, Edit, AlertTriangle,
-    CreditCard, Calendar, QrCode, PlusCircle, Coins, Info, DollarSign
+    CreditCard, Calendar, QrCode, PlusCircle, Coins, Info, DollarSign, Split
     } from 'lucide-react';
 import QRGeneratorModal from './QRGeneratorModal';
 import { prepareSaleQRPayload } from '../lib/qrOfflineService';
-import { savePendingSale, getPendingSales } from '../lib/localDB';
+import {
+    savePendingSale, getPendingSales,
+    savePendingExpense, saveExpenseTypesLocal, getExpenseTypesLocal
+} from '../lib/localDB';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { getAdaptiveImageUrl } from '../lib/imageUtils';
@@ -147,6 +150,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
     const [amount, setAmount] = useState('');
     const [desc, setDesc] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('cash');
+    const [cashPart, setCashPart] = useState('');
+    const [transferPart, setTransferPart] = useState('');
     const [expenseTypes, setExpenseTypes] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -158,6 +163,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
         try {
             const res = await api.get('/expense-types');
             setExpenseTypes(res.data);
+            // Cache local para uso 100% offline (EXP-01)
+            saveExpenseTypesLocal(res.data).catch(() => {});
             // Set first type as default if available
             if (res.data.length > 0) {
                 setType(res.data[0].id.toString());
@@ -166,6 +173,16 @@ const ExpenseModal = ({ onClose, onSave }) => {
             }
         } catch (e) {
             console.error('Error loading expense types:', e);
+            // Fallback offline: leer cache de IndexedDB
+            try {
+                const cached = await getExpenseTypesLocal();
+                if (cached.length > 0) {
+                    setExpenseTypes(cached);
+                    setType(cached[0].id.toString());
+                    setAmount(cached[0].amount.toString());
+                    setPaymentMethod(cached[0].payment_method || 'cash');
+                }
+            } catch (_) {}
         }
         setLoading(false);
     };
@@ -176,6 +193,8 @@ const ExpenseModal = ({ onClose, onSave }) => {
         if (selectedType) {
             setAmount(selectedType.amount.toString());
             setPaymentMethod(selectedType.payment_method || 'cash');
+            setCashPart('');
+            setTransferPart('');
             // Limpiar descripción al cambiar de tipo
             setDesc('');
         }
@@ -191,12 +210,17 @@ const ExpenseModal = ({ onClose, onSave }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const selectedType = expenseTypes.find(t => t.id.toString() === type);
-        await onSave({
+        const payload = {
             type: selectedType?.name || 'Otro',
             amount: parseFloat(amount),
             description: isCustomExpense() ? desc : selectedType?.name,
             payment_method: paymentMethod
-        });
+        };
+        if (paymentMethod === 'mixed') {
+            payload.amount_cash = parseFloat(cashPart) || 0;
+            payload.amount_transfer = parseFloat(transferPart) || 0;
+        }
+        await onSave(payload);
     };
 
     return (
@@ -269,7 +293,7 @@ const ExpenseModal = ({ onClose, onSave }) => {
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                             Método de Pago
                         </label>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                             <button
                                 type="button"
                                 onClick={() => setPaymentMethod('cash')}
@@ -296,9 +320,72 @@ const ExpenseModal = ({ onClose, onSave }) => {
                                 <CreditCard className="w-5 h-5" />
                                 Transferencia
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => setPaymentMethod('mixed')}
+                                className={cn(
+                                    "flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all",
+                                    paymentMethod === 'mixed'
+                                        ? "bg-violet-500/20 border-violet-500/50 text-violet-400"
+                                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                                )}
+                            >
+                                <Split className="w-5 h-5" />
+                                Mixto
+                            </button>
                         </div>
+                        {paymentMethod === 'mixed' && (
+                            <div className="space-y-3 mt-3 p-4 rounded-xl bg-violet-500/5 border border-violet-500/20">
+                                <p className="text-xs text-violet-300 font-medium">
+                                    Desglose del pago mixto (debe sumar ${parseFloat(amount || 0).toFixed(2)})
+                                </p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs text-muted-foreground block mb-1">Efectivo</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">$</span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                placeholder="0.00"
+                                                value={cashPart}
+                                                onChange={e => setCashPart(e.target.value)}
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl pl-7 pr-3 py-2.5 text-white focus:border-violet-500/50 outline-none transition-all font-mono"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-muted-foreground block mb-1">Transferencia</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-mono text-sm">$</span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                placeholder="0.00"
+                                                value={transferPart}
+                                                onChange={e => setTransferPart(e.target.value)}
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl pl-7 pr-3 py-2.5 text-white focus:border-violet-500/50 outline-none transition-all font-mono"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                {(() => {
+                                    const total = (parseFloat(cashPart) || 0) + (parseFloat(transferPart) || 0);
+                                    const target = parseFloat(amount) || 0;
+                                    if (total === 0) return null;
+                                    const balanced = Math.abs(total - target) < 0.01;
+                                    return (
+                                        <p className={cn("text-xs font-medium", balanced ? "text-emerald-400" : "text-rose-400")}>
+                                            Desglosado: ${total.toFixed(2)} {balanced ? '✓ cuadra' : `≠ $${target.toFixed(2)} (faltan $${Math.abs(target - total).toFixed(2)})`}
+                                        </p>
+                                    );
+                                })()}
+                            </div>
+                        )}
                         <p className="text-xs text-slate-500 mt-2">
-                            Este gasto se restará del {paymentMethod === 'cash' ? 'efectivo' : 'transferencia'} al cerrar la sesión
+                            Este gasto se restará del {paymentMethod === 'mixed' ? 'efectivo y la transferencia según el desglose' : paymentMethod === 'cash' ? 'efectivo' : 'transferencia'} al cerrar la sesión
                         </p>
                     </div>
 
@@ -2234,7 +2321,7 @@ export default function POSLayout() {
                             onClose={() => setShowExpense(false)}
                             onSave={async (data) => {
                                 try {
-                                    await api.post('/expenses', data);
+                                    const res = await api.post('/expenses', data);
                                     // Agregar el gasto a la lista local
                                     const newExpense = {
                                         id: `exp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -2242,18 +2329,54 @@ export default function POSLayout() {
                                         name: data.type,
                                         amount: data.amount,
                                         description: data.description,
+                                        payment_method: data.payment_method,
+                                        amount_cash: data.amount_cash,
+                                        amount_transfer: data.amount_transfer,
                                         time: new Date().toLocaleTimeString(),
                                         isExpense: true
                                     };
                                     setExpenses(prev => [newExpense, ...prev]);
                                     setShowExpense(false);
                                 } catch (e) {
-                                    setAlertModal({
-                                        isOpen: true,
-                                        title: 'Error',
-                                        message: "Error al registrar el gasto",
-                                        type: 'danger'
-                                    });
+                                    // EXP-01: fallback offline — guardar en IndexedDB y sincronizar después
+                                    try {
+                                        const record = await savePendingExpense({
+                                            type: data.type,
+                                            amount: data.amount,
+                                            description: data.description,
+                                            payment_method: data.payment_method || 'cash',
+                                            amount_cash: data.amount_cash,
+                                            amount_transfer: data.amount_transfer
+                                        });
+                                        const newExpense = {
+                                            id: record.local_id,
+                                            type: 'expense',
+                                            name: data.type,
+                                            amount: data.amount,
+                                            description: data.description,
+                                            payment_method: data.payment_method,
+                                            amount_cash: data.amount_cash,
+                                            amount_transfer: data.amount_transfer,
+                                            time: new Date().toLocaleTimeString(),
+                                            isExpense: true,
+                                            isOffline: true
+                                        };
+                                        setExpenses(prev => [newExpense, ...prev]);
+                                        setShowExpense(false);
+                                        setAlertModal({
+                                            isOpen: true,
+                                            title: 'Guardado offline',
+                                            message: 'El gasto se guardó localmente y se sincronizará automáticamente cuando haya conexión.',
+                                            type: 'info'
+                                        });
+                                    } catch (offlineErr) {
+                                        setAlertModal({
+                                            isOpen: true,
+                                            title: 'Error',
+                                            message: "Error al registrar el gasto",
+                                            type: 'danger'
+                                        });
+                                    }
                                 }
                             }}
                         />
