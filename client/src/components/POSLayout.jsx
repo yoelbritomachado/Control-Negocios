@@ -30,6 +30,7 @@ import { cn } from '../lib/utils';
 import { getAdaptiveImageUrl } from '../lib/imageUtils';
 import SwipeToConfirm from './SwipeToConfirm';
 import { getAdaptiveImageUrl as getImgUrl } from '../lib/imageUtils';
+import useMidnightWarning from '../hooks/useMidnightWarning';
 
 // DEV-06: Cargar devoluciones pendientes de auditoría de la sesión actual (para el CloseSessionModal)
 const loadPendingAuditReturns = async (sessionId) => {
@@ -893,6 +894,49 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
 };
 
 // --- MAIN LAYOUT ---
+
+/**
+ * Aviso de medianoche (kanb-j): si la sesión del vendedor cruza las 00:00,
+ * se auto-cierra y va a revisión. Muestra advertencia desde las 23:00 y
+ * aviso claro cuando ya cruzó la medianoche.
+ */
+function MidnightSessionBanner() {
+    const { phase, minutesToMidnight } = useMidnightWarning();
+
+    if (phase === 'none') return null;
+
+    if (phase === 'soon') {
+        return (
+            <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3"
+            >
+                <Clock className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                <span className="text-sm text-amber-300">
+                    <strong>Tu sesión será enviada a revisión a las 00:00.</strong>{' '}
+                    {minutesToMidnight != null && minutesToMidnight <= 30 && (
+                        <>Quedan ~{minutesToMidnight} min. Cerrá el turno a tiempo para revisarla vos mismo.</>
+                    )}
+                </span>
+            </motion.div>
+        );
+    }
+
+    // phase === 'crossed'
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-r from-rose-500/20 to-red-500/20 border-b border-rose-500/30 px-4 py-2 flex items-center gap-3"
+        >
+            <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span className="text-sm text-rose-300">
+                <strong>La sesión ya cruzó la medianoche.</strong> Tu sesión fue enviada a revisión automáticamente — las nuevas ventas entran al turno de hoy.
+            </span>
+        </motion.div>
+    );
+}
 
 export default function POSLayout() {
     const { cart, setCart, removeFromCart, updateQuantity, total, clearCart, addToCart, currentInventory, editingSession, setEditingSession } = useCart();
@@ -1817,6 +1861,9 @@ export default function POSLayout() {
     return (
         <SessionGuard>
             <div className="h-[calc(100vh-6rem)] sm:h-[calc(100vh-8rem)] w-full bg-background text-foreground font-sans overflow-hidden rounded-2xl border border-border/50">
+
+                {/* Aviso de medianoche (kanb-j): la sesión abierta se envía a revisión a las 00:00 */}
+                <MidnightSessionBanner />
 
                 {/* Editing Session Banner */}
                 {editingSession && (

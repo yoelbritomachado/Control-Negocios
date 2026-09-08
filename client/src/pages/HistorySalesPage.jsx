@@ -205,6 +205,17 @@ export default function HistorySalesPage() {
         }
     }, [searchParams]);
 
+    // UI-02 Deep linking: si viene ?sale=ID, expandir y resaltar esa venta cuando cargue
+    const highlightSaleId = searchParams.get('sale');
+    useEffect(() => {
+        if (!highlightSaleId || loading) return;
+        setExpandedSale((prev) => prev ?? highlightSaleId);
+        const t = setTimeout(() => {
+            document.getElementById(`sale-${highlightSaleId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 300);
+        return () => clearTimeout(t);
+    }, [highlightSaleId, loading]);
+
     const fetchSales = async () => {
         setLoading(true);
         try {
@@ -578,12 +589,14 @@ export default function HistorySalesPage() {
                         return (
                             <motion.div
                                 key={sale?.id || `sale-${index}`}
+                                id={`sale-${sale?.id}`}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
                                 className={cn(
                                     "glass rounded-2xl overflow-hidden transition-all",
                                     statusKey === 'open' && "border-l-4 border-l-cyan-500",
-                                    statusKey === 'pending_review' && "border-l-4 border-l-amber-500"
+                                    statusKey === 'pending_review' && "border-l-4 border-l-amber-500",
+                                    String(highlightSaleId) === String(sale?.id) && "ring-2 ring-cyan-400 shadow-lg shadow-cyan-500/20"
                                 )}
                             >
                                 {/* Main Row */}

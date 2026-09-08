@@ -36,7 +36,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useCart } from './CartProvider';
 import { useRole, ROLES } from '../hooks/useRole';
 import { useNotifications } from '../hooks/useNotifications';
+import { useConnectionStatus } from '../hooks/useConnectionStatus';
 import { OfflineStatusBar, SyncButton } from '../offline';
+import ConnectionIndicator from './ConnectionIndicator';
 import ProfileModal from './ProfileModal';
 import UnifiedSyncModal from './UnifiedSyncModal';
 import MichuAssistantModal from './MichuAssistantModal';
@@ -88,6 +90,40 @@ const notificationIcons = {
   default: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/20' }
 };
 
+// Deep linking UI-02: ruta destino según el tipo de notificación y su data
+const getNotificationRoute = (notification) => {
+  const data = notification?.data || {};
+  switch (notification?.type) {
+    // Traslados -> página de traslados con el traslado en modo edición/visualización
+    case 'transfer_created':
+    case 'transfer_incoming':
+    case 'transfer_received':
+    case 'transfer_rejected':
+    case 'transfer_reverted':
+      if (data.transfer_id) return `/traslados?edit=${data.transfer_id}`;
+      return '/traslados';
+    // Ventas -> historial de ventas resaltando la venta
+    case 'sale_registered':
+      if (data.sale_id) return `/historial/ventas?sale=${data.sale_id}`;
+      return '/historial/ventas';
+    // Compras -> historial de traslados/compras
+    case 'purchase_created':
+    case 'currency_purchase':
+      return '/historial/traslados';
+    // Sesiones -> historial general (ya existía)
+    case 'session_pending':
+      return '/historial';
+    case 'session_approved':
+      return '/historial/ventas';
+    // Salarios
+    case 'wage_request':
+    case 'wage_paid':
+      return '/usuarios';
+    default:
+      return null;
+  }
+};
+
 // Formatear tiempo relativo
 const formatRelativeTime = (dateString) => {
   const date = new Date(dateString);
@@ -105,7 +141,8 @@ export function Header() {
   const location = useLocation();
   const { currentInventory } = useCart();
   const { currentRole, userName, changeRole, getRoleInfo, ROLES: RolesList } = useRole();
-  const { notifications, unreadCount, markAsRead, markAllAsRead, isOnline } = useNotifications();
+  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { isOnline } = useConnectionStatus();
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -134,8 +171,11 @@ export function Header() {
       markAsRead(notification.id);
     }
     
-    // Navegar según el tipo de notificación
-    if (notification.type === 'session_pending') {
+    // UI-02: navegar según el tipo de notificación (deep linking)
+    const route = getNotificationRoute(notification);
+    if (route) {
+      navigate(route);
+    } else if (notification.type === 'session_pending') {
       navigate('/historial');
     }
     
@@ -172,6 +212,8 @@ export function Header() {
 
         {/* Action icons en móvil alineados a la derecha del header */}
         <div className="flex lg:hidden items-center gap-2">
+          {/* UI-01: Indicador de conexión compacto (móviles) */}
+          <ConnectionIndicator isOnline={isOnline} showLabel />
           {/* Botón Sincronizar Móvil */}
           <button
             onClick={() => setSyncModalOpen(true)}
