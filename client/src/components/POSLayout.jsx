@@ -558,6 +558,11 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
     const wageDeferredPreview = requestWagePayment ? Math.max(0, totalPendingWage - wageSettledPreview) : 0;
     const cashDeliveredPreview = Math.max(0, (destino === 'entregar' ? finalCash : 0) - wageSettledPreview);
 
+    // SES-04: redondeo del pago final a centenas (±$50). El total en caja queda histórico;
+    // el ajuste es un desglose del destino (vendedor absorbe si es hacia abajo, admin pone si es hacia arriba).
+    const roundedCashPreview = Math.round(cashDeliveredPreview / 100) * 100;
+    const roundingAdjustmentPreview = roundedCashPreview - cashDeliveredPreview;
+
     const handleSubmit = (e) => {
         e.preventDefault();
         // KANB-F: pasar destino del efectivo (entrega y fondo) al handler de cierre
@@ -711,9 +716,15 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                                 <div className="text-xs text-slate-400 mt-0.5">Se hereda a la próxima sesión</div>
                             </button>
                         </div>
+                        {roundingAdjustmentPreview !== 0 && (
+                            <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-black/20 border border-white/5">
+                                <span className="text-xs text-slate-400">Redondeo a centenas:</span>
+                                <span className="text-lg font-bold font-mono text-cyan-400">{roundingAdjustmentPreview > 0 ? '+' : '-'}${Math.abs(roundingAdjustmentPreview).toFixed(2)}</span>
+                            </div>
+                        )}
                         <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-black/20 border border-white/5">
                             <span className="text-xs text-slate-400">Efectivo a entregar al admin:</span>
-                            <span className="text-lg font-bold font-mono text-amber-400">${(destino === 'entregar' ? finalCash : 0).toFixed(2)}</span>
+                            <span className="text-lg font-bold font-mono text-amber-400">${(destino === 'entregar' ? roundedCashPreview : 0).toFixed(2)}</span>
                         </div>
                         <div className="mt-2 flex items-center justify-between p-3 rounded-lg bg-black/20 border border-white/5">
                             <span className="text-xs text-slate-400">Efectivo a dejar de fondo:</span>
@@ -849,9 +860,15 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                                     <span className="text-amber-400 font-mono">${wageDeferredPreview.toFixed(2)}</span>
                                 </div>
                             )}
+                            {roundingAdjustmentPreview !== 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-slate-400">Redondeo a centenas:</span>
+                                    <span className="text-cyan-400 font-mono">{roundingAdjustmentPreview > 0 ? '+' : '-'}${Math.abs(roundingAdjustmentPreview).toFixed(2)}</span>
+                                </div>
+                            )}
                             <div className="flex justify-between border-t border-white/10 pt-1.5 mt-1">
-                                <span className="text-emerald-400 font-medium">Efectivo a entregar al admin:</span>
-                                <span className="text-emerald-400 font-bold font-mono">${cashDeliveredPreview.toFixed(2)}</span>
+                                <span className="text-emerald-400 font-medium">Efectivo a entregar al admin (redondeado):</span>
+                                <span className="text-emerald-400 font-bold font-mono">${roundedCashPreview.toFixed(2)}</span>
                             </div>
                         </div>
                     )}
