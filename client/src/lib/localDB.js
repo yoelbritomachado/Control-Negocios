@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'mch_local_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -44,6 +44,12 @@ function openDB() {
       // Configuración y metadatos locales (último sync, usuario activo)
       if (!db.objectStoreNames.contains('meta')) {
         db.createObjectStore('meta', { keyPath: 'key' });
+      }
+
+      // DEV-06: Devoluciones pendientes de auditoría (offline -> sync como 'pending')
+      if (!db.objectStoreNames.contains('pending_returns')) {
+        const retStore = db.createObjectStore('pending_returns', { keyPath: 'local_id' });
+        retStore.createIndex('sync_status', 'sync_status', { unique: false });
       }
     };
 
@@ -99,6 +105,65 @@ export async function getProductsLocal(search = '', inventoryId = '') {
       resolve(results);
     };
     req.onerror = () => reject(req.error);
+  });
+}
+
+// --- DEVOLUCIONES OFFLINE PENDIENTES (DEV-06) ---
+
+export async function savePendingReturn(returnData) {
+  const db = await openDB();
+  const tx = db.transaction('pending_returns', 'readwrite');
+  const store = tx.objectStore('pending_returns');
+
+  const record = {
+    ...returnData,
+    local_id: returnData.local_id || `offline_return_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    sync_status: 'pending',
+    created_at: returnData.date || new Date().toISOString()
+  };
+
+  store.put(record);
+
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getPendingReturns() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('pending_returns', 'readonly');
+    const store = tx.objectStore('pending_returns');
+    const req = store.getAll();
+
+    req.onsuccess = () => {
+      const items = (req.result || []).filter(r => r.sync_status === 'pending');
+      resolve(items);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function markReturnSynced(localId, serverId = null) {
+  const db = await openDB();
+  const tx = db.transaction('pending_returns', 'readwrite');
+  const store = tx.objectStore('pending_returns');
+
+  const getReq = store.get(localId);
+  getReq.onsuccess = () => {
+    const record = getReq.result;
+    if (record) {
+      record.sync_status = 'synced';
+      record.server_id = serverId;
+      record.synced_at = new Date().toISOString();
+      store.put(record);
+    }
+  };
+
+  return new Promise((resolve) => {
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => resolve(false);
   });
 }
 

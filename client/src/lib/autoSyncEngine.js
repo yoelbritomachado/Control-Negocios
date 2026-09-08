@@ -8,7 +8,9 @@ import {
   saveProductsLocal,
   saveNexusNodesLocal,
   saveUsersLocal,
-  getPendingCounts
+  getPendingCounts,
+  getPendingReturns,
+  markReturnSynced
 } from './localDB';
 
 let isSyncInProgress = false;
@@ -43,6 +45,7 @@ export async function performFullSync(silent = true) {
 
   let salesUploaded = 0;
   let transfersUploaded = 0;
+  let returnsUploaded = 0;
   let errors = [];
 
   try {
@@ -174,6 +177,51 @@ export async function performFullSync(silent = true) {
       }
     } catch (_) {}
 
+    // 3. DEV-06: Sincronizar devoluciones offline pendientes (se suben con status 'pending'
+    //    para que el Dueño/Admin las apruebe en el arqueo/cierre de sesión)
+    try {
+      const pendingReturns = await getPendingReturns();
+      for (const ret of pendingReturns) {
+        try {
+          const formData = new FormData();
+          formData.append('type', ret.type || 'new_product');
+          formData.append('items', JSON.stringify(ret.items || []));
+          formData.append('total_amount', Number(ret.total_amount) || 0);
+          formData.append('notes', ret.notes || '');
+          formData.append('inventory_id', ret.inventory_id || 'mch1');
+          formData.append('status', 'pending');
+          // Las imágenes offline se capturan como dataURL/blob; convertimos cada una a Blob
+          for (let i = 0; i < (ret.images || []).length; i++) {
+            const img = ret.images[i];
+            let blob = null;
+            if (img instanceof Blob) blob = img;
+            else if (typeof img === 'string' && img.startsWith('data:')) {
+              const [meta, b64] = img.split(',');
+              const mime = (meta.match(/data:(.*?);/) || [])[1] || 'image/jpeg';
+              blob = await (await fetch(img)).blob();
+            }
+            if (blob) formData.append(`evidence_${i}`, blob, `evidence_${i}.jpg`);
+          }
+          const res = await api.post('/returns', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 7000
+          });
+          if (res.data?.success) {
+            await markReturnSynced(ret.local_id, res.data.id);
+            returnsUploaded++;
+          } else {
+            errors.push(`${ret.local_id}: ${res.data?.error || 'Error subiendo devolución'}`);
+          }
+        } catch (err) {
+          const errMsg = err?.response?.data?.error || err.message;
+          console.warn(`[AutoSync] Error subiendo devolución ${ret.local_id}:`, errMsg);
+          errors.push(`${ret.local_id}: ${errMsg}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[AutoSync] Error leyendo devoluciones pendientes:', e.message);
+    }
+
     const counts = await getPendingCounts();
     notifySync({
       type: 'complete',
@@ -188,6 +236,7 @@ export async function performFullSync(silent = true) {
       success: errors.length === 0,
       salesUploaded,
       transfersUploaded,
+      returnsUploaded,
       errors,
       remainingPending: counts.totalPending
     };

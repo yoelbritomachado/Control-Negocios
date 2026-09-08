@@ -25,6 +25,102 @@ import { savePendingSale, getPendingSales } from '../lib/localDB';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { getAdaptiveImageUrl } from '../lib/imageUtils';
+import SwipeToConfirm from './SwipeToConfirm';
+import { getAdaptiveImageUrl as getImgUrl } from '../lib/imageUtils';
+
+// DEV-06: Cargar devoluciones pendientes de auditoría de la sesión actual (para el CloseSessionModal)
+const loadPendingAuditReturns = async (sessionId) => {
+    const params = sessionId ? { session_id: sessionId } : {};
+    const res = await api.get('/returns/pending', { params, timeout: 10000 });
+    return res.data?.returns || [];
+};
+
+const PendingReturnsAudit = ({ sessionId, onProcessed }) => {
+    const [returns, setReturns] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [processed, setProcessed] = useState([]);
+
+    const load = useCallback(async () => {
+        try {
+            const rows = await loadPendingAuditReturns(sessionId);
+            setReturns(rows);
+        } catch (e) {
+            console.error('Error cargando devoluciones pendientes:', e);
+        } finally {
+            setLoading(false);
+        }
+    }, [sessionId]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const handleProcess = async (id, action) => {
+        try {
+            await api.post(`/returns/${id}/${action}`);
+            setReturns(prev => prev.filter(r => r.id !== id));
+            setProcessed(prev => [...prev, { id, action }]);
+            if (onProcessed) onProcessed(action);
+        } catch (e) {
+            console.error(`Error ${action === 'approve' ? 'aprobando' : 'rechazando'} devolución:`, e);
+        }
+    };
+
+    if (loading) {
+        return <div className="p-3 text-xs text-slate-400">Cargando devoluciones pendientes...</div>;
+    }
+
+    return (
+        <div className="p-4 rounded-xl bg-gradient-to-br from-rose-500/10 to-orange-500/10 border border-rose-500/20">
+            <div className="flex items-center justify-between mb-2">
+                <div className="text-xs text-rose-400 uppercase tracking-wider font-semibold">Devoluciones pendientes de auditoría</div>
+                <div className="text-xs font-mono text-rose-300">{returns.length}</div>
+            </div>
+            {returns.length === 0 ? (
+                <p className="text-xs text-slate-400">No hay devoluciones pendientes en este turno.</p>
+            ) : (
+                <div className="space-y-3 mt-2">
+                    {returns.map(r => (
+                        <div key={r.id} className="p-3 rounded-lg bg-black/20 border border-white/10">
+                            <div className="flex items-start gap-3">
+                                <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-800 shrink-0 flex items-center justify-center">
+                                    {(() => {
+                                        const ev = (r.evidence && r.evidence[0]) || r.evidence_url;
+                                        const src = ev ? getImgUrl(ev) : (r.image_url ? getImgUrl(r.image_url) : null);
+                                        return src
+                                            ? <img src={src} alt="Evidencia" className="w-full h-full object-cover" />
+                                            : <Camera className="w-6 h-6 text-slate-500" />;
+                                    })()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-semibold text-white truncate">{r.product_name || 'Producto'}</div>
+                                    <div className="text-xs text-slate-400 line-clamp-2">{r.notes || r.type || 'Sin motivo especificado'}</div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className="text-xs font-mono text-rose-400 font-bold">-${(r.amount_returned || 0).toFixed(2)}</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400">{r.payment_method === 'cash' ? 'Efectivo' : 'Transferencia'}</span>
+                                        {(r.items || []).length > 1 && <span className="text-[10px] text-slate-500">{r.items.length} productos</span>}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-3">
+                                <SwipeToConfirm
+                                    label="Desliza para Aprobar"
+                                    confirmLabel="Aprobada"
+                                    color="emerald"
+                                    onConfirm={() => handleProcess(r.id, 'approve')}
+                                />
+                                <SwipeToConfirm
+                                    label="Desliza para Rechazar"
+                                    confirmLabel="Rechazada"
+                                    color="rose"
+                                    onConfirm={() => handleProcess(r.id, 'reject')}
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 // Helper para generar keys únicas y seguras (evita keys vacías que causan errores en React)
 // NOTA: NUNCA usar Date.now() en keys - causa re-renders infinitos y pérdida de estado
@@ -329,6 +425,8 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
         const [requestWagePayment, setRequestWagePayment] = useState(false);
         const [wagePaymentMethod, setWagePaymentMethod] = useState('cash');
         const isSeller = role === 'seller';
+        // DEV-06: solo Dueño/Admin audita devoluciones pendientes en el cierre
+        const canAuditReturns = role === 'owner' || role === 'admin';
 
         // KANB-F: destino del efectivo al cerrar — solo decisión, el monto es el total calculado
         const [destino, setDestino] = useState('entregar'); // 'entregar' | 'fondo'
@@ -567,6 +665,14 @@ const CloseSessionModal = ({ onClose, onSave, metrics, summary, role }) => {
                             </div>
                         </div>
                     </div>
+                    {/* DEV-06: Auditoría de devoluciones pendientes — aprobar/rechazar antes de cerrar */}
+                    {canAuditReturns && (
+                        <PendingReturnsAudit
+                            sessionId={metrics?.session?.id}
+                            onProcessed={() => window.dispatchEvent(new Event('mch-returns-audited'))}
+                        />
+                    )}
+
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">

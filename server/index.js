@@ -2142,7 +2142,7 @@ app.post('/api/sessions/close', (req, res) => {
         const totalInjections = injectionsData.total || 0;
 
         // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
-        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(session.id)?.t || 0;
 
         // Compras de divisas del turno (dinero MN entregado a cambio de divisas)
         const cashCurrencyPurchases = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(session.id)?.t || 0;
@@ -2297,7 +2297,7 @@ app.post('/api/sessions/send-for-review', (req, res) => {
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
 
         // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
-        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(session.id)?.t || 0;
 
         const finalCash = cashSales - cashExpenses - cashReturns;
         const finalTransfer = transferSales - transferExpenses;
@@ -2894,7 +2894,7 @@ app.get('/api/sessions/metrics', (req, res) => {
         const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
 
         // Devoluciones en efectivo (dinero ya devuelto al cliente, resta de la caja)
-        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(session.id)?.t || 0;
 
         // KANB-F: Inyecciones de efectivo durante el turno
         const metricsInjections = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(session.id)?.t || 0;
@@ -2983,51 +2983,152 @@ app.post('/api/expenses', (req, res) => {
     }
 });
 
-// Create Return (with Image)
-app.post('/api/returns', upload.single('evidence'), (req, res) => {
+// Create Return (with Images) — DEV-06: solo registra el ticket PENDIENTE.
+// El stock NO se restaura ni el dinero se descuenta hasta que un Admin apruebe
+// (POST /api/returns/:id/approve en el arqueo / cierre de sesión).
+app.post('/api/returns', upload.any(), (req, res) => {
     try {
         const { type, amount, product_id, sale_id, reason, action, payment_method } = req.body;
-        // type: 'broken_business', 'taste', 'broken_client'
-        // action: 'restock', 'discard'
-
-        if (!req.file) return res.status(400).json({ error: "La evidencia (foto) es obligatoria." });
+        // Frontend nuevo manda items (JSON) + total_amount; soportar también formato legacy product_id/amount
+        let items = [];
+        let totalAmount = parseFloat(amount) || 0;
+        let inventoryId = req.body.inventory_id || 'mch1';
+        let notes = req.body.notes || reason || '';
+        try {
+            if (req.body.items) items = JSON.parse(req.body.items);
+        } catch (_) { items = []; }
+        if (items.length > 0) {
+            if (req.body.total_amount) totalAmount = parseFloat(req.body.total_amount) || totalAmount;
+            if (items[0]?.inventory_id) inventoryId = items[0].inventory_id;
+        } else if (!product_id) {
+            return res.status(400).json({ error: "La devolución debe incluir productos." });
+        }
+        // Fotos: multer .any() guarda evidence_N o evidence en req.files
+        const evidenceUrls = (req.files || []).map(f => '/uploads/returns/' + f.filename);
+        if (evidenceUrls.length === 0) return res.status(400).json({ error: "La evidencia (foto) es obligatoria." });
 
         const session = db.prepare("SELECT id FROM sales_sessions WHERE user_id = ? AND status = 'open'").get(req.user.id);
 
-        const returnInfo = db.transaction(() => {
-            const result = db.prepare(`
-                INSERT INTO returns (sale_id, product_id, session_id, user_id, type, amount_returned, stock_restored, evidence_url, date, status, payment_method)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-            `).run(
-                sale_id || null,
-                product_id,
-                session ? session.id : null,
-                req.user.id,
-                type,
-                amount || 0,
-                action === 'restock' ? 1 : 0,
-                '/uploads/returns/' + req.file.filename,
-                new Date().toISOString(),
-                payment_method || 'cash'
-            );
+        const info = db.prepare(`
+            INSERT INTO returns (sale_id, product_id, session_id, user_id, type, amount_returned, stock_restored, evidence_url, evidence_urls, items_json, notes, date, status, payment_method)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 'pending', ?)
+        `).run(
+            sale_id || null,
+            product_id || (items[0]?.product_id) || null,
+            session ? session.id : null,
+            req.user.id,
+            type,
+            totalAmount,
+            evidenceUrls[0],
+            JSON.stringify(evidenceUrls),
+            JSON.stringify(items),
+            notes,
+            new Date().toISOString(),
+            payment_method || 'cash'
+        );
 
-            // Restock if applicable
-            if (action === 'restock' && product_id) {
-                // Return to Main Inventory (or origin?) Assuming default inventory for now
-                db.prepare(`
-                    UPDATE product_inventory 
-                    SET quantity = quantity + 1 
-                    WHERE product_id = ? AND inventory_id = 'mch1'
-                `).run(product_id); // Fixed to mch1 for now, ideally passed in
-            }
+        // DEV-06: SIN efectos inmediatos — el ticket queda 'pending' esperando aprobación del Dueño/Admin.
 
-            return result;
-        })();
-
-        res.json({ success: true, id: returnInfo.lastInsertRowid });
+        res.json({ success: true, id: info.lastInsertRowid, status: 'pending' });
 
     } catch (e) {
         logError("Return", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DEV-06: Lista de devoluciones pendientes de auditoría (para el modal de cierre de sesión)
+app.get('/api/returns/pending', authenticate, (req, res) => {
+    try {
+        const sessionId = req.query.session_id;
+        let rows;
+        if (sessionId) {
+            rows = db.prepare(`
+                SELECT r.*, u.username as user_name,
+                       COALESCE(p.name, 'Producto') as product_name,
+                       (SELECT pi.url FROM product_images pi WHERE pi.product_id = r.product_id LIMIT 1) as image_url
+                FROM returns r
+                LEFT JOIN users u ON r.user_id = u.id
+                LEFT JOIN products p ON r.product_id = p.id
+                WHERE r.status = 'pending' AND r.session_id = ?
+                ORDER BY r.date DESC
+            `).all(sessionId);
+        } else {
+            rows = db.prepare(`
+                SELECT r.*, u.username as user_name,
+                       COALESCE(p.name, 'Producto') as product_name,
+                       (SELECT pi.url FROM product_images pi WHERE pi.product_id = r.product_id LIMIT 1) as image_url
+                FROM returns r
+                LEFT JOIN users u ON r.user_id = u.id
+                LEFT JOIN products p ON r.product_id = p.id
+                WHERE r.status = 'pending'
+                ORDER BY r.date DESC
+            `).all();
+        }
+        for (const r of rows) {
+            try { r.items = JSON.parse(r.items_json || '[]'); } catch (_) { r.items = []; }
+            try { r.evidence = JSON.parse(r.evidence_urls || '[]'); } catch (_) { r.evidence = []; }
+        }
+        res.json({ success: true, returns: rows, total: rows.reduce((a, r) => a + (r.amount_returned || 0), 0) });
+    } catch (e) {
+        logError("Get Pending Returns", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DEV-06: Aprobar devolución (Dueño/Admin) — aquí SÍ se ejecutan los efectos:
+// restaurar stock (si corresponde) y la salida de efectivo queda asentada para el arqueo.
+app.post('/api/returns/:id/approve', authenticate, checkAdmin, (req, res) => {
+    try {
+        const ret = db.prepare("SELECT * FROM returns WHERE id = ?").get(req.params.id);
+        if (!ret) return res.status(404).json({ error: "Devolución no encontrada." });
+        if (ret.status !== 'pending') return res.status(400).json({ error: `La devolución ya está ${ret.status === 'approved' ? 'aprobada' : 'rechazada'}.` });
+
+        let items = [];
+        try { items = JSON.parse(ret.items_json || '[]'); } catch (_) { items = []; }
+
+        db.transaction(() => {
+            // Restaurar stock por cada ítem (solo devoluciones con producto reingresable)
+            const restockable = ['new_product'].includes(ret.type);
+            if (restockable) {
+                const invId = items[0]?.inventory_id || 'mch1';
+                const stockStmt = db.prepare(`
+                    UPDATE product_inventory
+                    SET quantity = quantity + ?
+                    WHERE product_id = ? AND inventory_id = ?
+                `);
+                if (items.length > 0) {
+                    for (const it of items) {
+                        const qty = Number(it.quantity) || 1;
+                        stockStmt.run(qty, it.product_id || ret.product_id, invId);
+                    }
+                } else if (ret.product_id) {
+                    stockStmt.run(1, ret.product_id, 'mch1');
+                }
+            }
+            db.prepare("UPDATE returns SET status = 'approved', stock_restored = ?, approved_by = ?, approved_at = ? WHERE id = ?")
+                .run(restockable ? 1 : 0, req.user.id, new Date().toISOString(), ret.id);
+        })();
+
+        const updated = db.prepare("SELECT * FROM returns WHERE id = ?").get(ret.id);
+        res.json({ success: true, return: updated, stock_restored: updated.stock_restored, amount_returned: updated.amount_returned });
+    } catch (e) {
+        logError("Approve Return", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DEV-06: Rechazar devolución (Dueño/Admin) — no pasa nada: el ticket queda marcado.
+app.post('/api/returns/:id/reject', authenticate, checkAdmin, (req, res) => {
+    try {
+        const ret = db.prepare("SELECT * FROM returns WHERE id = ?").get(req.params.id);
+        if (!ret) return res.status(404).json({ error: "Devolución no encontrada." });
+        if (ret.status !== 'pending') return res.status(400).json({ error: "La devolución ya fue procesada." });
+        db.prepare("UPDATE returns SET status = 'rejected', approved_by = ?, approved_at = ? WHERE id = ?")
+            .run(req.user.id, new Date().toISOString(), ret.id);
+        res.json({ success: true });
+    } catch (e) {
+        logError("Reject Return", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -3126,7 +3227,7 @@ app.get('/api/sessions/available-cash', authenticate, (req, res) => {
         `).get(session.id).t || 0;
 
         const cashReturns = db.prepare(`
-                    SELECT COALESCE(SUM(amount_returned), 0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'
+                    SELECT COALESCE(SUM(amount_returned), 0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'
                 `).get(session.id)?.t || 0;
 
                 const cashPurchases = db.prepare(`
@@ -3172,7 +3273,7 @@ app.post('/api/currency-purchase', authenticate, (req, res) => {
         const paymentTotals = db.prepare("SELECT COALESCE(SUM(cash_amount),0) AS t FROM sales WHERE session_id = ?").get(session.id);
         const cashSales = paymentTotals.t || 0;
         const cashExpenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'").get(session.id).t || 0;
-        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+        const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(session.id)?.t || 0;
         const cashPurchases = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(session.id)?.t || 0;
                 const sessionInjections = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(session.id)?.t || 0;
                 const available = (session.initial_cash || 0) + sessionInjections + cashSales - cashExpenses - cashReturns - cashPurchases;
@@ -3317,7 +3418,7 @@ app.get('/api/cash-control', (req, res) => {
         // 5) Devoluciones en efectivo (salida de caja)
         const retRows = db.prepare(`
             SELECT COALESCE(SUM(amount_returned), 0) AS cash, COUNT(*) AS count
-            FROM returns WHERE payment_method = 'cash' AND ${dateCond}
+            FROM returns WHERE payment_method = 'cash' AND status = 'approved' AND ${dateCond}
         `).all(...dateParams);
         const returnsCash = retRows[0] || { cash: 0, count: 0 };
 
@@ -3342,7 +3443,7 @@ app.get('/api/cash-control', (req, res) => {
             const inj = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(s.id).t || 0;
             const cashSales = db.prepare("SELECT COALESCE(SUM(total),0) AS t FROM sales WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
             const exp = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
-            const ret = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
+            const ret = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(s.id).t || 0;
             const cp = db.prepare("SELECT COALESCE(SUM(amount_mn),0) AS t FROM currency_purchases WHERE session_id = ?").get(s.id).t || 0;
             return {
                 session_id: s.id,
@@ -3947,6 +4048,14 @@ try {
     if (!returnsCols.includes('payment_method')) {
         console.log("Migrating: Adding payment_method to returns...");
         db.exec("ALTER TABLE returns ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+    }
+    // DEV-06: Auditoría de devoluciones — items_json, notes, evidence_urls, approved_by, approved_at
+    for (const col of ['items_json TEXT', "notes TEXT DEFAULT ''", 'evidence_urls TEXT', 'approved_by INTEGER', 'approved_at TEXT']) {
+        const colName = col.split(' ')[0];
+        if (!returnsCols.includes(colName)) {
+            console.log(`Migrating: Adding ${colName} to returns...`);
+            db.exec(`ALTER TABLE returns ADD COLUMN ${col}`);
+        }
     }
 } catch (e) { console.log("Migration check (returns):", e.message); }
 
@@ -7093,7 +7202,7 @@ function autoCloseMidnightSessions() {
             const cashExpenses = expensesByMethod.find(e => e.payment_method === 'cash')?.total || 0;
             const transferExpenses = expensesByMethod.find(e => e.payment_method === 'transfer')?.total || 0;
 
-            const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash'").get(session.id)?.t || 0;
+            const cashReturns = db.prepare("SELECT COALESCE(SUM(amount_returned),0) AS t FROM returns WHERE session_id = ? AND payment_method = 'cash' AND status = 'approved'").get(session.id)?.t || 0;
 
             const totalProfit = salesData.total_sales - salesData.total_cost;
             const wage = totalProfit > 0 ? (totalProfit * 0.05) : 0;

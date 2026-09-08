@@ -10,6 +10,7 @@ import { fetchProducts } from '../api';
 import { SearchDropdown } from './SearchDropdown';
 import { useCart } from './CartProvider';
 import ConfirmModal from './ConfirmModal';
+import { savePendingReturn } from '../lib/localDB';
 
 // Mapeo de colores para Tailwind (evita clases dinámicas)
 const COLOR_MAP = {
@@ -397,17 +398,28 @@ export default function ReturnsModule({ onClose, onSave }) {
                 type: returnType,
                 items: returnItems.map(item => ({
                     product_id: item.id,
+                    name: item.name,
                     quantity: item.quantity,
-                    return_price: item.returnPrice
+                    return_price: item.returnPrice,
+                    inventory_id: currentInventory
                 })),
                 total_amount: totalReturnAmount,
                 images: capturedImages,
                 notes: notes,
                 inventory_id: currentInventory,
+                // DEV-06: toda devolución nace PENDIENTE de auditoría (online u offline)
+                status: 'pending',
                 date: new Date().toISOString()
             };
 
-            await onSave(returnData);
+            // DEV-06 modo offline: guardar en IndexedDB como devolución pendiente;
+            // se sincroniza con status 'pending' cuando haya conexión (el admin la aprueba en el arqueo).
+            if (!navigator.onLine) {
+                await savePendingReturn(returnData);
+                await onSave({ ...returnData, offline: true });
+            } else {
+                await onSave(returnData);
+            }
             onClose();
         } catch (e) {
             console.error('Error saving return:', e);
