@@ -83,6 +83,92 @@ db.exec(`
   );
 `);
 
+// --- MIGRACIÓN FASE A: Control de Efectivo REAL híbrido (por negocio MCH / M&R) ---
+// Idempotente: se ejecuta al arranque; si la columna/row ya existe, no hace nada.
+const BUSINESS_VALUES = ['MCH', 'M&R'];
+
+// Mapa sede → negocio: sedes MCH históricas → MCH; M&R → M&R.
+// alm (Almacén MCH) → MCH, alm_mr (Almacén M&R) → M&R.
+const DEFAULT_BUSINESS_BY_INVENTORY = {
+    'mr1': 'M&R',
+    'mr2': 'M&R',
+    'alm_mr': 'M&R'
+};
+const businessOfInventory = (invId) => {
+    if (!invId) return 'MCH';                       // sin sede → MCH (histórico)
+    const key = String(invId);
+    if (DEFAULT_BUSINESS_BY_INVENTORY[key]) return DEFAULT_BUSINESS_BY_INVENTORY[key];
+    if (key === 'alm') return 'MCH';                // Almacén MCH
+    if (key === '1.0') return 'MCH';                // sesiones sin sede (import histórico)
+    return 'MCH';                                   // mch1/mch2/cualquier sede MCH → MCH
+};
+const isValidBusiness = (b) => BUSINESS_VALUES.includes(String(b));
+
+try {
+    const invCols = db.prepare("PRAGMA table_info(inventories)").all().map(c => c.name);
+    if (!invCols.includes('business')) {
+        db.exec("ALTER TABLE inventories ADD COLUMN business TEXT NOT NULL DEFAULT 'MCH'");
+        console.log("Migración Fase A: columna business agregada a inventories (default MCH)");
+    }
+} catch (e) { console.warn("Migración Fase A (inventories.business):", e.message); }
+
+try {
+    const cpcCols = db.prepare("PRAGMA table_info(cash_physical_counts)").all().map(c => c.name);
+    if (!cpcCols.includes('business')) {
+        db.exec("ALTER TABLE cash_physical_counts ADD COLUMN business TEXT NOT NULL DEFAULT 'MCH'");
+        console.log("Migración Fase A: columna business agregada a cash_physical_counts (default MCH)");
+    }
+} catch (e) { console.warn("Migración Fase A (cash_physical_counts.business):", e.message); }
+
+// INSERTAR sedes M&R si no existen (respeta el shape de inventories)
+try {
+    const insertMrInventory = db.prepare(`
+        INSERT INTO inventories (id, name, code, icon, color, type, business)
+        VALUES (?, ?, ?, ?, ?, ?, 'M&R')
+    `);
+    const MR_INVENTORIES = [
+        ['mr1',   'M&R 1',       'MR1',   'ph-storefront',   '#f778ba', 'kiosk'],
+        ['mr2',   'M&R 2',       'MR2',   'ph-shopping-bag', '#bc8cff', 'kiosk'],
+        ['alm_mr','Almacén M&R', 'ALM_MR','ph-warehouse',    '#ff7b72', 'warehouse']
+    ];
+    for (const [id, name, code, icon, color, type] of MR_INVENTORIES) {
+        const exists = db.prepare('SELECT id FROM inventories WHERE id = ?').get(id);
+        if (!exists) {
+            insertMrInventory.run(id, name, code, icon, color, type);
+            console.log(`Migración Fase A: sede M&R insertada (${id} - ${name})`);
+        }
+    }
+} catch (e) { console.warn("Migración Fase A (sedes M&R):", e.message); }
+
+// NUEVAS TABLAS Fase A
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cash_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    business TEXT,
+    currency TEXT,
+    amount REAL,
+    note TEXT,
+    source TEXT DEFAULT 'manual',
+    session_id TEXT,
+    created_at TEXT
+  )
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS external_income (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    business TEXT,
+    currency TEXT,
+    amount REAL,
+    description TEXT,
+    created_at TEXT
+  )
+`);
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_cash_deliveries_business ON cash_deliveries(business, date)"); } catch (e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_external_income_business ON external_income(business, date)"); } catch (e) {}
+console.log("Migración Fase A: tablas cash_deliveries y external_income listas");
+
 // CORS Configuration
 const allowedOrigins = [
     'http://localhost:5173',
@@ -2253,6 +2339,29 @@ app.post('/api/sessions/close', (req, res) => {
         const roundedCash = Math.round(deliveredCash / 100) * 100;
         const roundingAdjustment = roundedCash - deliveredCash;
 
+        // FASE A: settlement automático de la ENTREGA de efectivo kiosco→caja por divisa.
+        // La sesión vive en una sede (inventory_id) que pertenece a un negocio (inventories.business);
+        // alm (Almacén MCH) → MCH, alm_mr (Almacén M&R) → M&R. El settlement source='auto' es el
+        // movimiento REAL; NO es doble contabilización (no se suma como ingreso extra: ya está en
+        // ventas del período).
+        const sessionInv = db.prepare('SELECT business FROM inventories WHERE id = ?')
+            .get(session.inventory_id || '');
+        const sessionBusiness = sessionInv?.business || businessOfInventory(session.inventory_id);
+        const nowIsoA = new Date().toISOString();
+        const insDeliveryAuto = db.prepare(`
+            INSERT INTO cash_deliveries (date, business, currency, amount, note, source, session_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 'auto', ?, ?)
+        `);
+        const autoDeliveries = [];
+        if (deliveredCash > 0) {
+            insDeliveryAuto.run(nowIsoA, sessionBusiness, 'mn', deliveredCash,
+                `Settlement automático cierre sesión #${session.id} (efectivo entregado kiosco→caja)`,
+                String(session.id), nowIsoA);
+            autoDeliveries.push({ currency: 'mn', amount: deliveredCash });
+        }
+        // Nota: las transferencias del cierre van a la bolsa 'transfer' del negocio (no son entrega
+        // física de caja); el flujo del cierre no maneja efectivo USD, por eso solo se registra 'mn'.
+
         db.prepare(`
             UPDATE sales_sessions
             SET end_time = ?,
@@ -2297,6 +2406,10 @@ app.post('/api/sessions/close', (req, res) => {
                 deferred: wageDeferred,
                 wage_payment_id: wagePaymentId,
                 cash_delivered: deliveredCash
+            },
+            business_settlement: {
+                business: sessionBusiness,
+                deliveries: autoDeliveries
             },
             rounding: {
                 base_cash: deliveredCash,
@@ -2836,6 +2949,72 @@ app.get('/api/wages/pending', checkAdmin, (req, res) => {
 
     } catch (e) {
         logError("Get Pending Wages", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- FASE A: AUDITORÍA DE SALARIOS (formulado vs pagado) ---
+// GET /api/wages/diff?period=YYYY-MM → por pago de salario del período:
+// {worker, business, sales_corte, formula (5% de ventas del corte), paid_cash, diff=paid_cash-formula}
+// business: si wage_payments no tiene business, se deriva del usuario/sede (users.inventory_id).
+app.get('/api/wages/diff', (req, res) => {
+    try {
+        const { period } = req.query;
+        if (!period || !/^\d{4}-\d{2}$/.test(period)) {
+            return res.status(400).json({ error: "period YYYY-MM obligatorio." });
+        }
+        const [year, month] = period.split('-').map(Number);
+        const startIso = new Date(year, month - 1, 1).toISOString();
+        const endIso = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+
+        // Pagos de salario del período (paid o pending pero del período; usamos paid_at/requested_at ISO)
+        const payments = db.prepare(`
+            SELECT wp.*, u.username as seller_name, u.inventory_id as user_inventory_id
+            FROM wage_payments wp
+            JOIN users u ON wp.user_id = u.id
+            WHERE COALESCE(wp.paid_at, wp.requested_at) >= ? AND COALESCE(wp.paid_at, wp.requested_at) <= ?
+            ORDER BY COALESCE(wp.paid_at, wp.requested_at) ASC
+        `).all(startIso, endIso);
+
+        const r2v = (v) => Math.round((Number(v) || 0) * 100) / 100;
+        const items = payments.map(wp => {
+            // Ventas del corte (sesión) del vendedor en el período
+            let salesCorte = 0;
+            if (wp.session_id) {
+                const sess = db.prepare('SELECT total_sales FROM sales_sessions WHERE id = ?').get(wp.session_id);
+                salesCorte = sess?.total_sales || 0;
+            }
+            if (!salesCorte && wp.user_id) {
+                // Fallback: ventas del vendedor en el período
+                const s = db.prepare(`
+                    SELECT COALESCE(SUM(total), 0) AS t FROM sales
+                    WHERE user_id = ? AND date >= ? AND date <= ?
+                `).get(wp.user_id, startIso, endIso);
+                salesCorte = s?.t || 0;
+            }
+            // 5% de ventas del corte (formulación del negocio; el 5% de ganancia de cierre usa profit,
+            // acá la auditoría usa ventas para comparar pagado vs formulado)
+            const formula = r2v(salesCorte * 0.05);
+            const paidCash = r2v(wp.amount || 0);
+            // Business derivado: del usuario/sede si wage_payments no lo tiene
+            const biz = businessOfInventory(wp.user_inventory_id);
+            return {
+                worker: wp.seller_name || `user ${wp.user_id}`,
+                business: biz,
+                sales_corte: r2v(salesCorte),
+                formula,
+                paid_cash: paidCash,
+                diff: r2v(paidCash - formula),
+                paid_from_session: wp.paid_from_session || null,
+                source: wp.source || 'central',
+                status: wp.status || 'pending',
+                paid_at: wp.paid_at || null
+            };
+        });
+
+        res.json({ success: true, period, items });
+    } catch (e) {
+        logError("Get Wages Diff", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -3465,6 +3644,67 @@ app.get('/api/sessions/currency-purchases', authenticate, (req, res) => {
     }
 });
 
+// --- FASE A: entregas de efectivo (cash_deliveries) del período por negocio ---
+// IMPORTANTE: las entregas son LEDGER INFORMATIVO (trazabilidad kiosco→caja). NO doble-contabilizan
+// dinero: los movimientos reales ya fluyen por el cierre de sesión (source='auto' = settlement del
+// cierre; source='manual' = registro manual a efectos de trazabilidad).
+const getPeriodRange = (periodMonth) => {
+    const [year, month] = periodMonth.split('-').map(Number);
+    const startIso = new Date(year, month - 1, 1).toISOString();
+    const endIso = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+    return { startIso, endIso };
+};
+
+const getDeliveries = (business, periodMonth) => {
+    const { startIso, endIso } = getPeriodRange(periodMonth);
+    return db.prepare(`
+        SELECT * FROM cash_deliveries
+        WHERE business = ? AND date >= ? AND date <= ?
+        ORDER BY date ASC
+    `).all(business, startIso, endIso);
+};
+
+// Totales de entregas por divisa del período [{currency, total, count}]
+const getDeliveriesByCurrency = (business, periodMonth) => {
+    const { startIso, endIso } = getPeriodRange(periodMonth);
+    return db.prepare(`
+        SELECT currency, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+        FROM cash_deliveries
+        WHERE business = ? AND date >= ? AND date <= ?
+        GROUP BY currency
+    `).all(business, startIso, endIso);
+};
+
+// Ingresos externos (Efectivo Entregado en USA) del período por negocio
+const getExternalIncome = (business, periodMonth) => {
+    const { startIso, endIso } = getPeriodRange(periodMonth);
+    return db.prepare(`
+        SELECT * FROM external_income
+        WHERE business = ? AND date >= ? AND date <= ?
+        ORDER BY date ASC
+    `).all(business, startIso, endIso);
+};
+
+// Totales de ingresos externos por divisa [{currency, total, count}] — se suman como INGRESO en su bolsa
+const getExternalIncomeByCurrency = (business, periodMonth) => {
+    const { startIso, endIso } = getPeriodRange(periodMonth);
+    return db.prepare(`
+        SELECT currency, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS count
+        FROM external_income
+        WHERE business = ? AND date >= ? AND date <= ?
+        GROUP BY currency
+    `).all(business, startIso, endIso);
+};
+
+// Salario Admin de apertura (settings): clave admin_salary_opening_<period>_<business>
+const getAdminSalary = (periodMonth, business) => {
+    const key = `admin_salary_opening_${periodMonth}_${business}`;
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    if (!row) return 0;
+    const v = parseFloat(row.value);
+    return Number.isFinite(v) ? v : 0;
+};
+
 // --- CASH CONTROL (KANB-F: Control de Efectivo global por moneda y período) ---
 
 // Tabla de conteos físicos de efectivo (fila "efectivo real vs diff" del Excel del dueño)
@@ -3524,11 +3764,18 @@ app.post('/api/cash-control/physical-count', authenticate, (req, res) => {
         // Snapshot del saldo del sistema para el mes (bolsa MN y transfer) para calcular el diff
         const systemSnapshot = computeBagsSnapshot(db, period_month, inventory_id);
 
+        // FASE A: el conteo se etiqueta con el negocio de la sede (mr1/mr2/alm_mr → M&R)
+        let countBusiness = 'MCH';
+        if (inventory_id) {
+            const invRow = db.prepare('SELECT business FROM inventories WHERE id = ?').get(inventory_id);
+            countBusiness = invRow?.business || businessOfInventory(inventory_id);
+        }
+
         const info = db.prepare(`
-            INSERT INTO cash_physical_counts (user_id, period_month, inventory_id, counted_mn, counted_usd, counted_eur, counted_transfer, system_mn, diff_mn, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cash_physical_counts (user_id, period_month, inventory_id, counted_mn, counted_usd, counted_eur, counted_transfer, system_mn, diff_mn, notes, business)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(req.user.id, period_month, inventory_id || null, cm, cu, ce, ct,
-            systemSnapshot.mn.saldo, cm - systemSnapshot.mn.saldo, notes || '');
+            systemSnapshot.mn.saldo, cm - systemSnapshot.mn.saldo, notes || '', countBusiness);
 
         res.json({
             success: true,
@@ -3564,8 +3811,15 @@ function computeBagsSnapshot(db, periodMonth, inventoryId) {
  * Estructura por bolsa: { saldo_anterior, ingresos, egresos, saldo } + detalle.
  */
 function computeBags(db, startIso, endIso, inventoryId) {
-    const invFilter = (alias) => inventoryId ? ` AND ${alias}.inventory_id = ?` : '';
-    const invParam = inventoryId ? [inventoryId] : [];
+    // FASE A: inventoryId puede ser un id (string) o un CONJUNTO de ids (array) para el scope de un negocio.
+    const invIds = Array.isArray(inventoryId) ? inventoryId : (inventoryId ? [inventoryId] : null);
+    const hasInv = !!(invIds && invIds.length > 0);
+    const invPlaceholder = hasInv ? invIds.map(() => '?').join(',') : '';
+    const invFilter = (alias) => hasInv ? ` AND ${alias}.inventory_id IN (${invPlaceholder})` : '';
+    // Filtro por sede de ORIGEN para tablas sin inventory_id (expenses/returns/currency_purchases):
+    // se atribuye por la sesión (ss.inventory_id) o por el usuario (u.inventory_id) si no hay sesión.
+    const originFilter = hasInv ? ` AND COALESCE(ss.inventory_id, u.inventory_id, '') IN (${invPlaceholder})` : '';
+    const invParam = hasInv ? [...invIds] : [];
 
     const q = (sql, params) => db.prepare(sql).all(...params);
     const one = (sql, params) => db.prepare(sql).get(...params) || {};
@@ -3589,29 +3843,39 @@ function computeBags(db, startIso, endIso, inventoryId) {
     `, endIso ? [startIso, endIso, ...invParam] : [startIso, ...invParam]);
 
     // Gastos: payment_method cash/transfer/mixed (desglose EXP-02)
+    // FASE A: expenses NO tiene inventory_id → usa originFilter (sesión→sede o usuario→sede)
     const expP = q(`
         SELECT
-            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount
-                              WHEN payment_method = 'mixed' THEN COALESCE(amount_cash, 0) ELSE 0 END), 0) AS cash,
-            COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount
-                              WHEN payment_method = 'mixed' THEN COALESCE(amount_transfer, 0) ELSE 0 END), 0) AS transfer
-        FROM expenses e WHERE ${periodCond}${invFilter('e')}
+            COALESCE(SUM(CASE WHEN e.payment_method = 'cash' THEN e.amount
+                              WHEN e.payment_method = 'mixed' THEN COALESCE(e.amount_cash, 0) ELSE 0 END), 0) AS cash,
+            COALESCE(SUM(CASE WHEN e.payment_method = 'transfer' THEN e.amount
+                              WHEN e.payment_method = 'mixed' THEN COALESCE(e.amount_transfer, 0) ELSE 0 END), 0) AS transfer
+        FROM expenses e
+        LEFT JOIN sales_sessions ss ON ss.id = e.session_id
+        LEFT JOIN users u ON u.id = e.user_id
+        WHERE ${periodCond}${originFilter}
     `, endIso ? [startIso, endIso, ...invParam] : [startIso, ...invParam]);
 
-    // Devoluciones en efectivo (egresos MN)
+    // Devoluciones en efectivo (egresos MN) — atribuidas por sesión→sede o usuario→sede
     const retP = one(`
-        SELECT COALESCE(SUM(amount_returned), 0) AS total
-        FROM returns r WHERE r.payment_method = 'cash' AND ${periodCond}
-    `, endIso ? [startIso, endIso] : [startIso]);
+        SELECT COALESCE(SUM(r.amount_returned), 0) AS total
+        FROM returns r
+        LEFT JOIN sales_sessions ss ON ss.id = r.session_id
+        LEFT JOIN users u ON u.id = r.user_id
+        WHERE r.payment_method = 'cash' AND ${periodCond}${originFilter}
+    `, endIso ? [startIso, endIso, ...invParam] : [startIso, ...invParam]);
 
-    // Compras de divisas: egreso MN (costo) + ingreso USD/EUR (divisas compradas)
+    // Compras de divisas: egreso MN (costo) + ingreso USD/EUR (divisas compradas) — mismo origen
     const cpP = q(`
-        SELECT currency,
-               COALESCE(SUM(amount_mn), 0) AS mn,
-               COALESCE(SUM(amount_divisas), 0) AS divisas
-        FROM currency_purchases cp WHERE ${periodCond}
-        GROUP BY currency
-    `, endIso ? [startIso, endIso] : [startIso]);
+        SELECT cp.currency,
+               COALESCE(SUM(cp.amount_mn), 0) AS mn,
+               COALESCE(SUM(cp.amount_divisas), 0) AS divisas
+        FROM currency_purchases cp
+        LEFT JOIN sales_sessions ss ON ss.id = cp.session_id
+        LEFT JOIN users u ON u.id = cp.user_id
+        WHERE ${periodCond.replace(/date/g, 'cp.date')}${originFilter}
+        GROUP BY cp.currency
+    `, endIso ? [startIso, endIso, ...invParam] : [startIso, ...invParam]);
 
     const sales = salesP[0] || { cash: 0, transfer: 0 };
     const exp = expP[0] || { cash: 0, transfer: 0 };
@@ -3637,28 +3901,40 @@ function computeBags(db, startIso, endIso, inventoryId) {
 
     const expB = one(`
         SELECT
-            COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount
-                              WHEN payment_method = 'mixed' THEN COALESCE(amount_cash, 0) ELSE 0 END), 0) AS cash,
-            COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount
-                              WHEN payment_method = 'mixed' THEN COALESCE(amount_transfer, 0) ELSE 0 END), 0) AS transfer
-        FROM expenses e WHERE ${beforeCond}${invFilter('e')}
+            COALESCE(SUM(CASE WHEN e.payment_method = 'cash' THEN e.amount
+                              WHEN e.payment_method = 'mixed' THEN COALESCE(e.amount_cash, 0) ELSE 0 END), 0) AS cash,
+            COALESCE(SUM(CASE WHEN e.payment_method = 'transfer' THEN e.amount
+                              WHEN e.payment_method = 'mixed' THEN COALESCE(e.amount_transfer, 0) ELSE 0 END), 0) AS transfer
+        FROM expenses e
+        LEFT JOIN sales_sessions ss ON ss.id = e.session_id
+        LEFT JOIN users u ON u.id = e.user_id
+        WHERE ${beforeCond}${originFilter}
     `, [before, ...invParam]);
 
-    const retB = one(`SELECT COALESCE(SUM(amount_returned), 0) AS total FROM returns r WHERE r.payment_method = 'cash' AND ${beforeCond}`, [before]);
+    const retB = one(`
+        SELECT COALESCE(SUM(r.amount_returned), 0) AS total
+        FROM returns r
+        LEFT JOIN sales_sessions ss ON ss.id = r.session_id
+        LEFT JOIN users u ON u.id = r.user_id
+        WHERE r.payment_method = 'cash' AND ${beforeCond}${originFilter}
+    `, [before, ...invParam]);
 
     const cpB = q(`
-        SELECT currency,
-               COALESCE(SUM(amount_mn), 0) AS mn,
-               COALESCE(SUM(amount_divisas), 0) AS divisas
-        FROM currency_purchases cp WHERE ${beforeCond}
-        GROUP BY currency
-    `, [before]);
+        SELECT cp.currency,
+               COALESCE(SUM(cp.amount_mn), 0) AS mn,
+               COALESCE(SUM(cp.amount_divisas), 0) AS divisas
+        FROM currency_purchases cp
+        LEFT JOIN sales_sessions ss ON ss.id = cp.session_id
+        LEFT JOIN users u ON u.id = cp.user_id
+        WHERE ${beforeCond.replace(/date/g, 'cp.date')}${originFilter}
+        GROUP BY cp.currency
+    `, [before, ...invParam]);
     const cpUsdB = cpB.find(r => r.currency === 'USD') || { mn: 0, divisas: 0 };
     const cpEurB = cpB.find(r => r.currency === 'EUR') || { mn: 0, divisas: 0 };
 
     // Fondo inicial histórico de MN: el initial_cash de la primera sesión de la sede (o 0)
-    const firstSession = inventoryId
-        ? one(`SELECT COALESCE(initial_cash, 0) AS ic FROM sales_sessions WHERE inventory_id = ? ORDER BY start_time ASC LIMIT 1`, [inventoryId])
+    const firstSession = hasInv
+        ? one(`SELECT COALESCE(initial_cash, 0) AS ic FROM sales_sessions WHERE inventory_id IN (${invPlaceholder}) ORDER BY start_time ASC LIMIT 1`, invParam)
         : one(`SELECT COALESCE(initial_cash, 0) AS ic FROM sales_sessions ORDER BY start_time ASC LIMIT 1`, []);
 
     const r2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
@@ -3720,7 +3996,20 @@ function computeBags(db, startIso, endIso, inventoryId) {
 // Solo cuenta sesiones CERRADAS (closed/approved); sesiones abiertas van aparte como "circulante".
 app.get('/api/cash-control', (req, res) => {
     try {
-        const { range, from, to, inventory_id } = req.query;
+        const { range, from, to, inventory_id, business, period } = req.query;
+
+        // FASE A: ?business=MCH | M%26R filtra por NEGOCIO (MCH o M&R). Sin business → consolidado
+        // como hoy (backwards-compatible: todas las sedes de todos los negocios juntos).
+        const hasBusinessFilter = business != null && String(business).trim() !== '';
+        const businessFilter = hasBusinessFilter ? String(business).trim() : null;
+        if (hasBusinessFilter && !isValidBusiness(businessFilter)) {
+            return res.status(400).json({ error: "business inválido. Valores: MCH o M%26R (M&R URL-encoded)." });
+        }
+
+        // FASE A: ?period=YYYY-MM calcula las bolsas sobre el mes calendario completo (no sobre el
+        // mes en curso "hasta ahora"). Sin period se usa el rango legacy (range/today/week/custom).
+        const hasPeriodFilter = period && /^\d{4}-\d{2}$/.test(period);
+
         const now = new Date();
         let start, end = null;
 
@@ -3728,7 +4017,14 @@ app.get('/api/cash-control', (req, res) => {
         const endOfDay = (d) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
         const fmt = (d) => d.toISOString();
 
-        if (range === 'today') {
+        if (hasPeriodFilter) {
+            const pr = getPeriodRange(period);
+            start = new Date(pr.startIso);
+            end = businessFilter ? new Date(pr.endIso) : new Date(pr.endIso);
+            // Con business filtrado, cubrimos el mes calendario completo (también incluye el futuro
+            // del mes; es el snapshot del bloque del Excel). Sin end → "hasta ahora".
+            end = new Date(pr.endIso);
+        } else if (range === 'today') {
             start = startOfDay(now);
         } else if (range === 'week') {
             const d = new Date(startOfDay(now));
@@ -3747,6 +4043,23 @@ app.get('/api/cash-control', (req, res) => {
         const startIso = fmt(start);
         const endIso = end ? fmt(end) : null;
 
+        // Sedes del negocio filtrado (inventories.business). Si no hay filtro: todas.
+        let businessInventoryIds = businessFilter
+            ? db.prepare('SELECT id FROM inventories WHERE business = ?').all(businessFilter).map(r => r.id)
+            : null;
+        // FASE A: sedes legacy sin registro en inventories (p.ej. '1.0' de imports históricos) se
+        // atribuyen a MCH por defecto (businessOfInventory) para que sus movimientos no se pierdan.
+        if (businessFilter === 'MCH' && !businessInventoryIds.includes('1.0')) {
+            businessInventoryIds = [...businessInventoryIds, '1.0'];
+        }
+        // FASE A: con negocio filtrado, inyecciones de sedes sin business mapeado (histórico) se
+        // atribuyen por businessOfInventory (alm→MCH, alm_mr→M&R).
+        const sessionBusinessById = {};
+        db.prepare('SELECT id, business FROM inventories').all().forEach(r => {
+            sessionBusinessById[r.id] = r.business;
+        });
+        const businessOfSession = (invId) => sessionBusinessById[invId] || businessOfInventory(invId);
+
         // Condición de fecha según rango (para tablas con columna date TEXT ISO)
         const dateCond = endIso ? "date >= ? AND date <= ?" : "date >= ?";
         const dateParams = endIso ? [startIso, endIso] : [startIso];
@@ -3754,6 +4067,14 @@ app.get('/api/cash-control', (req, res) => {
         // Filtro opcional por sede
         const invCond = inventory_id ? " AND inventory_id = ?" : "";
         const invParams = inventory_id ? [inventory_id] : [];
+
+        // FASE A: filtro por NEGOCIO (bloque del Excel). Las sedes del negocio definen el scope:
+        // las ventas/gastos se filtran por sede de origen; inyecciones y devoluciones se atribuyen
+        // por el negocio de la sesión/sede (incluye histórico sin business mapeado).
+        const bizInvIds = businessInventoryIds || [];
+        const bizInvPlaceholder = bizInvIds.map(() => '?').join(',');
+        const bizSalesExpCond = bizInvIds.length ? ` AND inventory_id IN (${bizInvPlaceholder})` : " AND 1=0";
+        const bizInvParams = [...bizInvIds];
 
         // 1) Saldo inicial: fondo dejado de la última sesión cerrada ANTES del período.
         //    Usamos leftover_cash de la última sesión cerrada previa al inicio del rango.
@@ -3766,51 +4087,132 @@ app.get('/api/cash-control', (req, res) => {
         const openingBalance = prevSession ? (prevSession.leftover_cash || 0) : 0;
 
         // 2) Ventas: efectivo y transferencia (de sesiones cerradas y también en vivo — tiempo real)
+        // FASE A: con negocio filtrado, se atribuyen por sede de origen (inventories.business)
+        const bizSalesCond = businessFilter ? bizSalesExpCond.replace('inventory_id', 's.inventory_id') : invCond.replace('inventory_id', 's.inventory_id');
+        const bizSalesParams = businessFilter ? bizInvParams : invParams;
         const salesRows = db.prepare(`
             SELECT
                 COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) AS cash,
                 COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN total ELSE 0 END), 0) AS transfer,
                 COUNT(*) AS count
-            FROM sales WHERE ${dateCond}${invCond.replace('inventory_id', 's.inventory_id')}
-        `).all(...dateParams, ...invParams);
+            FROM sales s WHERE ${dateCond}${bizSalesCond}
+        `).all(...dateParams, ...bizSalesParams);
         const sales = salesRows[0] || { cash: 0, transfer: 0, count: 0 };
 
-        // 3) Inyecciones de efectivo del período
-        const injRows = db.prepare(`
-            SELECT COALESCE(SUM(ci.amount), 0) AS total, COUNT(*) AS count
-            FROM cash_injections ci
-            JOIN sales_sessions ss ON ss.id = ci.session_id
-            WHERE ci.created_at >= ? ${endIso ? "AND ci.created_at <= ?" : ""}${invCond.replace('inventory_id', 'ss.inventory_id')}
-        `).all(...(endIso ? [startIso, endIso] : [startIso]), ...invParams);
-        const injections = injRows[0] || { total: 0, count: 0 };
+        // 3) Inyecciones de efectivo del período (atribuidas por negocio de la sesión)
+        let injections = { total: 0, count: 0 };
+        if (businessFilter) {
+            const injAll = db.prepare(`
+                SELECT ci.amount, ss.inventory_id FROM cash_injections ci
+                JOIN sales_sessions ss ON ss.id = ci.session_id
+                WHERE ci.created_at >= ? ${endIso ? "AND ci.created_at <= ?" : ""}
+            `).all(...(endIso ? [startIso, endIso] : [startIso]));
+            const bizInj = injAll.filter(r => businessOfSession(r.inventory_id) === businessFilter);
+            injections = { total: bizInj.reduce((a, r) => a + (r.amount || 0), 0), count: bizInj.length };
+        } else {
+            const injRows = db.prepare(`
+                SELECT COALESCE(SUM(ci.amount), 0) AS total, COUNT(*) AS count
+                FROM cash_injections ci
+                JOIN sales_sessions ss ON ss.id = ci.session_id
+                WHERE ci.created_at >= ? ${endIso ? "AND ci.created_at <= ?" : ""}${invCond.replace('inventory_id', 'ss.inventory_id')}
+            `).all(...(endIso ? [startIso, endIso] : [startIso]), ...invParams);
+            injections = injRows[0] || { total: 0, count: 0 };
+        }
 
         // 4) Gastos por método de pago
-        const expRows = db.prepare(`
-            SELECT
-                COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END), 0) AS cash,
-                COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount ELSE 0 END), 0) AS transfer,
-                COUNT(*) AS count
-            FROM expenses WHERE ${dateCond}${invCond.replace('inventory_id', 's.inventory_id')}
-        `).all(...dateParams, ...invParams);
-        const expenses = expRows[0] || { cash: 0, transfer: 0, count: 0 };
+        // FASE A: expenses NO tiene inventory_id → se atribuye por negocio de la sesión de origen
+        // (sales_sessions.inventory_id) o del usuario (users.inventory_id) si no tiene sesión.
+        let expenses = { cash: 0, transfer: 0, count: 0 };
+        if (businessFilter) {
+            const expAll = db.prepare(`
+                SELECT amount, payment_method, session_id, user_id
+                FROM expenses WHERE ${dateCond}
+            `).all(...dateParams);
+            const sessInvCache = new Map();
+            const userInvCache = new Map();
+            const expInvOf = (e) => {
+                if (e.session_id) {
+                    if (!sessInvCache.has(e.session_id)) {
+                        const s = db.prepare('SELECT inventory_id FROM sales_sessions WHERE id = ?').get(e.session_id);
+                        sessInvCache.set(e.session_id, s?.inventory_id ?? null);
+                    }
+                    if (sessInvCache.get(e.session_id)) return sessInvCache.get(e.session_id);
+                }
+                if (e.user_id) {
+                    if (!userInvCache.has(e.user_id)) {
+                        const u = db.prepare('SELECT inventory_id FROM users WHERE id = ?').get(e.user_id);
+                        userInvCache.set(e.user_id, u?.inventory_id ?? null);
+                    }
+                    return userInvCache.get(e.user_id);
+                }
+                return null;
+            };
+            let ec = 0, et = 0, ecnt = 0;
+            expAll.forEach(e => {
+                if (businessOfSession(expInvOf(e)) !== businessFilter) return;
+                ecnt++;
+                if (e.payment_method === 'cash') ec += e.amount || 0;
+                else if (e.payment_method === 'transfer') et += e.amount || 0;
+            });
+            expenses = { cash: Math.round(ec * 100) / 100, transfer: Math.round(et * 100) / 100, count: ecnt };
+        } else {
+            const expRows = db.prepare(`
+                SELECT
+                    COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount ELSE 0 END), 0) AS cash,
+                    COALESCE(SUM(CASE WHEN payment_method = 'transfer' THEN amount ELSE 0 END), 0) AS transfer,
+                    COUNT(*) AS count
+                FROM expenses WHERE ${dateCond}${invCond.replace('inventory_id', 's.inventory_id')}
+            `).all(...dateParams, ...invParams);
+            expenses = expRows[0] || { cash: 0, transfer: 0, count: 0 };
+        }
 
-        // 5) Devoluciones en efectivo (salida de caja)
-        const retRows = db.prepare(`
-            SELECT COALESCE(SUM(amount_returned), 0) AS cash, COUNT(*) AS count
-            FROM returns WHERE payment_method = 'cash' AND status = 'approved' AND ${dateCond}
-        `).all(...dateParams);
-        const returnsCash = retRows[0] || { cash: 0, count: 0 };
+        // 5) Devoluciones en efectivo (salida de caja) — atribuidas por negocio de la sesión
+        let returnsCash = { cash: 0, count: 0 };
+        if (businessFilter) {
+            const retAll = db.prepare(`
+                SELECT r.amount_returned, r.session_id FROM returns r
+                WHERE r.payment_method = 'cash' AND r.status = 'approved' AND ${dateCond}
+            `).all(...dateParams);
+            const bizRets = retAll.filter(r => {
+                const ss = r.session_id ? db.prepare('SELECT inventory_id FROM sales_sessions WHERE id = ?').get(r.session_id) : null;
+                return businessOfSession(ss?.inventory_id) === businessFilter;
+            });
+            returnsCash = { cash: bizRets.reduce((a, r) => a + (r.amount_returned || 0), 0), count: bizRets.length };
+        } else {
+            const retRows = db.prepare(`
+                SELECT COALESCE(SUM(amount_returned), 0) AS cash, COUNT(*) AS count
+                FROM returns WHERE payment_method = 'cash' AND status = 'approved' AND ${dateCond}
+            `).all(...dateParams);
+            returnsCash = retRows[0] || { cash: 0, count: 0 };
+        }
 
-        // 6) Compras de divisas: salida MN (cash) y entrada de divisas por moneda
-        const cpRows = db.prepare(`
-            SELECT currency,
-                   COALESCE(SUM(amount_mn), 0) AS mn_spent,
-                   COALESCE(SUM(amount_divisas), 0) AS divisas_bought
-            FROM currency_purchases cp
-            WHERE ${dateCond.replace('date', 'cp.date')}
-            GROUP BY currency
-        `).all(...dateParams);
-        const currencyPurchases = cpRows || [];
+        // 6) Compras de divisas: salida MN (cash) y entrada de divisas por moneda — atribuidas por negocio de la sesión
+        let currencyPurchases = [];
+        if (businessFilter) {
+            const cpAll = db.prepare(`
+                SELECT cp.currency, cp.amount_mn, cp.amount_divisas, cp.session_id
+                FROM currency_purchases cp WHERE ${dateCond.replace('date', 'cp.date')}
+            `).all(...dateParams);
+            const byCurrency = {};
+            cpAll.forEach(r => {
+                const ss = r.session_id ? db.prepare('SELECT inventory_id FROM sales_sessions WHERE id = ?').get(r.session_id) : null;
+                if (businessOfSession(ss?.inventory_id) !== businessFilter) return;
+                if (!byCurrency[r.currency]) byCurrency[r.currency] = { currency: r.currency, mn_spent: 0, divisas_bought: 0 };
+                byCurrency[r.currency].mn_spent += r.amount_mn || 0;
+                byCurrency[r.currency].divisas_bought += r.amount_divisas || 0;
+            });
+            currencyPurchases = Object.values(byCurrency);
+        } else {
+            const cpRows = db.prepare(`
+                SELECT currency,
+                       COALESCE(SUM(amount_mn), 0) AS mn_spent,
+                       COALESCE(SUM(amount_divisas), 0) AS divisas_bought
+                FROM currency_purchases cp
+                WHERE ${dateCond.replace('date', 'cp.date')}
+                GROUP BY currency
+            `).all(...dateParams);
+            currencyPurchases = cpRows || [];
+        }
 
         // 7) Sesiones abiertas ahora: efectivo circulante (fondo + inyecciones + ventas - gastos - devoluciones - divisas, en vivo)
         const openSessions = db.prepare(`
@@ -3818,7 +4220,10 @@ app.get('/api/cash-control', (req, res) => {
             FROM sales_sessions WHERE status = 'open'
             ${inventory_id ? "AND inventory_id = ?" : ""}
         `).all(...invParams);
-        const circulating = openSessions.map(s => {
+        const bizCirculating = businessFilter
+            ? openSessions.filter(s => businessOfSession(s.inventory_id) === businessFilter)
+            : openSessions;
+        const circulating = bizCirculating.map(s => {
             const inj = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM cash_injections WHERE session_id = ?").get(s.id).t || 0;
             const cashSales = db.prepare("SELECT COALESCE(SUM(total),0) AS t FROM sales WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
             const exp = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE session_id = ? AND payment_method = 'cash'").get(s.id).t || 0;
@@ -3841,9 +4246,87 @@ app.get('/api/cash-control', (req, res) => {
         // Control Definitivo: breakdown por bolsas de moneda (auto-herencia del mes anterior).
         // Para range=month, las bolsas cubren el mes calendario completo (hasta ahora si es el mes en curso);
         // para otros rangos, cubren desde el inicio del rango hasta ahora.
-        const bags = computeBags(db, startIso, endIso, inventory_id);
+        // FASE A: con business filtrado, las bolsas cubren TODAS las sedes del negocio en una sola
+        // pasada (computeBags acepta un array de sedes y atribuye por origen sin doble conteo).
+        const r2v = (v) => Math.round((Number(v) || 0) * 100) / 100;
+        let bags;
+        if (businessFilter) {
+            bags = computeBags(db, startIso, endIso, bizInvIds);
 
-        res.json({
+            // FASE A: bloques por negocio (formato del Excel de Yoe)
+            const periodForBlocks = hasPeriodFilter ? period : `${startIso.slice(0, 7)}`;
+            const deliveries = getDeliveries(businessFilter, periodForBlocks);
+            const deliveriesByCur = getDeliveriesByCurrency(businessFilter, periodForBlocks);
+            const extRows = getExternalIncome(businessFilter, periodForBlocks);
+            const extByCur = getExternalIncomeByCurrency(businessFilter, periodForBlocks);
+            const adminSalaryAmount = getAdminSalary(periodForBlocks, businessFilter);
+
+            // external_income se suma como INGRESO en su bolsa del negocio
+            const extMn = extByCur.find(r => String(r.currency).toLowerCase() === 'mn')?.total || 0;
+            const extUsd = extByCur.find(r => String(r.currency).toLowerCase() === 'usd')?.total || 0;
+            bags.mn.ingresos = r2v(bags.mn.ingresos + extMn);
+            bags.mn.saldo = r2v(bags.mn.saldo_anterior + bags.mn.ingresos - bags.mn.egresos);
+            bags.usd.ingresos = r2v(bags.usd.ingresos + extUsd);
+            bags.usd.saldo = r2v(bags.usd.saldo_anterior + bags.usd.ingresos - bags.usd.egresos);
+            // admin_salary_opening se suma como EGRESO en la bolsa mn del negocio
+            if (adminSalaryAmount > 0) {
+                bags.mn.egresos = r2v(bags.mn.egresos + adminSalaryAmount);
+                bags.mn.saldo = r2v(bags.mn.saldo_anterior + bags.mn.ingresos - bags.mn.egresos);
+            }
+
+            // Conteos físicos del negocio en el período
+            const physicalCounts = db.prepare(`
+                SELECT * FROM cash_physical_counts
+                WHERE period_month = ? AND business = ?
+                ORDER BY created_at DESC
+            `).all(periodForBlocks, businessFilter);
+
+            res.json({
+                period: {
+                    range: hasPeriodFilter ? 'period' : (range || 'month'),
+                    start: startIso,
+                    end: endIso,
+                    label: businessFilter === 'M&R' ? 'M&R' : 'MCH',
+                    period: periodForBlocks,
+                    business: businessFilter
+                },
+                bags,
+                business: businessFilter,
+                opening_balance: openingBalance,
+                income: {
+                    sales_cash: sales.cash || 0,
+                    sales_transfer: sales.transfer || 0,
+                    sales_count: sales.count || 0,
+                    injections: injections.total || 0,
+                    injections_count: injections.count || 0,
+                    external_income_mn: r2v(extMn),
+                    external_income_usd: r2v(extUsd),
+                    total_cash: totalIncomeCash
+                },
+                expenses: {
+                    cash: expenses.cash || 0,
+                    transfer: expenses.transfer || 0,
+                    count: expenses.count || 0
+                },
+                returns_cash: returnsCash.cash || 0,
+                returns_count: returnsCash.count || 0,
+                currency_purchases: currencyPurchases,
+                closing_balance: closingBalance,
+                deliveries,
+                deliveries_by_currency: deliveriesByCur,
+                external_income: extRows,
+                external_income_by_currency: extByCur,
+                admin_salary_opening: { amount: r2v(adminSalaryAmount) },
+                physical_counts: physicalCounts,
+                circulating_sessions: circulating,
+                circulating_total: circulating.reduce((a, s) => a + s.circulating_cash, 0),
+                real_time: !endIso
+            });
+        } else {
+            bags = computeBags(db, startIso, endIso, inventory_id);
+        }
+
+        if (!businessFilter) res.json({
             period: {
                 range: range || 'month',
                 start: startIso,
@@ -3875,6 +4358,141 @@ app.get('/api/cash-control', (req, res) => {
         });
     } catch (e) {
         logError("Cash Control", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- FASE A: ENTREGAS DE EFECTIVO (ledger informativo kiosco→caja) ---
+// IMPORTANTE: NO doble-contabilizan dinero. Los movimientos reales ya fluyen por el cierre de sesión
+// (al cerrar se crea automáticamente el settlement source='auto'). Un registro source='manual' es
+// trazabilidad pura (nota el kiosco entregó tal divisa a la caja), NO suma un ingreso extra.
+app.post('/api/cash-deliveries', (req, res) => {
+    try {
+        const { business, currency, amount, note, date } = req.body || {};
+        if (!business || !isValidBusiness(business)) {
+            return res.status(400).json({ error: "business inválido. Valores: 'MCH' o 'M&R'." });
+        }
+        if (!currency || !['mn', 'usd'].includes(String(currency).toLowerCase())) {
+            return res.status(400).json({ error: "currency inválida. Valores: 'mn' o 'usd'." });
+        }
+        const amt = parseFloat(amount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+        }
+        const cur = String(currency).toLowerCase();
+        const dateIso = date ? new Date(date).toISOString() : new Date().toISOString();
+        const nowIso = new Date().toISOString();
+
+        // La sede de origen es opcional para el ledger manual (trazabilidad)
+        const cleanNote = (note || '').trim();
+        const info = db.prepare(`
+            INSERT INTO cash_deliveries (date, business, currency, amount, note, source, session_id, created_at)
+            VALUES (?, ?, ?, ?, ?, 'manual', NULL, ?)
+        `).run(dateIso, String(business), cur, amt, cleanNote, nowIso);
+
+        res.json({ success: true, id: info.lastInsertRowid, delivery: {
+            id: info.lastInsertRowid, date: dateIso, business: String(business),
+            currency: cur, amount: amt, note: (note || '').trim(), source: 'manual'
+        }});
+    } catch (e) {
+        logError("Create Cash Delivery", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET de entregas del período por negocio (debug/auditoría)
+app.get('/api/cash-deliveries', (req, res) => {
+    try {
+        const { period, business } = req.query;
+        if (!period || !/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: "period YYYY-MM obligatorio." });
+        if (business && !isValidBusiness(business)) return res.status(400).json({ error: "business inválido." });
+        const rows = business
+            ? db.prepare("SELECT * FROM cash_deliveries WHERE business = ? ORDER BY date DESC").all(String(business))
+            : db.prepare("SELECT * FROM cash_deliveries ORDER BY date DESC").all();
+        res.json({ success: true, deliveries: rows });
+    } catch (e) {
+        logError("List Cash Deliveries", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- FASE A: INGRESOS EXTERNOS (Efectivo Entregado en USA) ---
+// Se etiqueta con business/currency y se suma como INGRESO en su bolsa del negocio.
+app.post('/api/external-income', (req, res) => {
+    try {
+        const { business, currency, amount, description, date } = req.body || {};
+        if (!business || !isValidBusiness(business)) {
+            return res.status(400).json({ error: "business inválido. Valores: 'MCH' o 'M&R'." });
+        }
+        if (!currency || !['mn', 'usd'].includes(String(currency).toLowerCase())) {
+            return res.status(400).json({ error: "currency inválida. Valores: 'mn' o 'usd'." });
+        }
+        const amt = parseFloat(amount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            return res.status(400).json({ error: "El monto debe ser mayor a 0." });
+        }
+        const cur = String(currency).toLowerCase();
+        const desc = (description || '').trim();
+        const dateIso = date ? new Date(date).toISOString() : new Date().toISOString();
+        const nowIso = new Date().toISOString();
+
+        const info = db.prepare(`
+            INSERT INTO external_income (date, business, currency, amount, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `).run(dateIso, String(business), cur, amt, desc, nowIso);
+
+        res.json({ success: true, id: info.lastInsertRowid, external_income: {
+            id: info.lastInsertRowid, date: dateIso, business: String(business),
+            currency: cur, amount: amt, description: desc
+        }});
+    } catch (e) {
+        logError("Create External Income", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- FASE A: SALARIO ADMIN DE APERTURA (settings por mes y negocio) ---
+// Clave: admin_salary_opening_<YYYY-MM>_<MCH|M&R> (valor numérico MN). Se REDONDEA a centenas.
+app.get('/api/cash-control/admin-salary', (req, res) => {
+    try {
+        const { period, business } = req.query;
+        if (!period || !/^\d{4}-\d{2}$/.test(period)) {
+            return res.status(400).json({ error: "period YYYY-MM obligatorio." });
+        }
+        const biz = business && String(business).trim() !== '' ? String(business).trim() : 'MCH';
+        if (!isValidBusiness(biz)) return res.status(400).json({ error: "business inválido. Valores: MCH o M%26R." });
+        const amount = getAdminSalary(period, biz);
+        res.json({ success: true, period, business: biz, amount: Math.round(amount * 100) / 100 });
+    } catch (e) {
+        logError("Get Admin Salary", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/cash-control/admin-salary', (req, res) => {
+    try {
+        const { period, business, amount } = req.body || {};
+        if (!period || !/^\d{4}-\d{2}$/.test(period)) {
+            return res.status(400).json({ error: "period YYYY-MM obligatorio." });
+        }
+        const biz = business && String(business).trim() !== '' ? String(business).trim() : 'MCH';
+        if (!isValidBusiness(biz)) return res.status(400).json({ error: "business inválido. Valores: MCH o M%26R." });
+        const amt = parseFloat(amount);
+        if (!Number.isFinite(amt) || amt < 0) {
+            return res.status(400).json({ error: "El monto debe ser numérico (>= 0)." });
+        }
+        // REDONDEO A CENTENAS: Math.round(a/100)*100
+        const rounded = Math.round(amt / 100) * 100;
+        const key = `admin_salary_opening_${period}_${biz}`;
+        const existing = db.prepare('SELECT key FROM settings WHERE key = ?').get(key);
+        if (existing) {
+            db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(rounded, key);
+        } else {
+            db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(key, rounded);
+        }
+        res.json({ success: true, period, business: biz, amount: rounded });
+    } catch (e) {
+        logError("Save Admin Salary", e);
         res.status(500).json({ error: e.message });
     }
 });
