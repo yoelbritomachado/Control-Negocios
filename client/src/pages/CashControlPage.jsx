@@ -377,13 +377,13 @@ function DefinitiveControl({ data, inventoryId, onCountSaved }) {
                         </tr>
                     </thead>
                     <tbody>
-                        {BAG_META.map(({ key, label, symbol, color, header }) => {
+                        {BAG_META.map(({ key, label, symbol, color, header, icon: BagIcon }) => {
                             const bag = bags[key] || {};
                             return (
                                 <tr key={key} className="border-b border-border/50 hover:bg-white/[0.02]">
                                     <td className={`py-3 px-2 font-semibold ${color}`}>
                                         <span className={`inline-flex items-center gap-2 px-2 py-1 rounded-lg ${header}`}>
-                                            <Icon className="w-4 h-4" /> {label}
+                                            <BagIcon className="w-4 h-4" /> {label}
                                         </span>
                                     </td>
                                     <td className="py-3 px-2 text-right font-mono text-slate-300">{symbol} {fmtMoney(bag.saldo_anterior)}</td>

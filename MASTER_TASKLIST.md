@@ -28,17 +28,18 @@
 - [ ] **EXP-02 gastos con pago híbrido** (efectivo/transferencia/mixto) — **NO** (pendiente; requiere columna payment_method en expenses y modal)
 - [x] **FX-01 compra de divisas** — `CurrencyPurchaseModal.jsx` (USD/EUR/MXN, tasa default de settings, editable; ticket feed; descuenta MN de la caja en el momento); fix arqueo suma fondo inicial (`ba0de99`)
 
-### 📊 Bloque D — Cierre de Turno & Salarios (PARCIAL)
+### 📊 Bloque D — Cierre de Turno & Salarios (COMPLETO salvo SES-04 en curso)
 - [x] **SES-01 arqueo financiero matemático** — Ventas−Gastos±Devoluciones por método; total calculado NO editable (a pedido de Yoe)
-- [ ] **SES-02 salario vendedor acumulado + checkbox cobro** — existe `WageRequestsPanel.jsx` + `useWages.js` + endpoints `/api/wages/*`, **pero NO verificado en vivo** (integrarlo al modal de cierre)
-- [ ] **SES-03 liquidación salario desde efectivo del turno** — **NO** (pendiente)
-- [ ] **SES-04 redondeo a centenas ±$100 + desglose pago por admin** — **NO** (pendiente)
+- [x] **SES-02 salario vendedor acumulado + checkbox cobro** — FUSIONADO (merge 01764ca): sección en CloseSessionModal con acumulado turno/histórico + checkbox
+- [x] **SES-03 liquidación salario desde efectivo del turno** — FUSIONADO: settled vs deferred verificado E2E (venta 400 → wage 20 → efectivo 480)
+- [ ] **SES-04 redondeo a centenas ±$100** — subagente trabajando en worktree E (feat/redondeo-cierre)
 
-### 📱 Bloque E — Interfaz Móvil, Header & Tickets (PARCIAL)
-- [x] **UI-03 rediseño tickets** — badge ONLINE/OFFLINE ausente → se usa "Venta contingencia" en stock ≤ 0; el "SALE" de tipo interno no se muestra al cliente (verificado en render). Queda pendiente si Yoe quiere el badge visible.
+### 📱 Bloque E — Interfaz Móvil, Header & Tickets (COMPLETO)
+- [x] **UI-03 rediseño tickets** — badge ONLINE/OFFLINE ausente → se usa "Venta contingencia" en stock ≤ 0 (pendiente decisión de Yoe sobre badge visible)
 - [x] **UI-04 barra filtros sticky en inventario** — presente (sticky top-0 en ProductGrid/PurchaseSection)
-- [ ] **UI-01 indicador móvil de conexión** (WiFi) — **NO** (pendiente)
-- [ ] **UI-02 notificaciones deep linking** — **NO** (pendiente)
+- [x] **UI-01 indicador móvil de conexión** — FUSIONADO (merge c3dbad6): ConnectionIndicator.jsx + useConnectionStatus.js en header
+- [x] **UI-02 notificaciones deep linking** — FUSIONADO: clic en notificación navega al evento y marca leída
+- [x] **Aviso medianoche vendedor** — FUSIONADO: useMidnightWarning.js (banner desde 23:00)
 
 ### ⚙️ KANB-F/G/D + Fixes (verificados en vivo)
 - [x] **KANB-F Parte 1** — fondo heredado + inyecciones en apertura/cierre; destino SOLO decisión (no editable)
@@ -51,19 +52,13 @@
 
 ---
 
-## 📌 PENDIENTES REALES (verificados — en orden de prioridad sugerida)
+## 📌 PENDIENTES REALES (actualizado post-fusión 08/09 20:55)
 
-1. **DEV-06 Auditoría de devoluciones** — ticket pendiente en la sesión para aprobación/rechazo de Dueño/Admin en el arqueo. 🔥 (Bloque B incompleto)
-2. **SES-02 Salario vendedor en cierre** — integrar el panel de salarios al modal de cierre de turno (acumulado + checkbox de cobro).  🔥
-3. **SES-03 Liquidación de salario desde efectivo del turno** — descontar de la entrega si hay saldo, o diferir a caja central.
-4. **SES-04 Regla de redondeo a centenas (±$100) + desglose de pago por administración.**
-5. **Control definitivo por moneda** — la tabla del Excel de Yoe (MN / USD / EUR / Transferencias) con saldos propios por columna y saldo anterior de mes. 🔥 (pedido explícito; foto `image_fac2c5.png`). El Control de Efectivo actual consolida MN + divisas agrupadas.
-6. **EXP-01 Gastos offline** — persistir tipos de gasto en IndexedDB.
-7. **EXP-02 Gastos con pago híbrido** — efectivo / transferencia / mixto desglosado.
-8. **UI-01 Indicador móvil de conexión** — icono circular compacto WiFi en header para celulares.
-9. **UI-02 Notificaciones deep linking** — marcar leídas y navegar directo al evento.
-10. **Aviso visual al vendedor** cuando su sesión cruce medianoche (complemento UX de KANB-G).
-11. **Origen de fecha configurable** — server local / internet / dispositivo. Decidir cuando haya VPS. (en espera)
+1. **SES-04 Redondeo a centenas (±$100)** — en curso (worktree E, subagente). 🔥
+2. **QA E2E integral con Playwright** — ventas, gastos, devoluciones+auditoría, salarios, bolsas de moneda, UI. Se lanza al fusionar SES-04. 🔥
+3. **UI-03 badge ONLINE/OFFLINE visible** — requiere decisión de Yoe (hoy: "Venta contingencia" solo en stock ≤ 0).
+4. **Origen de fecha configurable** — server local / internet / dispositivo. En espera de VPS.
+5. ~~DEV-06~~ ✅ fusionado (2ee05fa) · ~~SES-02/03~~ ✅ (01764ca) · ~~Control moneda + EXP-01/02~~ ✅ (b68c342) · ~~UI-01/02 + aviso medianoche~~ ✅ (c3dbad6)
 
 ---
 
