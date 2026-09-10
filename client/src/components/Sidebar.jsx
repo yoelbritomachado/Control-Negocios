@@ -36,6 +36,7 @@ import CreateInventoryForm from './CreateInventoryForm';
 import CreateCompanyForm from './CreateCompanyForm';
 import { apiGetCompanies } from '../lib/companies';
 import { apiGetInventories } from '../lib/inventories';
+import { writeInventoryCache } from './EnablementGuard';
 
 /**
  * Fase Empresas (docs/FASE_EMPRESAS_SELECTOR.md) — TODO multi-empresa-nexus:
@@ -157,33 +158,50 @@ export function Sidebar({ isDark, toggleTheme }) {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- Inventario activo: fetch con company_id (Fase Empresas) ---
-    // Antes: solo fallback estático MCH1/MCH2/Almacén (cache offline fantasma post-reset).
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const data = await apiGetInventories(activeCompany?.id);
-                if (cancelled) return;
-                if (Array.isArray(data)) {
-                    setDynamicInventories(data.map(i => ({
-                        id: i.id,
-                        label: i.name || i.code || String(i.id),
-                        company_id: i.company_id ?? i.companyId ?? null
-                    })));
-                    // Lista vacía (post-reset): limpiar cache offline para no mostrar sedes fantasma.
-                    if (data.length === 0) clearOfflineDB();
+        // Antes: solo fallback estático MCH1/MCH2/Almacén (cache offline fantasma post-reset).
+        // Árbol habilitación (C): SOLO pasamos company_id si la empresa activa existe
+        // realmente en el server (companies fetch). El DEFAULT local {id:1} no cuenta
+        // cuando la DB está en 0 empresas — sino el GET filtra por empresa inexistente
+        // y devuelve [], ocultando inventarios SUELTOS (company_id NULL) que sí existen.
+        const realActiveCompanyId = companies.some(c => String(c.id) === String(activeCompany?.id))
+            ? activeCompany.id
+            : null;
+
+        useEffect(() => {
+            let cancelled = false;
+            (async () => {
+                try {
+                    const data = await apiGetInventories(realActiveCompanyId);
+                    if (cancelled) return;
+                    if (Array.isArray(data)) {
+                        const mapped = data.map(i => ({
+                            id: i.id,
+                            label: i.name || i.code || String(i.id),
+                            company_id: i.company_id ?? i.companyId ?? null
+                        }));
+                        setDynamicInventories(mapped);
+                        writeInventoryCache(mapped);
+                        // Lista vacía (post-reset): limpiar cache offline para no mostrar sedes fantasma.
+                        if (data.length === 0) clearOfflineDB();
+                    }
+                } catch (_) {
+                    // Offline / sin soporte: dejamos el fallback estático (comportamiento previo).
                 }
-            } catch (_) {
-                // Offline / sin soporte: dejamos el fallback estático (comportamiento previo).
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [activeCompany?.id]);
+            })();
+            return () => { cancelled = true; };
+        }, [realActiveCompanyId]);
 
     // Lista de inventarios: si el backend/devolvió una lista, la usamos (post-reset viene []);
     // si nunca hubo respuesta (offline sin caché), usamos el fallback estático.
     const list = dynamicInventories || inventories;
     const listIsEmpty = Array.isArray(dynamicInventories) && dynamicInventories.length === 0;
+
+    // --- Árbol de habilitación post-reset (docs/FASE_ARBOL_HABILITACION.md §3) ---
+    // Defensivo: derivamos gates del estado REAL del server; si no hay datos,
+    // usamos fallback offline (caché localStorage) antes de asumir algo.
+    const hasActiveInventory = !!currentInventory && String(currentInventory).trim() !== '';
+    const canSell = hasActiveInventory;             // POS / Productos: sin activo → gated
+    const canTransfer = Array.isArray(list) && list.length >= 2; // Traslados: ≥2 inventarios (spec §3)
 
     // FIX BUG flechita (espec §6): alternar colapso SIEMPRE con update funcional
     // (el valor previo puede quedar stale si React agrupa updates rápido).
@@ -205,13 +223,17 @@ export function Sidebar({ isDark, toggleTheme }) {
             const item = {
                 id: created?.id,
                 label: created?.name || created?.code || fallbackName,
-                company_id: activeCompany?.id ?? null
+                company_id: created?.company_id ?? created?.companyId ?? activeCompany?.id ?? null
             };
             setDynamicInventories(prev => {
-                const base = Array.isArray(prev) ? prev : [...inventories];
-                return [...base.filter(i => i.id !== item.id), item];
+                const base = Array.isArray(prev) ? prev : [];
+                const next = [...base.filter(i => i.id !== item.id), item];
+                writeInventoryCache(next);
+                return next;
             });
             if (item.id) {
+                // Auto-seleccionar como activo (espec árbol habilitación §2):
+                // sincroniza localStorage + estado global vía CartProvider.
                 setCurrentInventory(item.id);
                 setIsInventoryOpen(false);
             }
@@ -344,6 +366,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                 </div>
 
                 {/* Company Selector Desktop — ENCIMA de "Inventario Activo" (Fase Empresas) */}
+                {/* Árbol habilitación (A): 0 empresas → SOLO CTA "+ Crear empresa" (sin lista). */}
                 <div className="px-3 mb-2">
                     <div className="relative" data-testid="company-selector">
                         <button
@@ -366,7 +389,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                             Empresa
                                         </p>
                                         <p className="text-sm font-semibold truncate text-foreground">
-                                            {activeCompany?.name || DEFAULT_COMPANY.name}
+                                            {companies.length === 0 && !companyLoadFailed ? 'Sin empresa' : (activeCompany?.name || DEFAULT_COMPANY.name)}
                                         </p>
                                     </div>
                                     <ChevronDown className={cn(
@@ -432,14 +455,22 @@ export function Sidebar({ isDark, toggleTheme }) {
                 </div>
 
                 {/* Inventory Selector Desktop */}
+                {/* Árbol habilitación (B): 0 inventarios → toggle DESHABILITADO (gris + tooltip
+                    "Creá un inventario primero"), pero el '+' SIEMPRE habilitado (dentro del
+                    despliegue y en el empty-state). */}
                 <div className="px-3 mb-2">
                     <div className="relative">
                         <button
-                            onClick={() => !isCollapsed && setIsInventoryOpen(!isInventoryOpen)}
+                            onClick={() => { if (listIsEmpty) { setIsInventoryOpen(true); return; } !isCollapsed && setIsInventoryOpen(!isInventoryOpen); }}
+                            title={listIsEmpty ? 'Creá un inventario primero' : undefined}
+                            aria-disabled={listIsEmpty}
+                            data-testid="inventory-selector-toggle"
+                            data-disabled={listIsEmpty ? 'true' : 'false'}
                             className={cn(
                                 'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300',
                                 'bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20',
-                                'hover:border-violet-500/40 text-left group'
+                                'hover:border-violet-500/40 text-left group',
+                                listIsEmpty && 'opacity-40 grayscale cursor-not-allowed hover:border-violet-500/20'
                             )}
                         >
                             <div className="p-1.5 rounded-lg bg-violet-500/20 text-violet-400 group-hover:text-violet-300 transition-colors">
@@ -497,7 +528,13 @@ export function Sidebar({ isDark, toggleTheme }) {
                                                                                     : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
                                                                             )}
                                                                         >
-                                                                            <span>{inventory.label}</span>
+                                                                            <span className="flex items-center gap-2 min-w-0">
+                                                                                <span className="truncate">{inventory.label}</span>
+                                                                                {/* Árbol habilitación (C): inventario suelto → badge gris "Sin empresa" */}
+                                                                                {inventory.company_id == null && (
+                                                                                    <span data-testid="badge-sin-empresa" className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-500/20 text-muted-foreground border border-slate-500/30">Sin empresa</span>
+                                                                                )}
+                                                                            </span>
                                                                             {currentInventory === inventory.id && (
                                                                                 <Check className="w-3.5 h-3.5" />
                                                                             )}
@@ -564,15 +601,24 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Operaciones
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => (
+                        {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => {
+                            // Árbol habilitación (D): POS/ventas requiere inventario activo.
+                            const locked = item.id === 'pos' && !canSell;
+                            return (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
+                                title={locked ? 'Seleccioná un inventario primero' : undefined}
+                                aria-disabled={locked || undefined}
+                                data-testid={`nav-${item.id}`}
+                                data-locked={locked ? 'true' : 'false'}
+                                onClick={(e) => { if (locked) { e.preventDefault(); } }}
                                 className={({ isActive }) => cn(
                                     'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
                                     isActive
                                         ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/10 text-cyan-400 border border-cyan-500/30'
-                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground',
+                                    locked && 'opacity-40 grayscale cursor-not-allowed hover:bg-transparent'
                                 )}
                             >
                                 {({ isActive }) => (
@@ -587,7 +633,8 @@ export function Sidebar({ isDark, toggleTheme }) {
                                     </>
                                 )}
                             </NavLink>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     <div>
@@ -596,16 +643,27 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 Gestión
                             </p>
                         )}
-                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => (
+                        {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => {
+                            // Árbol habilitación (D): Inventario/Productos requiere inventario activo;
+                            // Traslados requiere ≥2 inventarios. Usuarios SIEMPRE habilitado.
+                            const locked = (item.id === 'inventory' && !canSell) || (item.id === 'traslados' && !canTransfer);
+                            const lockedMsg = item.id === 'traslados' ? 'Necesitás al menos 2 inventarios para trasladar' : 'Seleccioná un inventario primero';
+                            return (
                             <NavLink
                                 key={item.id}
                                 to={item.path}
-                                onClick={() => isMobile && setIsMobileOpen(false)}
+                                onClick={() => { if (locked) { return; } isMobile && setIsMobileOpen(false); }}
+                                title={locked ? lockedMsg : undefined}
+                                aria-disabled={locked || undefined}
+                                data-testid={`nav-${item.id}`}
+                                data-locked={locked ? 'true' : 'false'}
+                                onClickCapture={(e) => { if (locked) { e.preventDefault(); } }}
                                 className={({ isActive }) => cn(
                                     'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
                                     isActive
                                         ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/10 text-cyan-400 border border-cyan-500/30'
-                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                        : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground',
+                                    locked && 'opacity-40 grayscale cursor-not-allowed hover:bg-transparent'
                                 )}
                             >
                                 {({ isActive }) => (
@@ -620,7 +678,8 @@ export function Sidebar({ isDark, toggleTheme }) {
                                     </>
                                 )}
                             </NavLink>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     {/* Historiales Section */}
@@ -827,7 +886,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                             Empresa
                                         </p>
                                         <p className="text-sm font-semibold truncate text-foreground">
-                                            {activeCompany?.name || DEFAULT_COMPANY.name}
+                                            {companies.length === 0 && !companyLoadFailed ? 'Sin empresa' : (activeCompany?.name || DEFAULT_COMPANY.name)}
                                         </p>
                                     </div>
                                     <ChevronDown className={cn(
@@ -890,11 +949,16 @@ export function Sidebar({ isDark, toggleTheme }) {
                         <div className="shrink-0 px-3 mb-2">
                             <div className="relative">
                                 <button
-                                    onClick={() => setIsInventoryOpen(!isInventoryOpen)}
+                                    onClick={() => { if (listIsEmpty) { setIsInventoryOpen(true); return; } setIsInventoryOpen(!isInventoryOpen); }}
+                                    title={listIsEmpty ? 'Creá un inventario primero' : undefined}
+                                    aria-disabled={listIsEmpty}
+                                    data-testid="inventory-selector-toggle-mobile"
+                                    data-disabled={listIsEmpty ? 'true' : 'false'}
                                     className={cn(
                                         'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300',
                                         'bg-gradient-to-r from-violet-500/10 to-purple-500/10 border border-violet-500/20',
-                                        'hover:border-violet-500/40 text-left group'
+                                        'hover:border-violet-500/40 text-left group',
+                                        listIsEmpty && 'opacity-40 grayscale cursor-not-allowed hover:border-violet-500/20'
                                     )}
                                 >
                                     <div className="p-1.5 rounded-lg bg-violet-500/20 text-violet-400 group-hover:text-violet-300 transition-colors">
@@ -946,7 +1010,13 @@ export function Sidebar({ isDark, toggleTheme }) {
                                                                                         : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
                                                                                 )}
                                                                             >
-                                                                                <span>{inventory.label}</span>
+                                                                                <span className="flex items-center gap-2 min-w-0">
+                                                                                    <span className="truncate">{inventory.label}</span>
+                                                                                    {/* Árbol habilitación (C): inventario suelto → badge "Sin empresa" */}
+                                                                                    {inventory.company_id == null && (
+                                                                                        <span data-testid="badge-sin-empresa-mobile" className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-500/20 text-muted-foreground border border-slate-500/30">Sin empresa</span>
+                                                                                    )}
+                                                                                </span>
                                                                                 {currentInventory === inventory.id && (
                                                                                     <Check className="w-3.5 h-3.5" />
                                                                                 )}
@@ -1007,16 +1077,24 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     Operaciones
                                 </p>
-                                {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => (
+                                {menuItems.filter(item => item.category === 'operations' && (item.id !== 'pos' || currentInventory !== 'alm')).map((item) => {
+                                    // Árbol habilitación (D): POS requiere inventario activo.
+                                    const locked = item.id === 'pos' && !canSell;
+                                    return (
                                     <NavLink
                                         key={item.id}
                                         to={item.path}
-                                        onClick={() => setIsMobileOpen(false)}
+                                        onClick={(e) => { if (locked) { e.preventDefault(); return; } setIsMobileOpen(false); }}
+                                        title={locked ? 'Seleccioná un inventario primero' : undefined}
+                                        aria-disabled={locked || undefined}
+                                        data-testid={`nav-${item.id}-mobile`}
+                                        data-locked={locked ? 'true' : 'false'}
                                         className={({ isActive }) => cn(
                                             'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
                                             isActive
                                                 ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/10 text-cyan-400 border border-cyan-500/30'
-                                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground',
+                                            locked && 'opacity-40 grayscale cursor-not-allowed hover:bg-transparent'
                                         )}
                                     >
                                         {({ isActive }) => (
@@ -1029,23 +1107,33 @@ export function Sidebar({ isDark, toggleTheme }) {
                                             </>
                                         )}
                                     </NavLink>
-                                ))}
+                                    );
+                                })}
                             </div>
 
                             <div>
                                 <p className="px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                                     Gestión
                                 </p>
-                                {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => (
+                                {menuItems.filter(item => item.category === 'management' && (!item.adminOnly || isAdmin) && (!item.almacOnly || currentInventory === 'alm')).map((item) => {
+                                    // Árbol habilitación (D): Inventario requiere activo; Traslados ≥2. Usuarios SIEMPRE habilitado.
+                                    const locked = (item.id === 'inventory' && !canSell) || (item.id === 'traslados' && !canTransfer);
+                                    const lockedMsg = item.id === 'traslados' ? 'Necesitás al menos 2 inventarios para trasladar' : 'Seleccioná un inventario primero';
+                                    return (
                                     <NavLink
                                         key={item.id}
                                         to={item.path}
-                                        onClick={() => setIsMobileOpen(false)}
+                                        onClick={(e) => { if (locked) { e.preventDefault(); return; } setIsMobileOpen(false); }}
+                                        title={locked ? lockedMsg : undefined}
+                                        aria-disabled={locked || undefined}
+                                        data-testid={`nav-${item.id}-mobile`}
+                                        data-locked={locked ? 'true' : 'false'}
                                         className={({ isActive }) => cn(
                                             'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 mb-1',
                                             isActive
                                                 ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/10 text-cyan-400 border border-cyan-500/30'
-                                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground'
+                                                : 'hover:bg-secondary/80 text-muted-foreground hover:text-foreground',
+                                            locked && 'opacity-40 grayscale cursor-not-allowed hover:bg-transparent'
                                         )}
                                     >
                                         {({ isActive }) => (
@@ -1058,7 +1146,8 @@ export function Sidebar({ isDark, toggleTheme }) {
                                             </>
                                         )}
                                     </NavLink>
-                                ))}
+                                    );
+                                })}
                             </div>
 
                             {/* Historiales Mobile */}
@@ -1190,7 +1279,7 @@ export function Sidebar({ isDark, toggleTheme }) {
                                                 open={showCreateInventory}
                                                 onClose={() => setShowCreateInventory(false)}
                                                 onCreated={handleInventoryCreated}
-                                        companyId={activeCompany?.id}
+                                        companyId={realActiveCompanyId}
                                             />
                                             </>
                                         );

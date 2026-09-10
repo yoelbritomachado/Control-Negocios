@@ -1,0 +1,21 @@
+{
+  "loggedIn": true,
+  "invSelectorDisabled": true,
+  "invTooltip": "Creá un inventario primero",
+  "plusEnabled": true,
+  "createCompanyCTA": true,
+  "companyEmptyLabel": "EMPRESA\n\nSin empresa",
+  "posEmptyState": true,
+  "invPageEmptyState": true,
+  "transfersEmptyState": true,
+  "qaPosLabel": "INVENTARIO ACTIVO QA POS",
+  "posUnlockedAfter1": true,
+  "inventoryUnlockedAfter1": true,
+  "transfersLockedAfter1": true,
+  "transfersTooltip1": "Necesitás al menos 2 inventarios para trasladar",
+  "badgeSinEmpresa": false,
+  "localStorageInventory": "qa_pos",
+  "transfersUnlockedAfter2": true,
+  "usuariosAlwaysEnabled": true,
+  "pageErrors": 0
+}

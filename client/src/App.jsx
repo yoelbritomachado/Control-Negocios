@@ -22,6 +22,7 @@ import TrasladosPage from './pages/TrasladosPage';
 import CashControlPage from './pages/CashControlPage';
 import InventoryValuePage from './pages/InventoryValuePage';
 import LoginPage from './pages/LoginPage';
+import { InventoryGate, TransferGate } from './components/EnablementGuard';
 import './index.css';
 import { PWAInstallPrompt } from './offline';
 
@@ -49,6 +50,33 @@ function InventoryAwarePOS() {
   return currentInventory === 'alm' ? <Navigate to="/entradas" replace /> : <POSPage />;
 }
 
+// Árbol de habilitación (docs/FASE_ARBOL_HABILITACION.md §3):
+// gates de VISTA para acceso directo por URL (los entry-points del menú ya
+// están gated en Sidebar). Sin condiciones → empty-state, sin crash.
+function GatedPOS() {
+  return (
+    <InventoryGate feature="Punto de Venta">
+      <InventoryAwarePOS />
+    </InventoryGate>
+  );
+}
+
+function GatedInventory() {
+  return (
+    <InventoryGate feature="Inventario / Productos">
+      <InventoryPage />
+    </InventoryGate>
+  );
+}
+
+function GatedTransfers() {
+  return (
+    <TransferGate>
+      <TrasladosPage />
+    </TransferGate>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -64,9 +92,9 @@ function App() {
             </AuthGuard>
           }>
             <Route index element={<DashboardPage />} />
-            <Route path="pos" element={<InventoryAwarePOS />} />
+            <Route path="pos" element={<GatedPOS />} />
             <Route path="entradas" element={<EntradasPage />} />
-            <Route path="inventario" element={<InventoryPage />} />
+            <Route path="inventario" element={<GatedInventory />} />
             <Route path="compras" element={<PurchasesPage />} />
             <Route path="usuarios" element={<UsersPage />} />
             <Route path="admin/migracion" element={<MigrationTool />} />
@@ -81,7 +109,7 @@ function App() {
             <Route path="historial-traslados" element={<Navigate to="/historial/traslados" replace />} />
             <Route path="historial/mermas" element={<HistoryMermasPage />} />
             <Route path="mermas" element={<MermasPage />} />
-            <Route path="traslados" element={<TrasladosPage />} />
+            <Route path="traslados" element={<GatedTransfers />} />
             <Route path="configuracion" element={<SettingsPage />} />
             <Route path="control-efectivo" element={<CashControlPage />} />
             <Route path="inventario-valorizado" element={<InventoryValuePage />} />

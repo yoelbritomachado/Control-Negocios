@@ -68,7 +68,7 @@ const [editingSession, setEditingSession] = useState(() => {
 });
 
     const [currentInventory, setCurrentInventory] = useState(
-        localStorage.getItem('mch_inventory') || 'alm'
+        localStorage.getItem('mch_inventory') || ''
     );
 
     useEffect(() => {
@@ -99,6 +99,8 @@ const [editingSession, setEditingSession] = useState(() => {
 
     useEffect(() => {
         localStorage.setItem('mch_inventory', currentInventory);
+        // Sincroniza caché global (espec árbol habilitación: estado accesible offline/gates)
+        try { window.dispatchEvent(new CustomEvent('mch_inventory_changed', { detail: currentInventory })); } catch (_) { /* noop */ }
     }, [currentInventory]);
 
     const addToCart = (product, quantity = 1, allowNegativeStock = true) => {

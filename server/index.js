@@ -4638,7 +4638,9 @@ db.exec(`
 // EMPRESAS (Fase Empresas Selector — docs/FASE_EMPRESAS_SELECTOR.md)
 // Migración idempotente al arranque:
 //  - crea companies si no existe
-//  - si queda VACÍA (DB post-reset): inserta UNA empresa default 'Miss Chulerías'
+//  - DESACTIVADO el seed de empresa default (Yoe, 10-sep v2): tras un Reset de Fábrica la app
+//    queda con 0 empresas y 0 inventarios. El dueño crea su(s) empresa(s) con '+ Crear empresa'.
+//    Un inventario puede existir SIN empresa (suelto) — no se fuerza linkeo.
 //  - NO re-seede si ya tiene filas
 // ============================================
 db.exec(`
@@ -4650,30 +4652,27 @@ db.exec(`
     created_at TEXT
   )
 `);
+// Seed empresa default: SOLO si existe legacy previo al modelo empresas (inventarios con
+// company_id NULL pre-migración). Post-reset limpio (0 empresas + 0 inventarios) → no se crea nada.
 try {
     const companiesCount = db.prepare('SELECT COUNT(*) c FROM companies').get().c;
-    if (companiesCount === 0) {
+    const inventoriesCount = db.prepare('SELECT COUNT(*) c FROM inventories').get().c;
+    const needsLegacyDefault = companiesCount === 0 && inventoriesCount > 0;
+    if (needsLegacyDefault) {
         db.prepare(`INSERT INTO companies (name, logo, is_default, created_at)
                     VALUES ('Miss Chulerías', NULL, 1, datetime('now'))`).run();
-        console.log("Seed empresas: 'Miss Chulerías' creada como empresa default (DB post-reset).");
+        console.log("Seed empresas legacy: 'Miss Chulerías' creada como empresa default (DB con inventarios pre-migración).");
     }
 } catch (e) { console.warn("Migración companies (seed default):", e.message); }
 
-// Migración inventories.company_id (FK → companies.id) + backfill a la empresa default
+// Migración inventories.company_id (FK → companies.id) — SIN backfill forzado:
+// los inventarios pueden estar sueltos (company_id NULL) y son válidos.
+// El backfill automático a empresa default se elimina (Yoe: un inventario suelto no responde a ninguna empresa).
 try {
     const invColsCompanies = db.prepare("PRAGMA table_info(inventories)").all().map(c => c.name);
     if (!invColsCompanies.includes('company_id')) {
         db.exec("ALTER TABLE inventories ADD COLUMN company_id INTEGER REFERENCES companies(id)");
         console.log("Migración Fase Empresas: columna company_id agregada a inventories");
-    }
-    // Backfill: TODO inventario existente sin empresa → empresa default
-    const defCompany = db.prepare('SELECT id FROM companies WHERE is_default = 1 ORDER BY id LIMIT 1').get();
-    if (defCompany) {
-        const orphans = db.prepare('SELECT COUNT(*) c FROM inventories WHERE company_id IS NULL').get().c;
-        if (orphans > 0) {
-            db.prepare('UPDATE inventories SET company_id = ? WHERE company_id IS NULL').run(defCompany.id);
-            console.log(`Backfill empresas: ${orphans} inventarios linkeados a la empresa default (id ${defCompany.id})`);
-        }
     }
 } catch (e) { console.warn("Migración inventories.company_id:", e.message); }
 
@@ -8359,17 +8358,15 @@ app.post('/api/inventories', authenticate, requireEditor, (req, res) => {
         const cleanName = String(name || '').trim();
         if (!cleanName) return res.status(400).json({ error: 'Nombre es requerido' });
 
-        // Resolver empresa: explícita → validar; si no → default (is_default=1)
-        let companyId = null;
-        if (company_id !== undefined && company_id !== null && String(company_id) !== '') {
-            const c = db.prepare('SELECT id FROM companies WHERE id = ?').get(Number(company_id));
-            if (!c) return res.status(400).json({ error: `Empresa ${company_id} no existe` });
-            companyId = c.id;
-        } else {
-            const def = db.prepare('SELECT id FROM companies WHERE is_default = 1 ORDER BY id LIMIT 1').get()
-                || db.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get();
-            if (def) companyId = def.id;
-        }
+        // Resolver empresa: explícita → validar. Sin company_id → SUELTO (company_id NULL).
+                // Yoe (10-sep v2): un inventario suelto es válido y no responde a ninguna empresa;
+                // si el dueño luego crea empresas, puede linkearlo (futuro: acción 'linkear').
+                let companyId = null;
+                if (company_id !== undefined && company_id !== null && String(company_id) !== '') {
+                    const c = db.prepare('SELECT id FROM companies WHERE id = ?').get(Number(company_id));
+                    if (!c) return res.status(400).json({ error: `Empresa ${company_id} no existe` });
+                    companyId = c.id;
+                }
 
         // ID único tipo slug (mismo criterio que imports MNX)
         const raw = cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
