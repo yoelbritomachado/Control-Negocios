@@ -10462,12 +10462,24 @@ app.post('/api/factory-reset', authenticate, requireAdmin, async (req, res) => {
             });
 
             // Usuarios: conservar SOLO al dueño (role='owner' o email=ADMIN_EMAIL)
-            const ownerCount = db.prepare(`
-                DELETE FROM users WHERE role != 'owner' AND LOWER(email) != LOWER(?)
-            `).run(ADMIN_EMAIL).changes;
-            deleted['users'] = ownerCount;
+                        const ownerCount = db.prepare(`
+                            DELETE FROM users WHERE role != 'owner' AND LOWER(email) != LOWER(?)
+                        `).run(ADMIN_EMAIL).changes;
+                        deleted['users'] = ownerCount;
 
-            // Reiniciar AUTOINCREMENT
+                        // Yoe (10-sep): los settings de salario de apertura son DATO OPERATIVO con período,
+                        // no configuración — si sobreviven al reset, Control de Efectivo re-inyecta egresos
+                        // fantasma del negocio anterior (ej. -3500 MSH post-reset). Se eliminan con el resto.
+                        try {
+                            const salaryCleared = db.prepare(`
+                                DELETE FROM settings WHERE key LIKE 'admin_salary_opening_%'
+                            `).run().changes;
+                            if (salaryCleared > 0) deleted['settings.admin_salary_opening'] = salaryCleared;
+                        } catch (e) {
+                            deleted['settings.admin_salary_opening'] = 'error: ' + e.message;
+                        }
+
+                        // Reiniciar AUTOINCREMENT
             tablesToClear.forEach(table => {
                 try {
                     db.prepare('DELETE FROM sqlite_sequence WHERE name = ?').run(table);

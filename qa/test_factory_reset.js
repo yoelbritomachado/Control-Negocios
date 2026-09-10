@@ -82,6 +82,12 @@ async function main() {
     fs.mkdirSync(SANDBOX_UPLOADS, { recursive: true });
     log(`🔒 SANDBOX: DB copiada a ${SANDBOX_DB} (${fs.statSync(SANDBOX_DB).size} bytes)`);
     log(`🔒 Producción ${PROD_DB} NO será tocada (server aislado en :${PORT})\n`);
+    // Baseline de producción para el check final de "producción intacta"
+    const prodBaseline = new Database(PROD_DB, { readonly: true });
+    const PROD_SALES_BEFORE = prodBaseline.prepare('SELECT COUNT(*) c FROM sales').get().c;
+    const PROD_PRODUCTS_BEFORE = prodBaseline.prepare('SELECT COUNT(*) c FROM products').get().c;
+    prodBaseline.close();
+    log(`🔒 Baseline producción: products=${PROD_PRODUCTS_BEFORE}, sales=${PROD_SALES_BEFORE}\n`);
 
     // --- Levantar server de sandbox ---
     const serverProc = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'index.js')], {
@@ -128,6 +134,11 @@ async function main() {
             db.prepare(`INSERT INTO expenses (type, amount, description, date, payment_method) VALUES ('test', 50, 'TEST gasto QA', datetime('now'), 'cash')`).run();
             try { db.prepare(`INSERT INTO nexus_nodes (type, name, status) VALUES ('test', 'TEST node QA', 'online')`).run(); } catch (e) {}
             try { db.prepare(`INSERT INTO notifications (type, title, message, is_read, created_at) VALUES ('test', 'TEST notif', 'test', 0, datetime('now'))`).run(); } catch (e) {}
+            // Sembrar salario de apertura (dato operativo con período que el reset DEBE borrar)
+            try {
+                db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_salary_opening_2026-09_TEST', '1234.5')`).run();
+                db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('test_setting_general', 'no_borrar')`).run();
+            } catch (e) { log('  (aviso) seed settings: ' + e.message); }
         });
         seed();
 
@@ -206,10 +217,16 @@ async function main() {
         assert(after.nexus_nodes === 0, 'nexus_nodes: 0');
         assert(after.notifications === 0, 'notifications: 0');
 
-        // Settings intactos
+        // Settings: generales intactos, pero admin_salary_opening_* DEBE estar borrado
+        // (dato operativo con período: si sobrevive, Control de Efectivo re-inyecta egresos fantasma)
         const settingsAfter = db.prepare('SELECT COUNT(*) c FROM settings').get().c;
         const settingsBefore = db.prepare('SELECT COUNT(*) c FROM settings').get().c;
-        assert(settingsAfter === settingsBefore && settingsAfter > 0, `settings intactos (${settingsAfter} filas)`);
+        const salaryRows = db.prepare("SELECT COUNT(*) c FROM settings WHERE key LIKE 'admin_salary_opening_%'").get().c;
+        assert(settingsAfter >= settingsBefore - salaryRows && salaryRows === 0,
+            `settings generales intactos; admin_salary_opening_* borrado (${salaryRows} restantes)`);
+        // Verificar además que el setting general de prueba SOBREVIVIÓ (sembrado en fase [1])
+        const generalKept = db.prepare("SELECT COUNT(*) c FROM settings WHERE key = 'test_setting_general'").get().c;
+        assert(generalKept === 1, 'settings generales de prueba sobreviven al reset');
 
         // Backups intactos (en SANDBOX_BACKUPS)
         log('\n[6] Backups intactos (sandbox):');
@@ -238,7 +255,11 @@ async function main() {
         const prodSales = prodCheck.prepare('SELECT COUNT(*) c FROM sales').get().c;
         const prodProducts = prodCheck.prepare('SELECT COUNT(*) c FROM products').get().c;
         prodCheck.close();
-        assert(prodSales > 0 && prodProducts > 0, `Producción ilesa (products=${prodProducts}, sales=${prodSales})`);
+        // La producción puede estar en estado cero (post-reset del dueño) o con datos:
+        // lo que NUNCA puede pasar es que el sandbox MODIFIQUE la producción.
+        // Guardamos el conteo al inicio del test y comparamos (ver fase [1]).
+        assert(prodSales === PROD_SALES_BEFORE && prodProducts === PROD_PRODUCTS_BEFORE,
+            `Producción ilesa (products=${prodProducts}/${PROD_PRODUCTS_BEFORE}, sales=${prodSales}/${PROD_SALES_BEFORE})`);
 
         db.close();
     } finally {
