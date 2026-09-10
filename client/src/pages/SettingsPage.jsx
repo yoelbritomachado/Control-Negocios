@@ -19,10 +19,11 @@ import {
     Archive,
     RotateCcw,
     FileArchive,
-    HardDriveDownload
-} from 'lucide-react';
-import { cn } from '../lib/utils';
-const API_URL = import.meta.env.VITE_API_URL || '/api';
+        HardDriveDownload
+    } from 'lucide-react';
+    import { cn } from '../lib/utils';
+    import FactoryResetFlow from '../components/FactoryResetFlow';
+    const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export default function SettingsPage() {
     const [expenseTypes, setExpenseTypes] = useState([]);
@@ -48,8 +49,9 @@ export default function SettingsPage() {
     const [backupLoading, setBackupLoading] = useState(false);
     const [backupError, setBackupError] = useState(null);
     const [backupSuccess, setBackupSuccess] = useState(null);
-    const [showResetConfirm, setShowResetConfirm] = useState(false);
-    const [restoreFile, setRestoreFile] = useState(null);
+        const [restoreFile, setRestoreFile] = useState(null);
+        // Reset de Fábrica REAL (flujo con backup opcional — docs/FASE_RESET_MULTIEMPRESA.md §1)
+        const [showFactoryResetFlow, setShowFactoryResetFlow] = useState(false);
 
     // Selective Reset states
     const [showSelectiveResetModal, setShowSelectiveResetModal] = useState(false);
@@ -380,29 +382,6 @@ export default function SettingsPage() {
         }
     };
 
-    const resetDatabase = async () => {
-        if (!confirm('¿ESTÁS TOTALMENTE SEGURO? Esto BORRARÁ todos los productos, ventas, sesiones e imágenes. Se conservará el usuario admin, inventarios y tipos de gastos. Se creará un backup de seguridad automáticamente.')) return;
-        if (!confirm('ÚLTIMA CONFIRMACIÓN: ¿Borrar TODO y empezar de cero?')) return;
-        setBackupLoading(true);
-        setBackupError(null);
-        setBackupSuccess(null);
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`${API_URL}/backup/reset`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (!res.ok) throw new Error('Error al resetear');
-            const data = await res.json();
-            setBackupSuccess(`Base de datos reseteada. Backup de seguridad: ${data.safetyBackup}`);
-            setShowResetConfirm(false);
-            fetchBackups();
-        } catch (e) {
-            setBackupError(e.message);
-        } finally {
-            setBackupLoading(false);
-        }
-    };
 
     // Cargar backups al montar
     useEffect(() => {
@@ -860,20 +839,21 @@ export default function SettingsPage() {
                         </div>
                     </button>
 
-                    {/* Resetear DB Total */}
-                    <button
-                        onClick={resetDatabase}
-                        disabled={backupLoading}
-                        className="flex flex-col items-center gap-2 p-4 rounded-xl bg-gradient-to-br from-red-500/10 to-rose-500/10 border border-red-500/20 hover:border-red-500/40 transition-all disabled:opacity-50"
-                    >
-                        <div className="p-3 rounded-xl bg-red-500/20">
-                            <Trash2 className="w-6 h-6 text-red-400" />
-                        </div>
-                        <div className="text-center">
-                            <div className="font-semibold text-sm">Reset Total de Fábrica</div>
-                            <div className="text-xs text-muted-foreground">Borra todo (crea backup automático)</div>
-                        </div>
-                    </button>
+                    {/* Reset de Fábrica REAL — flujo con backup opcional (espec §1) */}
+                                        <button
+                                            onClick={() => setShowFactoryResetFlow(true)}
+                                            disabled={backupLoading}
+                                            data-testid="factory-reset-button"
+                                            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-gradient-to-br from-red-500/10 to-rose-500/10 border border-red-500/20 hover:border-red-500/40 transition-all disabled:opacity-50"
+                                        >
+                                            <div className="p-3 rounded-xl bg-red-500/20">
+                                                <Trash2 className="w-6 h-6 text-red-400" />
+                                            </div>
+                                            <div className="text-center">
+                                                <div className="font-semibold text-sm">Reset Total de Fábrica</div>
+                                                <div className="text-xs text-muted-foreground">Borra todo (backup opcional antes)</div>
+                                            </div>
+                                        </button>
                 </div>
 
                 {/* Loading indicator */}
@@ -1104,6 +1084,12 @@ export default function SettingsPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
-    );
-}
+
+                        {/* Reset de Fábrica REAL — flujo completo con backup opcional */}
+                        <FactoryResetFlow
+                            open={showFactoryResetFlow}
+                            onClose={() => setShowFactoryResetFlow(false)}
+                        />
+                    </div>
+                );
+            }

@@ -31,6 +31,8 @@ import { useCart } from './CartProvider';
 import { useRole } from '../hooks/useRole';
 import { Database } from 'lucide-react';
 import { Grid3X3 } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import CreateInventoryForm from './CreateInventoryForm';
 
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
@@ -55,6 +57,9 @@ const adminMenuItems = [
     { id: 'migration', label: 'Migración', icon: Database, path: '/admin/migracion', category: 'admin' },
 ];
 
+// Fallback offline (sin backend): sedes base conocidas.
+// TODO multi-empresa: esta lista deberá filtrarse por la empresa activa
+// (inventarios por negocio) cuando exista la entidad EMPRESA.
 const inventories = [
     { id: 'mch1', label: 'MCH1' },
     { id: 'mch2', label: 'MCH2' },
@@ -80,22 +85,45 @@ export function Sidebar({ isDark, toggleTheme }) {
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [isMobileOpen, setIsMobileOpen] = useState(false);
     const [isInventoryOpen, setIsInventoryOpen] = useState(false);
-    const location = useLocation();
+    const [dynamicInventories, setDynamicInventories] = useState(null);
+        const [showCreateInventory, setShowCreateInventory] = useState(false);
+        const location = useLocation();
     const isMobile = useIsMobile();
-    
+
     const { currentInventory, setCurrentInventory } = useCart();
     const { isAdmin } = useRole();
 
-    const currentInventoryLabel = inventories.find(i => i.id === currentInventory)?.label || currentInventory.toUpperCase();
+    // Lista de inventarios: si el backend/devolvió una lista, la usamos (post-reset viene []);
+    // si nunca hubo respuesta (offline sin caché), usamos el fallback estático.
+    const list = dynamicInventories || inventories;
+    const listIsEmpty = Array.isArray(dynamicInventories) && dynamicInventories.length === 0;
+
+    const currentInventoryLabel = (list.find(i => i.id === currentInventory)?.label) || currentInventory.toUpperCase();
 
     useEffect(() => {
         setIsMobileOpen(false);
     }, [location.pathname]);
 
     const handleInventoryChange = (inventoryId) => {
-        setCurrentInventory(inventoryId);
-        setIsInventoryOpen(false);
-    };
+            setCurrentInventory(inventoryId);
+            setIsInventoryOpen(false);
+        };
+
+        // Al crear un inventario desde el '+': agregarlo a la lista y seleccionarlo como activo (espec §2)
+        const handleInventoryCreated = (created, fallbackName) => {
+            const item = {
+                id: created?.id,
+                label: created?.name || created?.code || fallbackName
+            };
+            setDynamicInventories(prev => {
+                const base = Array.isArray(prev) ? prev : [...inventories];
+                return [...base.filter(i => i.id !== item.id), item];
+            });
+            if (item.id) {
+                setCurrentInventory(item.id);
+                setIsInventoryOpen(false);
+            }
+        };
 
     return (
         <>
@@ -229,24 +257,45 @@ export function Sidebar({ isDark, toggleTheme }) {
                                 className="overflow-hidden"
                             >
                                 <div className="mt-1 p-1 rounded-xl bg-secondary/30 border border-white/5 backdrop-blur-md space-y-0.5">
-                                    {inventories.map((inventory) => (
-                                        <button
-                                            key={inventory.id}
-                                            onClick={() => handleInventoryChange(inventory.id)}
-                                            className={cn(
-                                                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                                currentInventory === inventory.id
-                                                    ? 'bg-violet-500/20 text-violet-400'
-                                                    : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
-                                            )}
-                                        >
-                                            <span>{inventory.label}</span>
-                                            {currentInventory === inventory.id && (
-                                                <Check className="w-3.5 h-3.5" />
-                                            )}
-                                        </button>
-                                    ))}
-                                </div>
+                                                                    {listIsEmpty && (
+                                                                        <div className="px-3 py-3 text-center space-y-2" data-testid="empty-inventories">
+                                                                            <p className="text-xs text-muted-foreground">Sin inventarios — creá el primero</p>
+                                                                            <button
+                                                                                onClick={() => setShowCreateInventory(true)}
+                                                                                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 text-sm font-semibold hover:bg-violet-500/30 transition-colors"
+                                                                            >
+                                                                                <Plus className="w-4 h-4" />
+                                                                                Crear inventario
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    {list.map((inventory) => (
+                                                                        <button
+                                                                            key={inventory.id}
+                                                                            onClick={() => handleInventoryChange(inventory.id)}
+                                                                            className={cn(
+                                                                                'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
+                                                                                currentInventory === inventory.id
+                                                                                    ? 'bg-violet-500/20 text-violet-400'
+                                                                                    : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
+                                                                            )}
+                                                                        >
+                                                                            <span>{inventory.label}</span>
+                                                                            {currentInventory === inventory.id && (
+                                                                                <Check className="w-3.5 h-3.5" />
+                                                                            )}
+                                                                        </button>
+                                                                    ))}
+                                                                    {/* Botón '+' para crear inventario nuevo (espec §2) */}
+                                                                    <button
+                                                                        onClick={() => setShowCreateInventory(true)}
+                                                                        data-testid="create-inventory-button"
+                                                                        className="w-full flex items-center justify-center gap-2 px-3 py-2 mt-1 rounded-lg border border-dashed border-violet-500/30 text-violet-400 text-sm hover:bg-violet-500/10 hover:border-violet-500/50 transition-colors"
+                                                                    >
+                                                                        <Plus className="w-4 h-4" />
+                                                                        Nuevo inventario
+                                                                    </button>
+                                                                </div>
                             </motion.div>
                         )}
                     </div>
@@ -579,24 +628,45 @@ export function Sidebar({ isDark, toggleTheme }) {
                                     className="overflow-hidden"
                                 >
                                     <div className="mt-1 p-1 rounded-xl bg-secondary/30 border border-white/5 backdrop-blur-md space-y-0.5">
-                                        {inventories.map((inventory) => (
-                                            <button
-                                                key={inventory.id}
-                                                onClick={() => handleInventoryChange(inventory.id)}
-                                                className={cn(
-                                                    'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
-                                                    currentInventory === inventory.id
-                                                        ? 'bg-violet-500/20 text-violet-400'
-                                                        : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
-                                                )}
-                                            >
-                                                <span>{inventory.label}</span>
-                                                {currentInventory === inventory.id && (
-                                                    <Check className="w-3.5 h-3.5" />
-                                                )}
-                                            </button>
-                                        ))}
-                                    </div>
+                                                                        {listIsEmpty && (
+                                                                            <div className="px-3 py-3 text-center space-y-2" data-testid="empty-inventories">
+                                                                                <p className="text-xs text-muted-foreground">Sin inventarios — creá el primero</p>
+                                                                                <button
+                                                                                    onClick={() => setShowCreateInventory(true)}
+                                                                                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-500/20 border border-violet-500/30 text-violet-300 text-sm font-semibold hover:bg-violet-500/30 transition-colors"
+                                                                                >
+                                                                                    <Plus className="w-4 h-4" />
+                                                                                    Crear inventario
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                        {list.map((inventory) => (
+                                                                            <button
+                                                                                key={inventory.id}
+                                                                                onClick={() => handleInventoryChange(inventory.id)}
+                                                                                className={cn(
+                                                                                    'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors',
+                                                                                    currentInventory === inventory.id
+                                                                                        ? 'bg-violet-500/20 text-violet-400'
+                                                                                        : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
+                                                                                )}
+                                                                            >
+                                                                                <span>{inventory.label}</span>
+                                                                                {currentInventory === inventory.id && (
+                                                                                    <Check className="w-3.5 h-3.5" />
+                                                                                )}
+                                                                            </button>
+                                                                        ))}
+                                                                        {/* Botón '+' para crear inventario nuevo (espec §2) */}
+                                                                        <button
+                                                                            onClick={() => setShowCreateInventory(true)}
+                                                                            data-testid="create-inventory-button"
+                                                                            className="w-full flex items-center justify-center gap-2 px-3 py-2 mt-1 rounded-lg border border-dashed border-violet-500/30 text-violet-400 text-sm hover:bg-violet-500/10 hover:border-violet-500/50 transition-colors"
+                                                                        >
+                                                                            <Plus className="w-4 h-4" />
+                                                                            Nuevo inventario
+                                                                        </button>
+                                                                    </div>
                                 </motion.div>
                             </div>
                         </div>
@@ -813,6 +883,13 @@ export function Sidebar({ isDark, toggleTheme }) {
                     </motion.aside>
                 )}
             </AnimatePresence>
-        </>
-    );
-}
+
+                        {/* Modal: crear inventario nuevo (espec §2) */}
+                                    <CreateInventoryForm
+                                        open={showCreateInventory}
+                                        onClose={() => setShowCreateInventory(false)}
+                                        onCreated={handleInventoryCreated}
+                                    />
+                    </>
+                );
+            }
