@@ -24,13 +24,16 @@ const port = process.env.PORT || 3002;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'yoelbritomachado@gmail.com';
 
 // Database path - use Railway's persistent storage or local
-const dbPath = process.env.RAILWAY_VOLUME_MOUNT_PATH
+// DB_PATH: override para tests (NUNCA apuntar tests a la DB de producción)
+const dbPath = process.env.DB_PATH
+    ? process.env.DB_PATH
+    : process.env.RAILWAY_VOLUME_MOUNT_PATH
     ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'inventory.db')
     : path.join(__dirname, 'inventory.db');
 
 // Ensure directories exist
-const uploadDir = path.join(__dirname, 'uploads');
-const backupDir = path.join(__dirname, 'backups');
+const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const backupDir = process.env.BACKUP_DIR || path.join(__dirname, 'backups');
 const logsDir = path.join(__dirname, 'logs');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
@@ -10164,55 +10167,154 @@ app.post('/api/backup/selective-reset', authenticate, requireAdmin, (req, res) =
     }
 });
 
-// Resetear la base de datos a estado limpio (mantener solo estructura + admin user)
-app.post('/api/backup/reset', authenticate, requireAdmin, (req, res) => {
+// ==================== RESET TOTAL DE FÁBRICA REAL (spec FASE_RESET_MULTIEMPRESA §1) ====================
+// Borra TODO: ventas, gastos, devoluciones, compras, traslados, mermas, sesiones, efectivo,
+// divisas, entregas, ingresos externos, conteos físicos, salarios, notificaciones, cambios de
+// precio, conteos de inventario, nexus, productos, INVENTORIES (todas) y usuarios EXCEPTO el dueño.
+// NO borra: backups (server/backups), settings, system_config, expense_types, blacklisted_emails.
+
+// Endpoint para el diálogo pre-reset: fecha del último backup disponible
+app.get('/api/backups/last', authenticate, requireAdmin, (req, res) => {
     try {
-        // 1. Crear backup de seguridad antes de resetear
-        const safetyBackupPath = path.join(backupDir, `pre-reset-${Date.now()}.db`);
-        db.pragma('wal_checkpoint(FULL)');
-        fs.copyFileSync(dbPath, safetyBackupPath);
+        const files = fs.readdirSync(backupDir)
+            .filter(f => f.endsWith('.zip'))
+            .map(f => {
+                const stat = fs.statSync(path.join(backupDir, f));
+                return { filename: f, date: stat.mtime.toISOString() };
+            })
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (files.length === 0) {
+            return res.json({ date: null, filename: null, has_backup: false });
+        }
+        res.json({ date: files[0].date, filename: files[0].filename, has_backup: true });
+    } catch (e) {
+        logError("GET /api/backups/last", e);
+        res.status(500).json({ error: e.message });
+    }
+});
 
-        // 2. Obtener datos del usuario admin antes de limpiar
-        const adminUser = db.prepare('SELECT * FROM users LIMIT 1').get();
-        const inventories = db.prepare('SELECT * FROM inventories').all();
-        const expenseTypes = db.prepare('SELECT * FROM expense_types').all();
+// Helper interno: crear backup completo (DB + fotos) reutilizando el mecanismo de /api/backup/create
+function createFullBackupSync() {
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupName = `backup-${timestamp}.zip`;
+    const backupPath = path.join(backupDir, backupName);
+    const backupDbPath = path.join(backupDir, `inventory-${timestamp}.db`);
 
-        // 3. Limpiar todas las tablas de datos (mantener estructura)
-        const tablesToClear = [
-            'sale_items', 'sales', 'sales_sessions', 'expenses',
-            'product_inventory', 'product_images', 'products',
-            'returns', 'purchases', 'purchase_items', 'losses',
-            'notifications', 'wage_payments', 'transfers', 'transfer_items',
-            'blacklisted_emails'
-        ];
+    db.pragma('wal_checkpoint(FULL)');
+    fs.copyFileSync(dbPath, backupDbPath);
 
-        db.exec('BEGIN TRANSACTION');
-        tablesToClear.forEach(table => {
-            db.exec(`DELETE FROM ${table}`);
+    const output = fs.createWriteStream(backupPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    archive.on('error', (err) => { throw err; });
+    archive.pipe(output);
+    archive.file(backupDbPath, { name: 'inventory.db' });
+    if (fs.existsSync(uploadDir)) {
+        archive.directory(uploadDir, 'uploads');
+    }
+    archive.finalize();
+    // Esperar a que el ZIP termine de escribirse (archive.finalize no es síncrono en disco)
+    return new Promise((resolve, reject) => {
+        output.on('close', () => {
+            try { fs.unlinkSync(backupDbPath); } catch (e) {}
+            resolve({ backupName, size: fs.statSync(backupPath).size, date: now.toISOString() });
         });
-        // Resetear autoincrement
-        tablesToClear.forEach(table => {
+        output.on('error', reject);
+    });
+}
+
+// RESET TOTAL DE FÁBRICA
+app.post('/api/factory-reset', authenticate, requireAdmin, async (req, res) => {
+    try {
+        const { backup = false, confirm } = req.body || {};
+        if (confirm !== 'RESET') {
+            return res.status(400).json({ error: "Confirmación requerida: enviá { confirm: 'RESET' } en el body." });
+        }
+
+        // 1. Backup COMPLETO ANTES de borrar (si se pidió)
+        let backupCreated = false;
+        let backupName = null;
+        if (backup === true) {
             try {
-                db.exec(`DELETE FROM sqlite_sequence WHERE name = '${table}'`);
-            } catch (e) {}
-        });
-        db.exec('COMMIT');
+                const result = await createFullBackupSync();
+                backupCreated = true;
+                backupName = result.backupName;
+            } catch (e) {
+                // Si el backup falla, NO resetear (la red de seguridad es obligatoria)
+                logError("POST /api/factory-reset (backup)", e);
+                return res.status(500).json({ error: 'Falló el backup previo, reset cancelado: ' + e.message });
+            }
+        }
 
-        // 4. Limpiar imágenes subidas
-        if (fs.existsSync(uploadDir)) {
-            fs.rmSync(uploadDir, { recursive: true });
-            fs.mkdirSync(uploadDir, { recursive: true });
+        // 2. Borrar TODO dentro de una transacción
+        // (verificado contra la DB real: nombres de tablas existentes)
+        const tablesToClear = [
+            'sale_items', 'sales', 'expenses', 'returns', 'purchases', 'purchase_items',
+            'losses', 'transfers', 'transfer_items', 'cash_injections',
+                        'currency_purchases', 'cash_deliveries', 'external_income', 'cash_physical_counts',
+                        'wage_payments', 'wage_requests', 'notifications', 'price_changes', 'inventory_counts',
+                        'nexus_nodes', 'nexus_audit_log',
+                        'product_images', 'product_inventory', 'products',
+                        'inventories',
+                        'sales_sessions'
+                    ];
+
+        const deleted = {};
+        db.exec('BEGIN TRANSACTION');
+        try {
+            tablesToClear.forEach(table => {
+                try {
+                    const info = db.prepare(`DELETE FROM ${table}`).run();
+                    deleted[table] = info.changes;
+                } catch (e) {
+                    deleted[table] = 'error: ' + e.message;
+                }
+            });
+
+            // Usuarios: conservar SOLO al dueño (role='owner' o email=ADMIN_EMAIL)
+            const ownerCount = db.prepare(`
+                DELETE FROM users WHERE role != 'owner' AND LOWER(email) != LOWER(?)
+            `).run(ADMIN_EMAIL).changes;
+            deleted['users'] = ownerCount;
+
+            // Reiniciar AUTOINCREMENT
+            tablesToClear.forEach(table => {
+                try {
+                    db.prepare('DELETE FROM sqlite_sequence WHERE name = ?').run(table);
+                } catch (e) {}
+            });
+            db.exec('COMMIT');
+        } catch (txErr) {
+            try { db.exec('ROLLBACK'); } catch (_) {}
+            throw txErr;
+        }
+
+        // 3. Cerrar sesiones activas: al dueño también se le revoca el token de sesión
+        //    (debe volver a loguearse; queda autorizado porque su usuario sigue en la DB)
+        try {
+            db.prepare('UPDATE users SET session_token = NULL WHERE role = ?').run('owner');
+        } catch (e) {
+            logError("POST /api/factory-reset (session cleanup)", e);
+        }
+
+        // 4. Limpiar imágenes subidas (productos) — quedan fuera del reset para que no queden huérfanas
+        try {
+            if (fs.existsSync(uploadDir)) {
+                fs.rmSync(uploadDir, { recursive: true });
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+        } catch (e) {
+            logError("POST /api/factory-reset (uploads)", e);
         }
 
         res.json({
-            success: true,
-            message: 'Base de datos reseteada. Se conservó el usuario admin, inventarios y tipos de gastos.',
-            safetyBackup: path.basename(safetyBackupPath),
-            preserved: { adminUser: adminUser?.email, inventories: inventories.length, expenseTypes: expenseTypes.length }
+            ok: true,
+            backup_created: backupCreated,
+            backup_name: backupName,
+            deleted
         });
-
     } catch (e) {
-        logError("POST /api/backup/reset", e);
+        logError("POST /api/factory-reset", e);
         res.status(500).json({ error: e.message });
     }
 });
