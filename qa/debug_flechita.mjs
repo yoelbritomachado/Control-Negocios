@@ -1,0 +1,20 @@
+
+import { chromium } from 'file:///C:/nvm4w/nodejs/node_modules/playwright/index.mjs';
+const BASE = 'http://localhost:5173';
+const browser = await chromium.launch({ headless: true });
+const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+page.on('pageerror', e => console.log('PAGEERROR', e.message));
+await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+await page.locator('input[name="username"]').fill('yoelbritomachado');
+await page.locator('input[name="password"]').fill('1234');
+await page.locator('button[type="submit"]').click();
+await page.waitForURL(`${BASE}/`);
+await page.waitForTimeout(2000);
+const dashCount = async () => await page.locator('aside :text("Dashboard")').count();
+console.log('dashCount_antes', await dashCount());
+await page.locator('aside button:has(svg.lucide-chevron-left)').first().evaluate(el => el.click());
+await page.waitForTimeout(1000);
+console.log('dashCount_despues', await dashCount());
+console.log('sidebarWidth', await page.locator('aside').first().evaluate(el => el.getBoundingClientRect().width));
+await page.screenshot({ path: 'qa/flechita_debug.png' });
+await browser.close();

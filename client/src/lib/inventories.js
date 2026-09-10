@@ -13,13 +13,36 @@ const getAuthHeaders = () => {
     return token ? { ...h, 'Authorization': `Bearer ${token}` } : h;
 };
 
-export async function apiCreateInventory(name, type) {
+export async function apiGetInventories(companyId) {
+    let res;
+    try {
+        const qs = companyId ? `?company_id=${encodeURIComponent(companyId)}` : '';
+        res = await fetch(`${API_URL}/inventories${qs}`, { headers: getAuthHeaders() });
+    } catch (_) {
+        throw new Error('No se pudo contactar al backend (¿sin conexión?).');
+    }
+    if (res.status === 404) {
+        throw new Error('Backend sin soporte aún');
+    }
+    if (!res.ok) {
+        throw new Error(`Error al cargar inventarios (HTTP ${res.status})`);
+    }
+    return res.json();
+}
+
+export async function apiCreateInventory(name, type, companyId) {
     let res;
     try {
         res = await fetch(`${API_URL}/inventories`, {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ name: String(name || '').trim(), type })
+            // TODO multi-empresa-nexus: el inventario se crea linkeado a la EMPRESA ACTIVA.
+            // Si el backend aún no soporta company_id, lo ignora (defensivo).
+            body: JSON.stringify({
+                name: String(name || '').trim(),
+                type,
+                ...(companyId !== undefined && companyId !== null ? { company_id: companyId } : {})
+            })
         });
     } catch (_) {
         throw new Error('No se pudo contactar al backend (¿sin conexión?).');

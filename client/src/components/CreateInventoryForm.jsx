@@ -18,7 +18,7 @@ const TYPES = [
     { value: 'warehouse', label: 'Almacén', _Icon: Warehouse, hint: 'No vende: abastece los POS' }
 ];
 
-export default function CreateInventoryForm({ open, onClose, onCreated }) {
+export default function CreateInventoryForm({ open, onClose, onCreated, companyId }) {
     const [name, setName] = useState('');
     const [type, setType] = useState('kiosk');
     const [busy, setBusy] = useState(false);
@@ -32,7 +32,7 @@ export default function CreateInventoryForm({ open, onClose, onCreated }) {
         setBusy(true);
         setError(null);
         try {
-            const created = await apiCreateInventory(name, type);
+            const created = await apiCreateInventory(name, type, companyId);
             onCreated(created);
             setName('');
             setType('kiosk');

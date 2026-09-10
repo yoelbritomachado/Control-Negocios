@@ -4634,6 +4634,49 @@ db.exec(`
   )
 `);
 
+// ============================================
+// EMPRESAS (Fase Empresas Selector — docs/FASE_EMPRESAS_SELECTOR.md)
+// Migración idempotente al arranque:
+//  - crea companies si no existe
+//  - si queda VACÍA (DB post-reset): inserta UNA empresa default 'Miss Chulerías'
+//  - NO re-seede si ya tiene filas
+// ============================================
+db.exec(`
+  CREATE TABLE IF NOT EXISTS companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    logo TEXT,
+    is_default INTEGER DEFAULT 0,
+    created_at TEXT
+  )
+`);
+try {
+    const companiesCount = db.prepare('SELECT COUNT(*) c FROM companies').get().c;
+    if (companiesCount === 0) {
+        db.prepare(`INSERT INTO companies (name, logo, is_default, created_at)
+                    VALUES ('Miss Chulerías', NULL, 1, datetime('now'))`).run();
+        console.log("Seed empresas: 'Miss Chulerías' creada como empresa default (DB post-reset).");
+    }
+} catch (e) { console.warn("Migración companies (seed default):", e.message); }
+
+// Migración inventories.company_id (FK → companies.id) + backfill a la empresa default
+try {
+    const invColsCompanies = db.prepare("PRAGMA table_info(inventories)").all().map(c => c.name);
+    if (!invColsCompanies.includes('company_id')) {
+        db.exec("ALTER TABLE inventories ADD COLUMN company_id INTEGER REFERENCES companies(id)");
+        console.log("Migración Fase Empresas: columna company_id agregada a inventories");
+    }
+    // Backfill: TODO inventario existente sin empresa → empresa default
+    const defCompany = db.prepare('SELECT id FROM companies WHERE is_default = 1 ORDER BY id LIMIT 1').get();
+    if (defCompany) {
+        const orphans = db.prepare('SELECT COUNT(*) c FROM inventories WHERE company_id IS NULL').get().c;
+        if (orphans > 0) {
+            db.prepare('UPDATE inventories SET company_id = ? WHERE company_id IS NULL').run(defCompany.id);
+            console.log(`Backfill empresas: ${orphans} inventarios linkeados a la empresa default (id ${defCompany.id})`);
+        }
+    }
+} catch (e) { console.warn("Migración inventories.company_id:", e.message); }
+
 // Product Inventory Pivot Table (N:N Relationship)
 db.exec(`
   CREATE TABLE IF NOT EXISTS product_inventory (
@@ -7132,6 +7175,11 @@ app.get('/api/dashboard/stats', authenticate, (req, res) => {
 
 // --- NEXUS API ---
 const NEXUS_TYPES = new Set(['dueño', 'empresa', 'administrador', 'almacén', 'punto_de_venta', 'vendedor']);
+// TODO multi-empresa-nexus (espec FASE_EMPRESAS_SELECTOR §5): la tabla companies ya existe y
+// inventories.company_id linkea cada sede a su empresa. syncNexusFromCRM aún asume UNA sola
+// empresa (nexus_company_miss_chulerias, company_id=1) y cuelga todos los nodos de sede de ella.
+// Mejora siguiente: un nodo 'empresa' por fila de companies y sedes/vendedores agrupados bajo
+// la empresa de su inventories.company_id. NO tocar la lógica del árbol ahora.
 const nexusResponse = row => {
   let parentIds = [];
   try {
@@ -8204,12 +8252,149 @@ app.delete('/api/users/:id', checkAdmin, (req, res) => {
 });
 
 // 1. Get All Inventories (Sedes)
+// Fase Empresas: filtros ?company_id=N (solo esa empresa) y ?only_with_company=1
+// (excluye inventarios huérfanos sin empresa — regla de negocio del árbol, espec §4).
 app.get('/api/inventories', authenticate, (req, res) => {
     try {
-        const inventories = db.prepare("SELECT * FROM inventories ORDER BY id").all();
+        const companyId = req.query.company_id;
+        const onlyWithCompany = req.query.only_with_company === '1' || req.query.only_with_company === 'true';
+        let inventories;
+        if (companyId !== undefined && companyId !== null && String(companyId) !== '') {
+            inventories = db.prepare("SELECT * FROM inventories WHERE company_id = ? ORDER BY id").all(Number(companyId));
+        } else if (onlyWithCompany) {
+            inventories = db.prepare("SELECT * FROM inventories WHERE company_id IS NOT NULL ORDER BY id").all();
+        } else {
+            inventories = db.prepare("SELECT * FROM inventories ORDER BY id").all();
+        }
         res.json(inventories);
     } catch (e) {
         logError("GET /api/inventories", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ============================================
+// ENDPOINTS EMPRESAS (Fase Empresas Selector)
+// Regla Yoe (espec §3): NO EXISTE DELETE /api/companies/:id — prohibido en el selector.
+// La eliminación futura será "Reset selectivo" en Configuración.
+// ============================================
+
+// Listar empresas + conteo de inventarios de cada una
+app.get('/api/companies', authenticate, (req, res) => {
+    try {
+        const companies = db.prepare(`
+            SELECT c.id, c.name, c.logo, c.is_default, c.created_at,
+                   COUNT(i.id) AS inventories_count
+            FROM companies c
+            LEFT JOIN inventories i ON i.company_id = c.id
+            GROUP BY c.id
+            ORDER BY c.is_default DESC, c.id ASC
+        `).all();
+        res.json(companies);
+    } catch (e) {
+        logError("GET /api/companies", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Crear empresa { name } (logo va aparte, vía PUT /:id/logo)
+app.post('/api/companies', authenticate, requireEditor, (req, res) => {
+    try {
+        const name = String((req.body || {}).name || '').trim();
+        if (!name) return res.status(400).json({ error: 'El nombre de la empresa es requerido' });
+        const info = db.prepare(`INSERT INTO companies (name, logo, is_default, created_at)
+                                 VALUES (?, NULL, 0, datetime('now'))`).run(name);
+        const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(info.lastInsertRowid);
+        res.status(201).json(created);
+    } catch (e) {
+        logError("POST /api/companies", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Renombrar / cambiar logo directo { name?, logo? }
+app.put('/api/companies/:id', authenticate, requireEditor, (req, res) => {
+    try {
+        const existing = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Empresa no encontrada' });
+        const { name, logo } = req.body || {};
+        const newName = name !== undefined && String(name).trim() !== '' ? String(name).trim() : existing.name;
+        const newLogo = logo !== undefined ? logo : existing.logo;
+        db.prepare('UPDATE companies SET name = ?, logo = ? WHERE id = ?').run(newName, newLogo, existing.id);
+        res.json(db.prepare('SELECT * FROM companies WHERE id = ?').get(existing.id));
+    } catch (e) {
+        logError("PUT /api/companies/:id", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Logo de empresa: base64 dataURL → archivo en uploads/companies/ (campo logo = ruta pública)
+app.put('/api/companies/:id/logo', authenticate, requireEditor, (req, res) => {
+    try {
+        const existing = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+        if (!existing) return res.status(404).json({ error: 'Empresa no encontrada' });
+        const dataUrl = String((req.body || {}).logo || (req.body || {}).image || '');
+        const m = dataUrl.match(/^data:image\/(png|jpe?g|gif|webp|svg\+xml);base64,(.+)$/s);
+        if (!m) return res.status(400).json({ error: 'Se espera un dataURL base64 de imagen (data:image/...;base64,...)' });
+        const ext = m[1] === 'jpeg' ? 'jpg' : (m[1] === 'svg+xml' ? 'svg' : m[1]);
+        const buf = Buffer.from(m[2], 'base64');
+        const companiesDir = path.join(uploadDir, 'companies');
+        if (!fs.existsSync(companiesDir)) fs.mkdirSync(companiesDir, { recursive: true });
+        const filename = `company_${existing.id}_${Date.now()}.${ext}`;
+        fs.writeFileSync(path.join(companiesDir, filename), buf);
+        const publicPath = `/uploads/companies/${filename}`;
+        db.prepare('UPDATE companies SET logo = ? WHERE id = ?').run(publicPath, existing.id);
+        res.json(db.prepare('SELECT * FROM companies WHERE id = ?').get(existing.id));
+    } catch (e) {
+        logError("PUT /api/companies/:id/logo", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 1.b Create Inventory (Fase Empresas: linkeado a empresa — espec §4)
+// Body: { name, type, company_id? }. Sin company_id → empresa default (Miss Chulerías).
+app.post('/api/inventories', authenticate, requireEditor, (req, res) => {
+    try {
+        const { name, type, company_id } = req.body || {};
+        const cleanName = String(name || '').trim();
+        if (!cleanName) return res.status(400).json({ error: 'Nombre es requerido' });
+
+        // Resolver empresa: explícita → validar; si no → default (is_default=1)
+        let companyId = null;
+        if (company_id !== undefined && company_id !== null && String(company_id) !== '') {
+            const c = db.prepare('SELECT id FROM companies WHERE id = ?').get(Number(company_id));
+            if (!c) return res.status(400).json({ error: `Empresa ${company_id} no existe` });
+            companyId = c.id;
+        } else {
+            const def = db.prepare('SELECT id FROM companies WHERE is_default = 1 ORDER BY id LIMIT 1').get()
+                || db.prepare('SELECT id FROM companies ORDER BY id LIMIT 1').get();
+            if (def) companyId = def.id;
+        }
+
+        // ID único tipo slug (mismo criterio que imports MNX)
+        const raw = cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'inventario';
+        let invId = raw.substring(0, 24);
+        let n = 2;
+        while (db.prepare('SELECT id FROM inventories WHERE id = ?').get(invId)) {
+            invId = `${raw.substring(0, 20)}_${n}`; n++;
+        }
+        const code = raw.substring(0, 8).toUpperCase() || 'INV';
+        const invType = (type === 'warehouse' || type === 'kiosk') ? type : 'kiosk';
+
+        db.prepare(`INSERT INTO inventories (id, name, code, icon, color, type, company_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+            .run(invId, cleanName, code,
+                invType === 'warehouse' ? 'ph-warehouse' : 'ph-storefront',
+                invType === 'warehouse' ? '#58a6ff' : '#3fb950',
+                invType, companyId);
+
+        // TODO multi-empresa-nexus: nodo de sede creado aquí queda colgando de la empresa
+        // default en Nexus (syncNexusFromCRM no filtra por company_id de inventories todavía).
+        const created = db.prepare('SELECT * FROM inventories WHERE id = ?').get(invId);
+        res.status(201).json(created);
+    } catch (e) {
+        logError("POST /api/inventories", e);
         res.status(500).json({ error: e.message });
     }
 });

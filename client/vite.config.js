@@ -51,7 +51,10 @@ export default defineConfig(async () => {
           ]
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,webmanifest,wasm}'],
+                  // Límite subido de 2MiB→4MiB: el chunk index superó los 2MiB con la
+                  // Fase Empresas (selector de empresa). Sin esto, el build falla en PWA.
+                  maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+                  globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,json,webmanifest,wasm}'],
           navigateFallback: '/index.html',
           navigateFallbackAllowlist: [/^(?!\/(api|uploads)).*$/],
           navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
