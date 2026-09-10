@@ -23,7 +23,8 @@ import {
     Trash2,
     AlertTriangle,
     Truck,
-    Wallet
+    Wallet,
+    PackageSearch
     } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useCart } from './CartProvider';
@@ -34,6 +35,7 @@ import { Grid3X3 } from 'lucide-react';
 const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', category: 'general' },
     { id: 'cash-control', label: 'Control de Efectivo', icon: Wallet, path: '/control-efectivo', category: 'general' },
+    { id: 'inventory-value', label: 'Inventario Valorizado', icon: PackageSearch, path: '/inventario-valorizado', category: 'general' },
     { id: 'pos', label: 'Punto de Venta', icon: ShoppingCart, path: '/pos', category: 'operations' },
     { id: 'inventory', label: 'Inventario', icon: Package, path: '/inventario', category: 'management' },
     { id: 'entradas', label: 'Entradas', icon: ArrowLeftRight, path: '/entradas', category: 'management', almacOnly: true },

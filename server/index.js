@@ -120,6 +120,70 @@ try {
     }
 } catch (e) { console.warn("Migración Fase A (cash_physical_counts.business):", e.message); }
 
+// --- MIGRACIONES FASE B: Inventario valorizado + Rebajas/Aumentos ---
+// Idempotentes (mismo patrón que Fase A).
+try {
+    db.exec(`CREATE TABLE IF NOT EXISTS price_changes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        business TEXT,
+        location_id TEXT,
+        product_id INTEGER,
+        sku TEXT,
+        name TEXT,
+        old_price REAL,
+        new_price REAL,
+        diff REAL,
+        change_type TEXT,
+        user TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
+    console.log("Migración Fase B: tabla price_changes verificada/creada");
+} catch (e) { console.warn("Migración Fase B (price_changes):", e.message); }
+
+try {
+    db.exec(`CREATE TABLE IF NOT EXISTS inventory_counts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT,
+        business TEXT,
+        location_id TEXT,
+        expected_value REAL,
+        counted_value REAL,
+        diff REAL,
+        note TEXT,
+        user TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
+    console.log("Migración Fase B: tabla inventory_counts verificada/creada");
+} catch (e) { console.warn("Migración Fase B (inventory_counts):", e.message); }
+
+// Log automático de cambios de precio (Fase B). old_price = valor previo en DB.
+// Solo registra cuando old != new. change_type: 'rebaja' (new<old) | 'aumento' (new>old).
+const logPriceChange = (existing, newPrice, req) => {
+    try {
+        const oldPrice = Number(existing.sale_price_manual) || 0;
+        const newP = Number(newPrice);
+        if (!Number.isFinite(newP) || oldPrice === newP) return;
+        const inv = db.prepare('SELECT id, business FROM inventories WHERE id = ?').get(existing.inventory_id);
+        const business = inv ? (isValidBusiness(inv.business) ? inv.business : businessOfInventory(inv.id)) : 'MCH';
+        db.prepare(`INSERT INTO price_changes (date, business, location_id, product_id, sku, name, old_price, new_price, diff, change_type, user)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(
+                new Date().toISOString().slice(0, 10),
+                business,
+                inv ? String(inv.id) : null,
+                existing.id,
+                existing.code || null,
+                existing.name,
+                oldPrice,
+                newP,
+                newP - oldPrice,
+                newP < oldPrice ? 'rebaja' : 'aumento',
+                (req && req.user && (req.user.name || req.user.email)) || null
+            );
+        } catch (e) { console.warn('logPriceChange:', e.message); }
+};
+
 // INSERTAR sedes M&R si no existen (respeta el shape de inventories)
 try {
     const insertMrInventory = db.prepare(`
@@ -8717,6 +8781,11 @@ app.put('/api/products/:id', authenticate, requireEditor, productImageUpload.arr
             return res.status(404).json({ error: 'Producto no encontrado' });
         }
 
+        // Log Fase B: cambio de precio (old != new)
+        if (sale_price_manual !== undefined) {
+            logPriceChange(existing, sale_price_manual, req);
+        }
+
         // Update product fields
         db.prepare(`
             UPDATE products 
@@ -8823,6 +8892,156 @@ app.delete('/api/products/:id', authenticate, requireEditor, (req, res) => {
         res.json({ success: true, message: 'Producto eliminado correctamente' });
     } catch (e) {
         logError("DELETE /api/products/:id", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- FASE B: Inventario valorizado + Rebajas/Aumentos ---
+
+// Suma stock × precio de venta de los productos de una sede (valor de venta posible).
+const expectedValueOfLocation = (locationId) => {
+    const row = db.prepare(`SELECT COALESCE(SUM(p.quantity * p.sale_price_manual), 0) AS total
+                            FROM products p WHERE p.inventory_id = ?`).get(locationId);
+    return Number(row.total) || 0;
+};
+
+// Valoriza el inventario: agrupa productos por sede (y por negocio si no se filtra).
+const buildInventoryValue = (businessFilter) => {
+    const invRows = businessFilter
+        ? db.prepare('SELECT * FROM inventories WHERE business = ? ORDER BY id').all(businessFilter)
+        : db.prepare('SELECT * FROM inventories ORDER BY id').all();
+
+    const locations = invRows.map(inv => {
+        // Stock por sede vive en product_inventory (products.inventory_id es legado: todos = 1)
+        const prods = db.prepare(`SELECT p.id, p.code, p.name, COALESCE(pi.quantity, 0) AS quantity, p.sale_price_manual
+                                  FROM product_inventory pi
+                                  JOIN products p ON p.id = pi.product_id
+                                  WHERE pi.inventory_id = ? AND pi.quantity != 0
+                                  ORDER BY p.name ASC`).all(String(inv.id));
+        const products = prods.map(p => {
+            const value = (Number(p.quantity) || 0) * (Number(p.sale_price_manual) || 0);
+            return { id: p.id, sku: p.code || null, name: p.name, stock: p.quantity, sale_price: p.sale_price_manual, value };
+        });
+        return {
+            location_id: String(inv.id),
+            name: inv.name,
+            items: products.length,
+            total_units: products.reduce((s, p) => s + (Number(p.stock) || 0), 0),
+            sales_possible: products.reduce((s, p) => s + p.value, 0),
+            products
+        };
+    });
+
+    return {
+        business: businessFilter || null,
+        locations,
+        totals: { sales_possible: locations.reduce((s, l) => s + l.sales_possible, 0) }
+    };
+};
+
+app.get('/api/inventory-value', authenticate, (req, res) => {
+    try {
+        const { business } = req.query;
+        if (business && !isValidBusiness(business)) {
+            return res.status(400).json({ error: "Parámetro business inválido. Usar 'MCH' o 'M%26R' (URL-encoded)." });
+        }
+        if (business) {
+            return res.json(buildInventoryValue(business));
+        }
+        // Sin business: todas las sedes agrupadas por negocio
+        const mch = buildInventoryValue('MCH');
+        const mr = buildInventoryValue('M&R');
+        return res.json({
+            businesses: {
+                'MCH': mch,
+                'M&R': mr
+            },
+            totals: { sales_possible: mch.totals.sales_possible + mr.totals.sales_possible }
+        });
+    } catch (e) {
+        logError("GET /api/inventory-value", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/inventory-counts', authenticate, (req, res) => {
+    try {
+        const { business, location_id, counted_value, note, date } = req.body || {};
+        if (!business || !isValidBusiness(business)) {
+            return res.status(400).json({ error: "Campo 'business' requerido ('MCH' o 'M&R')." });
+        }
+        if (!location_id) {
+            return res.status(400).json({ error: "Campo 'location_id' requerido." });
+        }
+        const counted = Number(counted_value);
+        if (!Number.isFinite(counted)) {
+            return res.status(400).json({ error: "Campo 'counted_value' debe ser numérico." });
+        }
+        const expected = expectedValueOfLocation(String(location_id));
+        const diff = counted - expected;
+        const now = new Date();
+        const dateStr = date || now.toISOString().slice(0, 10);
+        const user = (req.user && (req.user.name || req.user.email)) || null;
+        const info = db.prepare(`INSERT INTO inventory_counts (date, business, location_id, expected_value, counted_value, diff, note, user)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(dateStr, business, String(location_id), expected, counted, diff, note || null, user);
+        const row = db.prepare('SELECT * FROM inventory_counts WHERE id = ?').get(info.lastInsertRowid);
+        res.json(row);
+    } catch (e) {
+        logError("POST /api/inventory-counts", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/inventory-counts', authenticate, (req, res) => {
+    try {
+        const { business } = req.query;
+        const rows = business && isValidBusiness(business)
+            ? db.prepare('SELECT * FROM inventory_counts WHERE business = ? ORDER BY date DESC, id DESC').all(business)
+            : db.prepare('SELECT * FROM inventory_counts ORDER BY date DESC, id DESC').all();
+        res.json({ counts: rows });
+    } catch (e) {
+        logError("GET /api/inventory-counts", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/price-changes', authenticate, (req, res) => {
+    try {
+        const { period, business } = req.query;
+        // period=YYYY-MM; default: mes actual
+        const month = (period && /^\d{4}-\d{2}$/.test(period))
+            ? period
+            : new Date().toISOString().slice(0, 7);
+
+        const clauses = ["substr(date, 1, 7) = ?"];
+        const params = [month];
+        if (business && isValidBusiness(business)) {
+            clauses.push("business = ?");
+            params.push(business);
+        }
+        const where = clauses.join(' AND ');
+        const changes = db.prepare(`SELECT * FROM price_changes WHERE ${where} ORDER BY date DESC, id DESC`).all(params);
+
+        // Totales desglosados por negocio (sobre el mismo filtro de período)
+        const rowsByBiz = db.prepare(`SELECT business, change_type, COUNT(*) AS n, COALESCE(SUM(ABS(diff)), 0) AS amount
+                                      FROM price_changes WHERE substr(date, 1, 7) = ? ${business && isValidBusiness(business) ? 'AND business = ?' : ''}
+                                      GROUP BY business, change_type`).all(params);
+        const totals = { rebajas: 0, aumentos: 0, monto_rebajas: 0, monto_aumentos: 0 };
+        const byBusiness = {};
+        for (const r of rowsByBiz) {
+            byBusiness[r.business] = byBusiness[r.business] || { rebajas: 0, aumentos: 0, monto_rebajas: 0, monto_aumentos: 0 };
+            if (r.change_type === 'rebaja') {
+                totals.rebajas += r.n; totals.monto_rebajas += r.amount;
+                byBusiness[r.business].rebajas += r.n; byBusiness[r.business].monto_rebajas += r.amount;
+            } else {
+                totals.aumentos += r.n; totals.monto_aumentos += r.amount;
+                byBusiness[r.business].aumentos += r.n; byBusiness[r.business].monto_aumentos += r.amount;
+            }
+        }
+        res.json({ period: month, changes, totals: { ...totals, by_business: byBusiness } });
+    } catch (e) {
+        logError("GET /api/price-changes", e);
         res.status(500).json({ error: e.message });
     }
 });

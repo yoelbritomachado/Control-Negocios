@@ -20,6 +20,7 @@ import HistoryPurchasesPage from './pages/HistoryPurchasesPage';
 import HistoryMermasPage from './pages/HistoryMermasPage';
 import TrasladosPage from './pages/TrasladosPage';
 import CashControlPage from './pages/CashControlPage';
+import InventoryValuePage from './pages/InventoryValuePage';
 import LoginPage from './pages/LoginPage';
 import './index.css';
 import { PWAInstallPrompt } from './offline';
@@ -83,6 +84,7 @@ function App() {
             <Route path="traslados" element={<TrasladosPage />} />
             <Route path="configuracion" element={<SettingsPage />} />
             <Route path="control-efectivo" element={<CashControlPage />} />
+            <Route path="inventario-valorizado" element={<InventoryValuePage />} />
             <Route path="nexus" element={<NexusManager />} />
           </Route>
 

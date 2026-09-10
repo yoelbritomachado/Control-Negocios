@@ -29,7 +29,8 @@ import {
   RefreshCw,
   Bot,
   LogOut,
-  Wallet
+  Wallet,
+  PackageSearch
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -59,6 +60,7 @@ const pageTitles = {
   '/historial/mermas': { title: 'Historial de Mermas', subtitle: 'Auditoría de bajas y ajustes', icon: Trash2 },
   '/configuracion': { title: 'Configuración', subtitle: 'Ajustes del sistema y preferencias', icon: Settings },
   '/control-efectivo': { title: 'Control de Efectivo', subtitle: 'Ingresos, egresos y saldos por moneda', icon: Wallet },
+  '/inventario-valorizado': { title: 'Inventario Valorizado', subtitle: 'Ventas posibles, conteo físico y cambios de precio', icon: PackageSearch },
   '/admin/migracion': { title: 'Migración y Backups', subtitle: 'Gestión de datos y bases legadas', icon: Database },
 };
 
