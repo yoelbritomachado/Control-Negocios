@@ -188,22 +188,28 @@ const logPriceChange = (existing, newPrice, req) => {
 };
 
 // INSERTAR sedes M&R si no existen (respeta el shape de inventories)
+// Solo UNA VEZ en la vida del sistema: flag en settings que el factory-reset NO borra
+// (settings es intocado por el reset). Así tras un Reset de Fábrica no reaparecen sedes.
 try {
-    const insertMrInventory = db.prepare(`
-        INSERT INTO inventories (id, name, code, icon, color, type, business)
-        VALUES (?, ?, ?, ?, ?, ?, 'M&R')
-    `);
-    const MR_INVENTORIES = [
-        ['mr1',   'M&R 1',       'MR1',   'ph-storefront',   '#f778ba', 'kiosk'],
-        ['mr2',   'M&R 2',       'MR2',   'ph-shopping-bag', '#bc8cff', 'kiosk'],
-        ['alm_mr','Almacén M&R', 'ALM_MR','ph-warehouse',    '#ff7b72', 'warehouse']
-    ];
-    for (const [id, name, code, icon, color, type] of MR_INVENTORIES) {
-        const exists = db.prepare('SELECT id FROM inventories WHERE id = ?').get(id);
-        if (!exists) {
-            insertMrInventory.run(id, name, code, icon, color, type);
-            console.log(`Migración Fase A: sede M&R insertada (${id} - ${name})`);
+    const migFlag = db.prepare(`SELECT value FROM settings WHERE key = 'seed_mr_inventories_done'`).get();
+    if (!migFlag) {
+        const insertMrInventory = db.prepare(`
+            INSERT INTO inventories (id, name, code, icon, color, type, business)
+            VALUES (?, ?, ?, ?, ?, ?, 'M&R')
+        `);
+        const MR_INVENTORIES = [
+            ['mr1',   'M&R 1',       'MR1',   'ph-storefront',   '#f778ba', 'kiosk'],
+            ['mr2',   'M&R 2',       'MR2',   'ph-shopping-bag', '#bc8cff', 'kiosk'],
+            ['alm_mr','Almacén M&R', 'ALM_MR','ph-warehouse',    '#ff7b72', 'warehouse']
+        ];
+        for (const [id, name, code, icon, color, type] of MR_INVENTORIES) {
+            const exists = db.prepare('SELECT id FROM inventories WHERE id = ?').get(id);
+            if (!exists) {
+                insertMrInventory.run(id, name, code, icon, color, type);
+                console.log(`Migración Fase A: sede M&R insertada (${id} - ${name})`);
+            }
         }
+        db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('seed_mr_inventories_done', '1')`).run();
     }
 } catch (e) { console.warn("Migración Fase A (sedes M&R):", e.message); }
 
@@ -9164,15 +9170,17 @@ const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VA
 defaultSettings.forEach(s => insertSetting.run(s.key, s.value));
 
 // Seed default inventory
-// Seed default inventories (MCH Architecture)
-const resetInventories = db.prepare('SELECT count(*) as count FROM inventories').get();
-if (resetInventories.count === 0) {
-    const insertInv = db.prepare("INSERT INTO inventories (id, name, code, icon, color, type) VALUES (?, ?, ?, ?, ?, ?)");
-    insertInv.run('alm', 'Almacén MCH', 'ALM', 'ph-warehouse', '#58a6ff', 'warehouse');
-    insertInv.run('mch1', 'MCH 1', 'MCH1', 'ph-storefront', '#3fb950', 'kiosk');
-    insertInv.run('mch2', 'MCH 2', 'MCH2', 'ph-shopping-bag', '#d29922', 'kiosk');
-    console.log("Seeded MCH inventories: ALM, MCH1, MCH2");
-}
+// DESACTIVADO (Yoe, 10-sep): tras Reset de Fábrica la app debe quedar en 0 inventarios.
+// El dueño crea sus inventarios con el botón '+' del selector (POST /api/inventories).
+// Si algún día hace falta un seed inicial, usar flag en settings como seed_mr_inventories_done.
+// const resetInventories = db.prepare('SELECT count(*) as count FROM inventories').get();
+// if (resetInventories.count === 0) {
+//     const insertInv = db.prepare("INSERT INTO inventories (id, name, code, icon, color, type) VALUES (?, ?, ?, ?, ?, ?)");
+//     insertInv.run('alm', 'Almacén MCH', 'ALM', 'ph-warehouse', '#58a6ff', 'warehouse');
+//     insertInv.run('mch1', 'MCH 1', 'MCH1', 'ph-storefront', '#3fb950', 'kiosk');
+//     insertInv.run('mch2', 'MCH 2', 'MCH2', 'ph-shopping-bag', '#d29922', 'kiosk');
+//     console.log("Seeded MCH inventories: ALM, MCH1, MCH2");
+// }
 
 // --- HISTORY ENDPOINTS ---
 app.get('/api/history/sales', authenticate, (req, res) => {
